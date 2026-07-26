@@ -85,6 +85,32 @@ Where a baseline error does bite is **short game versus putting** — 0.22 again
 
 (I previously flagged the category ranking as broadly "sensitive" to the baseline. That was too strong, and it was the wrong end of the ranking.)
 
+## Drift check: the 2026 tour vs the 2003–2010 tables (checked 2026-07-25)
+
+The paper's data is fifteen years old, so I pulled current numbers from primary sources — pgatour.com's own stat pages (2026 season through The Open, Jul 19) and the PGA's published year-by-year driving history. The tour has indeed drifted:
+
+| Metric | 2003–10 (paper) | 2015 | 2020–22 | 2024–25 | 2026 YTD |
+|---|---:|---:|---:|---:|---:|
+| Driving distance (tour avg) | ~288.0 | 290.2 | 295–300 | 300–303 | **305.4** |
+| One-putt from 8 ft | 50% | — | — | — | **53.62%** |
+| 3-putts, % of holes | 3.06% (0.55/rd) | — | — | — | **2.79%** (~0.50/rd) |
+| Putts per round | — | — | — | — | 28.99 |
+
+Refitting our own putting model's angular error to the 2026 anchor (σα 1.46° → 1.34°) puts today's 50% one-putt distance at **8.56 ft**. The paper itself documents this same march: ~7 ft in 1964, 6–7 ft in the 1980s, 8 ft by 2003–2010 — our 2026 reading sits exactly on that long trajectory, which is a good sign we measured drift and not noise.
+
+**Size of the drift, in strokes per round against the 2011 ruler:**
+
+- **Putting: ~0.3.** Computed by differencing expected putts (old vs refit model) over a realistic 18-putt distance mix. Concentrated inside 10 feet; at 33 ft the change is a rounding error.
+- **Driving: ~1.0.** +17.4 yards at the paper's own 0.0041 strokes/yard over ~14 tee shots. Roughly 3× the putting drift.
+
+**What this means for the app:**
+
+1. **Trends: unaffected**, as ever. A stale ruler measures change perfectly well.
+2. **The drift is asymmetric, and the direction matters for the central question.** Driving drifted ~3× more than putting, so against a 2003–2010-calibrated ruler with 2026 equipment, *everyone's* off-the-tee reads flattering — worth perhaps 0.3–0.5 strokes/round relative to approach after the scratch derivation dilutes it. In plain terms: **the stale benchmark has its thumb on the scale *against* Matt's hypothesis.** If the app still convicts driving as the leak, that verdict survived a flattering ruler and is stronger for it. If driving squeaks by as "fine", drift could be hiding a real leak — check the margin.
+3. **Mixed-vintage caveat.** The scratch anchor (4.10 from a 400-yd tee) came from a modern secondary source, so the k-calibration already absorbs an unknown fraction of the tee-column drift. This is why the differential above is a range, not a number.
+
+**Not changed in code, deliberately.** The 2011 tables stay because they are published, complete and verifiable; no equivalent 2026 table is public. The anchors-as-data design means a "tour 2026" putting baseline is a two-line addition (`onePutt50Ft: 8.56, twoPuttFt: ~33`) if wanted later.
+
 ## One thing to know before reading your first round card
 
 **Strokes gained is measured against distance, not against par.** Broadie's tee benchmark depends only on how far the hole is, so on Veenker's gold tees (6,029 yards) the benchmark expects better than par — a 473-yard par 5 carries an expectation of about 4.4 strokes, because by tour-data standards that is a long par 4.
