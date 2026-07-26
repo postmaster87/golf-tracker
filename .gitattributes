@@ -1,0 +1,18 @@
+# Line endings: LF in the repository and in the working tree.
+#
+# Without this, git on Windows converts to CRLF on checkout, and every file
+# then shows as wholly modified the first time it is touched on another
+# machine — which buries real changes in noise and makes `git blame` useless.
+# The app is served as static files, so LF everywhere is also what actually
+# ships.
+* text=auto eol=lf
+
+# Never normalise binaries.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.woff binary
+*.woff2 binary
