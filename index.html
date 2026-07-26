@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#f2efe4" />
+    <meta name="description" content="GPS shot-by-shot golf performance tracker" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <title>Golf Tracker</title>
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="icon" href="./icon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="./css/themes.css" />
+    <link rel="stylesheet" href="./css/base.css" />
+  </head>
+  <body>
+    <div id="app">
+      <noscript>
+        <p style="padding: 24px">This app needs JavaScript.</p>
+      </noscript>
+    </div>
+    <!--
+      Last-resort recovery. If the app fails to boot for any reason, a blank
+      screen mid-round would leave a logged round unreachable. This handler is
+      deliberately inline and dependency-free: it reads localStorage directly,
+      so it still works when every module is broken.
+    -->
+    <script>
+      (function () {
+        var shown = false;
+        function recover(detail) {
+          var app = document.getElementById('app');
+          if (shown || !app || app.querySelector('.screen')) return;
+          shown = true;
+          app.innerHTML =
+            '<div style="padding:24px;font:16px/1.5 system-ui,sans-serif">' +
+            '<h1 style="font-size:20px;margin:0 0 8px">The app failed to start</h1>' +
+            '<p>Your logged rounds are still on this device. Save a backup before doing anything else.</p>' +
+            '<button id="gt-rescue" style="min-height:60px;width:100%;font:700 18px system-ui;border-radius:14px;border:2px solid currentColor;background:none;margin:12px 0">DOWNLOAD BACKUP</button>' +
+            '<pre style="white-space:pre-wrap;font-size:12px;opacity:.7">' +
+            String(detail).replace(/[<>&]/g, '') +
+            '</pre></div>';
+          document.getElementById('gt-rescue').onclick = function () {
+            var out = {};
+            for (var i = 0; i < localStorage.length; i++) {
+              var k = localStorage.key(i);
+              if (k.indexOf('gt:') === 0) out[k] = localStorage.getItem(k);
+            }
+            var blob = new Blob([JSON.stringify({ format: 'golf-tracker-rescue', keys: out }, null, 2)], {
+              type: 'application/json',
+            });
+            var a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = 'golf-tracker-rescue.json';
+            a.click();
+          };
+        }
+        window.addEventListener('error', function (e) {
+          recover(e.message || e.error);
+        });
+        window.addEventListener('unhandledrejection', function (e) {
+          recover(e.reason && (e.reason.stack || e.reason.message));
+        });
+        setTimeout(function () {
+          recover('The app did not finish loading.');
+        }, 6000);
+      })();
+    </script>
+    <script type="module" src="./js/app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192" role="img" aria-label="Golf Tracker">
+  <rect width="192" height="192" rx="42" fill="#2f4d36" />
+  <path d="M70 148V44l68 26-68 26" fill="none" stroke="#f2efe4" stroke-width="11" stroke-linejoin="round" stroke-linecap="round" />
+  <circle cx="70" cy="150" r="13" fill="#f2efe4" />
+</svg>

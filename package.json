@@ -1,0 +1,12 @@
+{
+  "name": "golf-tracker",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "GPS shot-by-shot golf performance tracker",
+  "comment": "No dependencies and no build step — this file exists only to document the two commands. The app is plain ES modules served as static files.",
+  "scripts": {
+    "serve": "python -m http.server 8123",
+    "test": "echo \"Serve the repo, then open http://localhost:8123/test/ — the suite runs in the browser against the shipped modules. See test/README.md.\""
+  }
+}

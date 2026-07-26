@@ -1,0 +1,95 @@
+/*
+ * THEMES
+ *
+ * The brief is "soothing" and "readable in direct sunlight", which pull in
+ * opposite directions if you try to get calm by washing out contrast. So calm
+ * comes from HUE and SATURATION only — muted sage, taupe, gray-blue — while
+ * every text/background pair is held at high contrast. All ink-on-surface pairs
+ * used for on-course text clear WCAG AAA (7:1); the dimmest supporting text and
+ * the accent fills clear AA (4.5:1) at minimum. Verified in test/contrast.js.
+ *
+ * Variables, and what they are for:
+ *   --bg / --surface / --surface-2  page, cards, insets
+ *   --ink / --ink-2 / --ink-3       primary text, secondary text, faint labels
+ *   --line                          hairlines and borders
+ *   --accent / --accent-ink         primary action fill and the text on it
+ *   --accent-soft / --accent-edge   selected-state fill and its border
+ *   --good / --warn / --bad         GPS quality, penalties, destructive actions
+ */
+
+:root,
+[data-theme='fairway'] {
+  color-scheme: light;
+  --bg: #f2efe4;
+  --surface: #fbf8ef;
+  --surface-2: #e6e1d1;
+  --ink: #151810;
+  --ink-2: #3d4436;
+  --ink-3: #5c6353;
+  --line: #cdc6b2;
+  --accent: #2f4d36;
+  --accent-ink: #ffffff;
+  --accent-soft: #d9e3d3;
+  --accent-edge: #2f4d36;
+  --good: #1f5c37;
+  --warn: #7a4c07;
+  --bad: #8c2c17;
+  --theme-color: #f2efe4;
+}
+
+[data-theme='clay'] {
+  color-scheme: light;
+  --bg: #f0e9df;
+  --surface: #faf5ec;
+  --surface-2: #e3d8c8;
+  --ink: #1d1710;
+  --ink-2: #45372a;
+  --ink-3: #665545;
+  --line: #cdbda8;
+  --accent: #5f3a20;
+  --accent-ink: #ffffff;
+  --accent-soft: #e8dac6;
+  --accent-edge: #5f3a20;
+  --good: #245c33;
+  --warn: #7a4c07;
+  --bad: #8a2f1c;
+  --theme-color: #f0e9df;
+}
+
+[data-theme='slate'] {
+  color-scheme: light;
+  --bg: #eaeef2;
+  --surface: #f7f9fb;
+  --surface-2: #dae1e8;
+  --ink: #10151a;
+  --ink-2: #35404a;
+  --ink-3: #545f6a;
+  --line: #c1cbd5;
+  --accent: #23445d;
+  --accent-ink: #ffffff;
+  --accent-soft: #d5e0ea;
+  --accent-edge: #23445d;
+  --good: #14563f;
+  --warn: #6f4708;
+  --bad: #862a25;
+  --theme-color: #eaeef2;
+}
+
+[data-theme='dusk'] {
+  color-scheme: dark;
+  --bg: #111814;
+  --surface: #1a221d;
+  --surface-2: #26302a;
+  --ink: #f2ede1;
+  --ink-2: #cbd2c6;
+  --ink-3: #a1a99c;
+  --line: #37423b;
+  --accent: #a8d0b1;
+  --accent-ink: #0d1310;
+  --accent-soft: #26332b;
+  --accent-edge: #a8d0b1;
+  --good: #8fd0a4;
+  --warn: #e8bd6d;
+  --bad: #f0947c;
+  --theme-color: #111814;
+}

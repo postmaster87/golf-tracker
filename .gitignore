@@ -1,0 +1,9 @@
+# Local Claude Code settings (machine-specific permissions)
+.claude/settings.local.json
+
+# OS noise
+.DS_Store
+Thumbs.db
+
+# Exported round backups, if any land in the repo by accident
+golf-tracker-*.json
