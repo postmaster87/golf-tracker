@@ -225,7 +225,7 @@ function strokesGainedCard(round, ctx) {
       class: 'note muted',
       text: sg.provenance?.verified
         ? `Benchmark: ${sg.provenance.note}`
-        : `Derived baseline — ${sg.provenance?.note ?? ''} Trends between rounds are unaffected by this; the category ranking is sensitive to it.`,
+        : `Derived baseline — ${sg.provenance?.note ?? ''} Trends between rounds are unaffected. Off the tee vs approach is barely affected either, because both face a similar number of shots; short game vs putting is where a baseline error would bite hardest.`,
     })
   );
 

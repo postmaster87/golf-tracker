@@ -58,6 +58,33 @@ Fitted angular error comes out at 1.46° tour → 1.53° scratch → 2.69° for 
 
 ---
 
+## How much does the derived scratch baseline actually matter?
+
+Worth quantifying rather than just warning about, because the answer is not what I first assumed.
+
+Under the model, switching baselines changes each shot's strokes gained by
+
+```
+SG_scratch = (1 + k)·SG_tour + k        (k = 0.036)
+```
+
+so a category's total moves by roughly `k × (its number of shots)`. For Veenker (8 par 4s, 5 par 3s, 5 par 5s) that works out as:
+
+| Category | Shots / round | Shift from tour → scratch |
+|---|---:|---:|
+| Off the tee | 13 | +0.47 |
+| Approach | ~16 | +0.58 |
+| Short game | ~6 | +0.22 |
+| Putting | 18 holes | +0.55 |
+
+Summing to about 1.9 strokes, which is the calibrated scratch-vs-tour gap — a useful consistency check on the whole construction.
+
+**The consequence: your central question is the robust one.** Off the tee and approach face a similar number of shots per round, so the baseline shifts them by nearly the same amount — about **0.11 strokes apart**. Even if `k` were wrong by half, that differential moves by ~0.05 strokes, which is nothing against a real difference of a stroke or more. The paired verdict on the trends screen is safe to act on.
+
+Where a baseline error does bite is **short game versus putting** — 0.22 against 0.55, a third of a stroke — because their shot counts differ most. So treat the four-way ranking as approximate at the short-game/putting end, and the off-tee/approach verdict as sound.
+
+(I previously flagged the category ranking as broadly "sensitive" to the baseline. That was too strong, and it was the wrong end of the ranking.)
+
 ## One thing to know before reading your first round card
 
 **Strokes gained is measured against distance, not against par.** Broadie's tee benchmark depends only on how far the hole is, so on Veenker's gold tees (6,029 yards) the benchmark expects better than par — a 473-yard par 5 carries an expectation of about 4.4 strokes, because by tour-data standards that is a long par 4.
