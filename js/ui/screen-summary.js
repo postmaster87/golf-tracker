@@ -42,7 +42,17 @@ export function summaryScreen(ctx) {
         'aria-label': 'Back',
         onClick: () => ctx.go(ctx.params.live ? 'play' : ctx.params.from ?? 'home'),
       }),
-      h('h1', { text: ctx.params.live ? 'Round card' : 'Round' })
+      h('h1', { text: ctx.params.live ? 'Round card' : 'Round' }),
+      // Always visible, no scrolling. Editing a saved round is a primary
+      // capability, and burying it under an 18-row scorecard hid it completely.
+      round && !ctx.params.live
+        ? h('button', {
+            class: 'icon-btn',
+            text: 'EDIT',
+            'aria-label': 'Edit this round',
+            onClick: () => ctx.go('play', { roundId: round.id }),
+          })
+        : null
     )
   );
 
@@ -96,6 +106,20 @@ export function summaryScreen(ctx) {
     )
   );
 
+  // Full control after the fact: the golfer is the source of truth about what
+  // happened, not the app's record of it. Sits above the analysis, because
+  // fixing the data is what you came here to do when something is wrong.
+  if (!ctx.params.live) {
+    body.appendChild(
+      h('button', {
+        class: 'btn primary',
+        style: { marginBottom: '12px' },
+        text: 'EDIT / ADD HOLES',
+        onClick: () => ctx.go('play', { roundId: round.id }),
+      })
+    );
+  }
+
   body.appendChild(strokesGainedCard(round, ctx));
   body.appendChild(puttingCard(t));
   body.appendChild(driveCard(round, ctx.app));
@@ -103,15 +127,6 @@ export function summaryScreen(ctx) {
   body.appendChild(dataQuality(round, t));
 
   if (!ctx.params.live) {
-    // Full control after the fact: the golfer is the source of truth about
-    // what happened, not the app's record of it.
-    body.appendChild(
-      h('button', {
-        class: 'btn primary',
-        text: 'EDIT THIS ROUND',
-        onClick: () => ctx.go('play', { roundId: round.id }),
-      })
-    );
     body.appendChild(
       h('button', {
         class: 'btn',

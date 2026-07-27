@@ -1,4 +1,4 @@
-import { h, card, segmented, confirmSheet, toast } from './dom.js';
+import { h, card, segmented, confirmSheet, sheet, frag, toast } from './dom.js';
 import { loadRound, deleteRound, reconcileIndex } from '../data/store.js';
 import { roundTotals, fmtToPar } from '../round/round.js';
 
@@ -102,9 +102,44 @@ export function historyScreen(ctx) {
         'aria-label': 'Round options',
         onClick: (e) => {
           e.stopPropagation();
-          promptDelete(summary);
+          openRoundOptions(summary);
         },
       })
+    );
+  }
+
+  /**
+   * Editing has to be reachable from the list itself. Requiring a detour
+   * through the round card to find it is how it got missed in the first place.
+   */
+  function openRoundOptions(summary) {
+    sheet(`${summary.courseName} · ${new Date(summary.startedAt).toLocaleDateString()}`, (done) =>
+      frag(
+        h('button', {
+          class: 'btn primary',
+          text: 'EDIT / ADD HOLES',
+          onClick: () => {
+            done('edit');
+            ctx.go('play', { roundId: summary.id });
+          },
+        }),
+        h('button', {
+          class: 'btn',
+          text: 'View round card',
+          onClick: () => {
+            done('view');
+            ctx.go('summary', { roundId: summary.id, from: 'history' });
+          },
+        }),
+        h('button', {
+          class: 'btn danger',
+          text: 'Delete round',
+          onClick: () => {
+            done('delete');
+            promptDelete(summary);
+          },
+        })
+      )
     );
   }
 
