@@ -20,9 +20,9 @@
  * Two taps in opposite halves is fast and needs no fine motor control, but only
  * survives being sat on because of what counts as a "tap" here:
  *
- *   - down and up within TAP_MAX_MS, having moved less than TAP_MOVE_PX
+ *   - down and up within TIMING.tapMaxMs, having moved less than TIMING.tapMovePx
  *   - the two taps in opposite halves, separated by a neutral dead band
- *   - both within TAP_WINDOW_MS of each other
+ *   - both within TIMING.tapWindowMs of each other
  *   - zero simultaneous contacts at any point in the sequence
  *
  * Dead weight produces sustained, multi-point, drifting contact. A crisp,
@@ -30,10 +30,18 @@
  * constraint above is aimed squarely at a property of being sat on.
  */
 
-const TAP_MAX_MS = 350; // longer than this is a press, not a tap
-const TAP_MOVE_PX = 24; // a tap does not travel
-const TAP_WINDOW_MS = 1200; // the two taps must belong to one another
-const DEAD_BAND = 0.14; // fraction of height that is neither zone
+/**
+ * Gesture thresholds. Overridable through `configure({ timing })` — the window
+ * in particular may need widening if two gloves make the second tap slower, and
+ * the test suite widens it so that background-tab timer throttling cannot
+ * produce a false failure.
+ */
+export const TIMING = {
+  tapMaxMs: 350, // longer than this is a press, not a tap
+  tapMovePx: 24, // a tap does not travel
+  tapWindowMs: 1200, // the two taps must belong to one another
+  deadBand: 0.14, // fraction of height that is neither zone
+};
 
 const state = {
   overlay: null,
@@ -52,7 +60,8 @@ const state = {
  * @param status  () => ({ holeLabel, holeMeta, accuracy, quality })
  *                Read live each time the locked screen repaints.
  */
-export function configure({ idleMs, status, canLock } = {}) {
+export function configure({ idleMs, status, canLock, timing } = {}) {
+  if (timing) Object.assign(TIMING, timing);
   if (Number.isFinite(idleMs)) {
     state.idleMs = idleMs;
     // Applies immediately, including mid-round: changing the delay while a
@@ -227,8 +236,8 @@ function wireTaps(el) {
   /** Which zone a point is in. Null inside the dead band. */
   const zoneOf = (y) => {
     const h = window.innerHeight;
-    if (y < h * (0.5 - DEAD_BAND / 2)) return 'top';
-    if (y > h * (0.5 + DEAD_BAND / 2)) return 'bottom';
+    if (y < h * (0.5 - TIMING.deadBand / 2)) return 'top';
+    if (y > h * (0.5 + TIMING.deadBand / 2)) return 'bottom';
     return null;
   };
 
@@ -261,8 +270,8 @@ function wireTaps(el) {
       const held = performance.now() - d.t;
       const moved = Math.hypot(e.clientX - d.x, e.clientY - d.y);
       // A press or a smear is not a tap. Dead weight produces both.
-      if (held > TAP_MAX_MS || moved > TAP_MOVE_PX) {
-        reject(held > TAP_MAX_MS ? 'TAP, DO NOT HOLD' : null);
+      if (held > TIMING.tapMaxMs || moved > TIMING.tapMovePx) {
+        reject(held > TIMING.tapMaxMs ? 'TAP, DO NOT HOLD' : null);
         return;
       }
 
@@ -280,7 +289,7 @@ function wireTaps(el) {
         reject();
         return;
       }
-      if (performance.now() - firstAt > TAP_WINDOW_MS) {
+      if (performance.now() - firstAt > TIMING.tapWindowMs) {
         reject('TOO SLOW — START AGAIN');
         return;
       }

@@ -1485,14 +1485,24 @@ test('categorySeries runs oldest to newest for plotting', () => {
  */
 group('pocket lock');
 
-const lockTap = async (y, { id = 1, holdMs = 80, dx = 0 } = {}) => {
+/**
+ * `holdMs` defaults to zero, firing down and up in the same tick.
+ *
+ * That is not laziness — a browser throttles timers in a backgrounded tab, so
+ * an awaited "60ms" hold can really take a second, and the gesture would be
+ * rejected as a press for reasons that have nothing to do with the code under
+ * test. Firing synchronously makes tap duration independent of scheduling.
+ * Cases that need a genuine long press pass holdMs explicitly, and throttling
+ * only pushes those further past the limit.
+ */
+const lockTap = async (y, { id = 1, holdMs = 0, dx = 0 } = {}) => {
   const ov = document.querySelector('.lock-screen');
   const fire = (type, cx) =>
     ov.dispatchEvent(
       new PointerEvent(type, { clientX: cx, clientY: y, pointerId: id, bubbles: true, cancelable: true })
     );
   fire('pointerdown', 100);
-  await new Promise((r) => setTimeout(r, holdMs));
+  if (holdMs) await new Promise((r) => setTimeout(r, holdMs));
   fire('pointerup', 100 + dx);
 };
 
@@ -1502,6 +1512,16 @@ const pause = (ms) => new Promise((r) => setTimeout(r, ms));
 
 export async function runLockTests() {
   group('pocket lock');
+
+  // These tests drive real pointer events through real timers, and a browser
+  // throttles timers in a backgrounded tab — which would stretch the pause
+  // between two taps past the window and fail the one case that must succeed.
+  // Widening the window here tests the LOGIC (crisp taps, opposite halves, no
+  // simultaneous contacts) without making the result depend on how the tab
+  // happens to be scheduled. The rejection cases below are unaffected: every
+  // one of them fails harder, not softer, as timers stretch.
+  const realWindow = pocketLock.TIMING.tapWindowMs;
+  pocketLock.configure({ timing: { tapWindowMs: 60000 } });
 
   await (async () => {
     try {
@@ -1541,12 +1561,17 @@ export async function runLockTests() {
         eq(pocketLock.isLocked(), true, 'still locked');
       });
 
+      // Narrow the window right down for this one, so the assertion holds no
+      // matter how the tab is scheduled — throttling can only stretch the gap
+      // further past the limit, never under it.
+      pocketLock.configure({ timing: { tapWindowMs: 40 } });
       await lockTap(TOP());
-      await pause(1500);
+      await pause(250);
       await lockTap(BOTTOM());
       test('the two taps must fall inside the time window', () => {
         eq(pocketLock.isLocked(), true, 'still locked');
       });
+      pocketLock.configure({ timing: { tapWindowMs: 60000 } });
 
       await lockTap(TOP(), { dx: 90 });
       await pause(80);
@@ -1565,8 +1590,14 @@ export async function runLockTests() {
     } finally {
       if (pocketLock.isLocked()) pocketLock.unlock();
       pocketLock.disable();
+      pocketLock.configure({ timing: { tapWindowMs: realWindow } });
     }
   })();
+
+  test('the shipped unlock window is the real one, not a test value', () => {
+    eq(pocketLock.TIMING.tapWindowMs, 1200, 'restored after the suite');
+    eq(pocketLock.TIMING.tapMaxMs, 350, 'tap ceiling untouched');
+  });
 }
 
 /* ------------------------------------------------------------ theme contrast */
