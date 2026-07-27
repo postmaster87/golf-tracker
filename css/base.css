@@ -1004,14 +1004,24 @@ input[type='text'] {
  * sit under it has been removed to buy exactly this room.
  */
 .sheet .hole-jump {
-  grid-template-columns: repeat(4, 1fr);
-  gap: 12px;
+  /* Five across, three rows: short putts on top, long lags on the bottom row. */
+  grid-template-columns: repeat(5, 1fr);
+  gap: 10px;
 }
 
 .sheet .hole-jump .seg-btn {
-  min-height: 74px;
-  font-size: 24px;
+  min-height: 70px;
+  font-size: 22px;
   font-weight: 800;
+  padding: 0;
+}
+
+/* Free entry for distances past the end of the grid. */
+.putt-typein {
+  margin-top: 10px;
+  min-height: 62px;
+  font-size: 20px;
+  text-align: center;
 }
 
 /* Stepper row either side of the readout, same reasoning. */

@@ -637,12 +637,13 @@ export function playScreen(ctx) {
       else if (reduced.quality === 'poor') markWarning = poorMarkWarning('cup');
       else markWarning = null;
       paint();
-      // Came from the putt sheet to measure the first putt — go straight back,
-      // now with the distance available.
-      if (reopenPuttsAfterCup) {
-        reopenPuttsAfterCup = false;
-        openGreenEntry(hl);
-      }
+      /*
+       * The cup is the last thing marked on a hole, so the putt entry follows
+       * it directly — with the first putt already measured ball-to-cup, which
+       * is why the cup is worth marking at all.
+       */
+      reopenPuttsAfterCup = false;
+      if (!hl.manual) openGreenEntry(hl);
       return;
     }
 
@@ -659,10 +660,9 @@ export function playScreen(ctx) {
     markWarning = reduced.quality === 'poor' ? poorMarkWarning('shot') : null;
     paint();
 
-    // Ball on the green means the hole is one step from finished, so the putt
-    // entry comes up on its own rather than waiting to be found. Closing it
-    // costs nothing — ENTER PUTTS reopens it whenever.
-    if (chosenLie === 'green') openGreenEntry(hl);
+    // Nothing auto-opens on the green mark any more: the cup is marked next,
+    // at the hole, and the putt entry follows from there with the first putt
+    // already measured.
   }
 
   /**
@@ -674,41 +674,34 @@ export function playScreen(ctx) {
    * consumer GPS will ever be.
    */
   function openGreenEntry(hl, { thenAdvance = false } = {}) {
-    const s = ctx.app.settings;
     const draft = {
       // Two is the modal outcome, so it is the default. It is deliberately NOT
       // inferred from the marked ball on the green — that mark is the approach
       // coming to rest, not evidence of a one-putt.
       putts: hl.greenEntry?.putts ?? 2,
-      unit: hl.greenEntry?.unit ?? s.puttUnit,
-      paceFeet: s.paceFeet,
       values: [0, 1, 2, 3, 4].map((i) => {
         const shot = hl.shots.filter((x) => x.lie === 'green')[i];
-        return shot?.distanceEntry?.value ?? (shot?.distanceFt != null ? shot.distanceFt : null);
+        // Older rounds stored a pace count; the derived feet is the value that
+        // still means the same thing now that the sheet only speaks feet.
+        return shot?.distanceFt ?? null;
       }),
     };
 
-    const QUICK = {
-      paces: [1, 2, 3, 4, 5, 6, 8, 10, 12, 15, 20, 30],
-      feet: [2, 3, 4, 5, 6, 8, 10, 15, 20, 25, 30, 40],
-      yards: [1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 15, 20],
-    };
+    /*
+     * Feet only, in 3-foot steps — one stride per button.
+     *
+     * Paces are gone as a unit. Matt steps distances off but converts a stride
+     * to 3 feet in his head on the way to the phone, so asking for paces made
+     * him convert back: arithmetic to undo arithmetic he had already done.
+     * Counting 9 strides now lands on 27 without a thought.
+     *
+     * 1 and 2 break the pattern deliberately — a tap-in is not a stride, and
+     * those two are among the most common numbers on the card.
+     */
+    const QUICK = [1, 2, 3, 6, 9, 12, 15, 18, 21, 24, 27, 30, 40, 50, 60];
 
     sheet(`Hole ${hl.number} — putts`, (done) => {
       const wrap = h('div');
-
-      /*
-       * Converts an ENTERED value (paces, feet or yards) into feet.
-       *
-       * Named explicitly because it used to be called `toFeet`, which shadowed
-       * the metres-to-feet helper imported from util/geo inside this function.
-       * The GPS putt distance was silently run through the pace converter and
-       * came out multiplied by 3 instead of 3.28 — a wrong number that looked
-       * entirely plausible. Shadowing a unit-conversion name is a good way to
-       * corrupt data quietly.
-       */
-      const enteredToFeet = (v) =>
-        v == null ? null : Math.round(PUTT_UNITS[draft.unit].toFeet(v, draft.paceFeet) * 10) / 10;
 
       /*
        * GPS as an alternative to pacing the first putt.
@@ -733,6 +726,10 @@ export function playScreen(ctx) {
               errFt: toFeet(Math.hypot(ballMark.accuracyM ?? 0, hl.cup.accuracyM ?? 0) * Math.SQRT2),
             }
           : null;
+
+      // The grid already moves in strides; the stepper is for nudging a value
+      // off a grid number, so it moves a foot at a time.
+      const step = 1;
 
       const render = () => {
         wrap.replaceChildren();
@@ -764,7 +761,6 @@ export function playScreen(ctx) {
               : i === 1
                 ? 'Putt 2 — the leave'
                 : `Putt ${i + 1} — to the hole`;
-          const ft = enteredToFeet(draft.values[i]);
 
           // With no paced value on the first putt, the GPS measurement is what
           // will actually be used — so the readout shows that rather than a
@@ -779,16 +775,12 @@ export function playScreen(ctx) {
             }),
             h('span', {
               class: 'n',
-              text: gpsInUse
-                ? `ft · GPS ±${Math.round(gps.errFt)}`
-                : draft.values[i] == null
-                  ? PUTT_UNITS[draft.unit].label
-                  : `${ft} ft`,
+              text: gpsInUse ? `ft · GPS ±${Math.round(gps.errFt)}` : 'ft',
             })
           );
 
           const grid = h('div', { class: 'hole-jump' });
-          for (const v of QUICK[draft.unit]) {
+          for (const v of QUICK) {
             grid.appendChild(
               h('button', {
                 class: 'seg-btn',
@@ -802,6 +794,43 @@ export function playScreen(ctx) {
               })
             );
           }
+
+          /*
+           * Free entry for anything the grid cannot express.
+           *
+           * Deliberately does NOT re-render on input — repainting mid-keystroke
+           * would steal focus and drop the caret. The readout is patched in
+           * place instead, so the value stays visible while typing.
+           */
+          const typeIn = h('input', {
+            type: 'number',
+            inputmode: 'numeric',
+            min: '0',
+            step: '1',
+            class: 'putt-typein',
+            placeholder: 'Type any distance in feet',
+            value:
+              draft.values[i] != null && !QUICK.includes(draft.values[i]) ? String(draft.values[i]) : '',
+            onInput: (e) => {
+              const raw = e.target.value;
+              const n = Number(raw);
+              draft.values[i] = raw !== '' && Number.isFinite(n) && n >= 0 ? n : null;
+
+              const fieldEl = e.target.closest('.field');
+              const val = draft.values[i];
+              const gpsNow = i === 0 && val == null && gps;
+              const vEl = fieldEl?.querySelector('.stat .v');
+              const nEl = fieldEl?.querySelector('.stat .n');
+              if (vEl) vEl.textContent = gpsNow ? String(Math.round(gps.ft)) : val == null ? '—' : String(val);
+              if (nEl) {
+                nEl.textContent = gpsNow ? `ft · GPS ±${Math.round(gps.errFt)}` : 'ft';
+              }
+              // A typed value means no chip is selected any more.
+              for (const b of fieldEl?.querySelectorAll('.hole-jump button') ?? []) {
+                b.setAttribute('aria-pressed', String(val === Number(b.textContent)));
+              }
+            },
+          });
 
           // Only the first putt can be measured — the ball's position is only
           // marked once, before it is struck.
@@ -842,43 +871,28 @@ export function playScreen(ctx) {
                   { class: 'btn-row', style: { marginBottom: '8px' } },
                   h('button', {
                     class: 'btn',
-                    text: '−',
+                    text: step === 1 ? '−' : `−${step}`,
                     // Repeated fast taps are the interaction here, not a wet-screen
                     // artefact, so this one opts out of the debounce.
                     rapid: true,
                     onClick: () => {
-                      draft.values[i] = Math.max(0, (draft.values[i] ?? 1) - 1);
+                      draft.values[i] = Math.max(0, (draft.values[i] ?? step) - step);
                       render();
                     },
                   }),
                   readout,
                   h('button', {
                     class: 'btn',
-                    text: '+',
+                    text: step === 1 ? '+' : `+${step}`,
                     rapid: true,
                     onClick: () => {
-                      draft.values[i] = (draft.values[i] ?? 0) + 1;
+                      draft.values[i] = (draft.values[i] ?? 0) + step;
                       render();
                     },
                   })
                 ),
-                grid
-              )
-            )
-          );
-        }
-
-        if (draft.putts > 0) {
-          wrap.appendChild(
-            field(
-              'Entered in',
-              segmented(
-                Object.entries(PUTT_UNITS).map(([k, v]) => ({ value: k, label: v.label.toUpperCase() })),
-                draft.unit,
-                (v) => {
-                  draft.unit = v;
-                  render();
-                }
+                grid,
+                typeIn
               )
             )
           );
@@ -892,12 +906,9 @@ export function playScreen(ctx) {
               setGreenEntry(hl, {
                 putts: draft.putts,
                 distances: draft.values.slice(0, draft.putts),
-                unit: draft.unit,
-                paceFeet: draft.paceFeet,
+                unit: 'feet',
               });
-              ctx.app.settings.puttUnit = draft.unit;
               persist();
-              ctx.persistApp();
               markWarning = null;
               paint();
               done('saved');
@@ -996,7 +1007,11 @@ export function playScreen(ctx) {
   function nextAction(hl) {
     if (hl.manual || isHoleComplete(hl)) return 'next';
     if (!hl.shots.length) return 'mark';
-    return hl.shots[hl.shots.length - 1].lie === 'green' ? 'putts' : 'mark';
+    if (hl.shots[hl.shots.length - 1].lie !== 'green') return 'mark';
+    // Ball is on the green. The cup comes before the putts: without it every
+    // distance on the hole is measured to where the ball stopped rather than
+    // to the hole, and the tee shot inherits that error.
+    return hl.cup ? 'putts' : 'cup';
   }
 
   /**
@@ -1015,7 +1030,9 @@ export function playScreen(ctx) {
     if (!hl.shots.length) return 'Stand on the tee, then MARK SHOT 1 — before you hit it.';
     const last = hl.shots[hl.shots.length - 1];
     if (last.lie === 'green') {
-      return 'Ball marked on the green. Putt out, then ENTER PUTTS on the next tee.';
+      return hl.cup
+        ? 'Cup marked. Enter your putts — the first one is measured for you.'
+        : 'Putt out, then MARK CUP at the hole while you pick your ball out of it.';
     }
     return `Walk to your ball, then MARK SHOT ${hl.shots.length + 1} — before you hit it.`;
   }
@@ -1069,7 +1086,16 @@ export function playScreen(ctx) {
       );
     }
 
-    // Finishes the hole. Tapped on the next tee, not on the green.
+    // Promoted out of the round menu: the cup mark is what makes every distance
+    // on the hole exact rather than approximate, so it belongs in the flow.
+    footer.appendChild(
+      h('button', {
+        class: pri('cup'),
+        text: hl.cup ? 'RE-MARK CUP' : 'MARK CUP',
+        disabled: Boolean(hl.manual) || !hl.shots.length,
+        onClick: () => beginCapture('cup'),
+      })
+    );
     footer.appendChild(
       h('button', {
         class: pri('putts'),

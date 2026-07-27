@@ -98,7 +98,10 @@ export function newAppState() {
       burstMs: 3000,
       recordTrack: true, // decimated breadcrumb for future pace/auto-advance work
       sgBaseline: 'scratch', // strokes gained benchmark: scratch per the spec
-      puttUnit: 'paces', // how putt distances are entered
+      // Feet, not paces. Matt steps off in paces but converts to feet in his
+      // head on the way to the phone, so asking for paces made him convert back.
+      puttUnit: 'feet',
+      puttUnitDefaultedToFeet: true, // fresh installs skip the one-time migration
       paceFeet: 3.0, // Matt's stride, calibrated; used to convert paces to feet
       promptGreenEntry: true, // nudge for putts when leaving a hole without them
       // Seconds of inactivity before the pocket lock engages; 0 = manual only.
@@ -319,6 +322,18 @@ export function migrate(payload) {
   if (!payload || typeof payload !== 'object') return payload;
   let p = payload;
   if (p.schemaVersion == null) p = { ...p, schemaVersion: SCHEMA_VERSION };
+
+  /*
+   * 2026-07-27: putt entry moved from paces to feet.
+   *
+   * Changing the default alone would not have reached an existing install,
+   * which is the only install that matters here — the stored 'paces' was
+   * making real rounds harder to log. Applied once and recorded, so choosing
+   * paces again afterwards sticks.
+   */
+  if (p.settings && p.settings.puttUnit === 'paces' && !p.settings.puttUnitDefaultedToFeet) {
+    p = { ...p, settings: { ...p.settings, puttUnit: 'feet', puttUnitDefaultedToFeet: true } };
+  }
   // Future: while (p.schemaVersion < SCHEMA_VERSION) { ...; p.schemaVersion++ }
   return p;
 }

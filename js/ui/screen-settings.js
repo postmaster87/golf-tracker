@@ -151,57 +151,6 @@ export function settingsScreen(ctx) {
     const green = card('Green & putting');
     green.appendChild(
       field(
-        'Enter putt distances in',
-        segmented(
-          [
-            { value: 'paces', label: 'PACES' },
-            { value: 'feet', label: 'FEET' },
-            { value: 'yards', label: 'YARDS' },
-          ],
-          s.puttUnit,
-          (v) => {
-            s.puttUnit = v;
-            ctx.persistApp();
-            paint();
-          }
-        )
-      )
-    );
-    green.appendChild(
-      field(
-        'Your pace length',
-        h(
-          'div',
-          { class: 'btn-row' },
-          h('button', {
-            class: 'btn',
-            text: '−',
-            onClick: () => {
-              s.paceFeet = Math.max(2, Math.round((s.paceFeet - 0.05) * 100) / 100);
-              ctx.persistApp();
-              paint();
-            },
-          }),
-          h(
-            'div',
-            { class: 'stat', style: { textAlign: 'center' } },
-            h('span', { class: 'v', text: `${s.paceFeet.toFixed(2)} ft` }),
-            h('span', { class: 'n', text: '10 paces = ' + (s.paceFeet * 10).toFixed(1) + ' ft' })
-          ),
-          h('button', {
-            class: 'btn',
-            text: '+',
-            onClick: () => {
-              s.paceFeet = Math.min(4, Math.round((s.paceFeet + 0.05) * 100) / 100);
-              ctx.persistApp();
-              paint();
-            },
-          })
-        )
-      )
-    );
-    green.appendChild(
-      field(
         'Ask for putts when leaving a hole',
         segmented(
           [
@@ -220,7 +169,7 @@ export function settingsScreen(ctx) {
     green.appendChild(
       h('p', {
         class: 'note muted',
-        text: 'Putts are the one thing GPS cannot measure — ±2 m is ±6 ft, the whole range of the shot — so a paced distance is the better instrument, not a fallback. Every entry stores the raw count and this pace length, so recalibrating your stride later can be applied to rounds already logged.',
+        text: 'Putt distances are entered in feet, on a grid that steps 3 feet at a time — one stride per button, so nine counted strides land on 27 without converting anything. Marking the cup measures the first putt for you and makes every other distance on the hole exact rather than approximate.',
       })
     );
     body.appendChild(green);
