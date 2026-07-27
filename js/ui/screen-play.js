@@ -4,6 +4,7 @@ import { loadRound } from '../data/store.js';
 import { SELECTABLE_CLUBS, clubLabel, clubFull } from '../data/clubs.js';
 import { LIES, LIE_LABELS, PENALTY_TYPES } from '../data/schema.js';
 import { getCourse, playOrder, holeYards } from '../data/courses.js';
+import { distanceM, toFeet } from '../util/geo.js';
 import {
   currentHole,
   addShot,
@@ -68,6 +69,8 @@ export function playScreen(ctx) {
   let markWarning = null;
   /** Set whenever the hole changes, so the change is always one tap from undo. */
   let holeChange = null;
+  /** Set when a cup capture was started from inside the putt sheet. */
+  let reopenPuttsAfterCup = false;
 
   const hole = () => currentHole(round);
   const isLastHole = () => round.currentHoleIndex >= round.holes.length - 1;
@@ -634,6 +637,12 @@ export function playScreen(ctx) {
       else if (reduced.quality === 'poor') markWarning = poorMarkWarning('cup');
       else markWarning = null;
       paint();
+      // Came from the putt sheet to measure the first putt — go straight back,
+      // now with the distance available.
+      if (reopenPuttsAfterCup) {
+        reopenPuttsAfterCup = false;
+        openGreenEntry(hl);
+      }
       return;
     }
 
@@ -688,8 +697,42 @@ export function playScreen(ctx) {
     sheet(`Hole ${hl.number} — putts`, (done) => {
       const wrap = h('div');
 
-      const toFeet = (v) =>
+      /*
+       * Converts an ENTERED value (paces, feet or yards) into feet.
+       *
+       * Named explicitly because it used to be called `toFeet`, which shadowed
+       * the metres-to-feet helper imported from util/geo inside this function.
+       * The GPS putt distance was silently run through the pace converter and
+       * came out multiplied by 3 instead of 3.28 — a wrong number that looked
+       * entirely plausible. Shadowing a unit-conversion name is a good way to
+       * corrupt data quietly.
+       */
+      const enteredToFeet = (v) =>
         v == null ? null : Math.round(PUTT_UNITS[draft.unit].toFeet(v, draft.paceFeet) * 10) / 10;
+
+      /*
+       * GPS as an alternative to pacing the first putt.
+       *
+       * Two marks at ±2 m each compound to roughly ±9 ft on the distance
+       * between them, so pacing is more accurate at every length. But what
+       * costs strokes is the error in EXPECTED PUTTS, and that shrinks as the
+       * putt lengthens: ±9 ft is worth about 0.08 strokes from 20 ft and about
+       * 0.05 from 60 ft. Meanwhile the pacing effort grows with every foot.
+       *
+       * So GPS is offered, honestly labelled with its own error bar, and
+       * recommended only past the point where walking it off stops being worth
+       * the accuracy. No distance is invented: choosing GPS simply leaves the
+       * paced value empty, and the existing geometry measures ball-to-cup.
+       */
+      const ballMark = hl.shots.find((s) => s.lie === 'green' && s.mark)?.mark ?? null;
+      const gps =
+        ballMark && hl.cup
+          ? {
+              ft: toFeet(distanceM(ballMark, hl.cup)),
+              // Independent errors add in quadrature, not linearly.
+              errFt: toFeet(Math.hypot(ballMark.accuracyM ?? 0, hl.cup.accuracyM ?? 0) * Math.SQRT2),
+            }
+          : null;
 
       const render = () => {
         wrap.replaceChildren();
@@ -721,15 +764,26 @@ export function playScreen(ctx) {
               : i === 1
                 ? 'Putt 2 — the leave'
                 : `Putt ${i + 1} — to the hole`;
-          const ft = toFeet(draft.values[i]);
+          const ft = enteredToFeet(draft.values[i]);
 
+          // With no paced value on the first putt, the GPS measurement is what
+          // will actually be used — so the readout shows that rather than a
+          // dash, and says where the number came from.
+          const gpsInUse = i === 0 && draft.values[0] == null && gps;
           const readout = h(
             'div',
             { class: 'stat', style: { textAlign: 'center' } },
-            h('span', { class: 'v', text: draft.values[i] == null ? '—' : String(draft.values[i]) }),
+            h('span', {
+              class: 'v',
+              text: gpsInUse ? `${Math.round(gps.ft)}` : draft.values[i] == null ? '—' : String(draft.values[i]),
+            }),
             h('span', {
               class: 'n',
-              text: draft.values[i] == null ? PUTT_UNITS[draft.unit].label : `${ft} ft`,
+              text: gpsInUse
+                ? `ft · GPS ±${Math.round(gps.errFt)}`
+                : draft.values[i] == null
+                  ? PUTT_UNITS[draft.unit].label
+                  : `${ft} ft`,
             })
           );
 
@@ -749,10 +803,40 @@ export function playScreen(ctx) {
             );
           }
 
+          // Only the first putt can be measured — the ball's position is only
+          // marked once, before it is struck.
+          const gpsControl =
+            i !== 0
+              ? null
+              : gps
+                ? h('button', {
+                    class: draft.values[0] == null ? 'btn primary sm' : 'btn sm dim',
+                    text:
+                      draft.values[0] == null
+                        ? `USING GPS · ${Math.round(gps.ft)} ft ±${Math.round(gps.errFt)}`
+                        : `USE GPS INSTEAD · ${Math.round(gps.ft)} ft`,
+                    onClick: () => {
+                      draft.values[0] = null;
+                      render();
+                    },
+                  })
+                : h('button', {
+                    class: 'btn sm dim',
+                    text: 'MARK THE CUP TO MEASURE IT',
+                    disabled: !ballMark,
+                    onClick: () => {
+                      done('markcup');
+                      // Reopens this sheet once the cup is captured.
+                      reopenPuttsAfterCup = true;
+                      beginCapture('cup');
+                    },
+                  });
+
           wrap.appendChild(
             field(
               label,
               frag(
+                gpsControl ? h('div', { style: { marginBottom: '8px' } }, gpsControl) : null,
                 h(
                   'div',
                   { class: 'btn-row', style: { marginBottom: '8px' } },

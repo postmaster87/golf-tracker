@@ -529,6 +529,28 @@ test('an entered distance overrides the GPS distance and is labelled', () => {
   eq(shotGeometry(hole)[1].toHoleSource, 'cup', 'clearing reverts to the measured position');
 });
 
+test('a GPS-measured putt uses metres-to-feet, not the pace converter', () => {
+  // Regression: a local helper named toFeet inside the putt sheet shadowed the
+  // metres-to-feet import, so a measured putt was multiplied by the pace length
+  // (3) instead of 3.28084. The result was ~9% short and looked entirely
+  // plausible. These two conversions must never be confusable.
+  const round = par4Round();
+  const hole = round.holes[0];
+  const cup = offsetM(TEE, 18.9, 0); // 62 ft
+  addShot(hole, { lie: 'tee', reduced: fakeReduced(offsetM(TEE, -200, 0)) });
+  addShot(hole, { lie: 'green', reduced: fakeReduced(TEE) });
+  setCup(hole, fakeReduced(cup));
+  setGreenEntry(hole, { putts: 2, distances: [], unit: 'paces', paceFeet: 3 });
+
+  // Left unpaced, so the geometry answers — and it must answer in real feet.
+  near(toFeet(firstPuttM(hole)), 62, 0.6, 'measured first putt in feet');
+  const viaPaceConverter = 18.9 * 3; // what the shadowed helper produced
+  assert(
+    Math.abs(toFeet(firstPuttM(hole)) - viaPaceConverter) > 4,
+    'must not agree with the pace conversion'
+  );
+});
+
 test('an entered distance survives a bad or missing GPS mark', () => {
   const round = par4Round();
   const hole = round.holes[0];
