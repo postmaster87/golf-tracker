@@ -207,7 +207,18 @@ export function setManualHole(hole, { strokes, putts, firstPuttFt = null, penalt
 
 /* ------------------------------------------------------------- derivations */
 
-export const isHoleComplete = (hole) => Boolean(hole.greenEntry || hole.cup || hole.manual);
+/**
+ * A hole is finished when its putts are recorded, not when the cup is marked.
+ *
+ * The cup used to imply completion because it was marked on holing out. It is
+ * now marked on the walk from ball to hole, BEFORE the putt — it locates the
+ * hole, it does not end it. Treating it as completion would score a hole whose
+ * putts had not happened yet.
+ *
+ * Holing out from off the green still counts: that is a green entry of zero
+ * putts, which is an explicit statement rather than an inference.
+ */
+export const isHoleComplete = (hole) => Boolean(hole.greenEntry || hole.manual);
 export const isHoleStarted = (hole) => Boolean(hole.shots.length || hole.manual);
 
 export function penaltyStrokes(hole) {

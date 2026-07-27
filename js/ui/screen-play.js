@@ -435,7 +435,9 @@ export function playScreen(ctx) {
             { class: 'shot', dataset: { quality: hl.cup.quality } },
             h('span', { class: 'seq', text: '⚑' }),
             h('span', { class: 'lie', text: 'Cup' }),
-            h('span', { class: 'dist' }, `±${hl.cup.accuracyM} m`, h('small', { text: 'holed out' }))
+            // Not "holed out" — the cup is marked before putting now, so it
+            // records where the hole is, not that the ball went in it.
+            h('span', { class: 'dist' }, `±${hl.cup.accuracyM} m`, h('small', { text: 'hole marked' }))
           )
         )
       );
@@ -639,12 +641,20 @@ export function playScreen(ctx) {
       else markWarning = null;
       paint();
       /*
-       * The cup is the last thing marked on a hole, so the putt entry follows
-       * it directly — with the first putt already measured ball-to-cup, which
-       * is why the cup is worth marking at all.
+       * The putt sheet does NOT open here.
+       *
+       * The cup is marked on the walk from ball to hole — before the putt, not
+       * after it — so at this moment the putt count does not exist yet.
+       * Opening the sheet would be asking a question that cannot be answered,
+       * on the green, which is the one place the phone should be away.
+       *
+       * The exception is when the cup was marked FROM the sheet to measure a
+       * first putt; then going back is the whole point.
        */
-      reopenPuttsAfterCup = false;
-      if (!hl.manual) openGreenEntry(hl);
+      if (reopenPuttsAfterCup) {
+        reopenPuttsAfterCup = false;
+        openGreenEntry(hl);
+      }
       return;
     }
 
@@ -671,7 +681,7 @@ export function playScreen(ctx) {
      * without the action going missing.
      */
     if (chosenLie === 'green' && !hl.cup && round.currentHoleIndex === 0) {
-      toast('On the green. Mark the cup when you hole out — it makes every distance on the hole exact.', {
+      toast('Now walk to the hole and mark the cup — then putt. Distances go in afterwards.', {
         ms: 8000,
       });
     }
@@ -1043,8 +1053,8 @@ export function playScreen(ctx) {
     const last = hl.shots[hl.shots.length - 1];
     if (last.lie === 'green') {
       return hl.cup
-        ? 'Cup marked. Enter your putts — the first one is measured for you.'
-        : 'Putt out, then MARK CUP at the hole while you pick your ball out of it.';
+        ? 'Cup marked. Putt out — enter your putts afterwards, first one already measured.'
+        : 'Walk to the hole and MARK CUP. Pace it off on the way if you want.';
     }
     return `Walk to your ball, then MARK SHOT ${hl.shots.length + 1} — before you hit it.`;
   }

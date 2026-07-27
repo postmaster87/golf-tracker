@@ -407,6 +407,14 @@ test('a routine par: drive, approach, two putts', () => {
   addShot(hole, { lie: 'green', reduced: fakeReduced(offsetM(TEE, 372, 1)) });
   addShot(hole, { lie: 'green', reduced: fakeReduced(offsetM(TEE, 379.4, 0)) });
   setCup(hole, fakeReduced(cup));
+  /*
+   * The cup locates the hole; the green entry is what finishes it.
+   *
+   * Only the ball at rest is ever GPS-marked on the green, so the entry keeps
+   * that mark as putt 1 and replaces anything after it with entered putts.
+   * Putt 1 is left blank here so it measures ball-to-cup; the tap-in is stated.
+   */
+  setGreenEntry(hole, { putts: 2, distances: [null, 2], unit: 'feet' });
 
   eq(holeStrokes(hole), 4, 'strokes');
   eq(holePutts(hole), 2, 'putts');
@@ -431,6 +439,7 @@ test('missed green then up-and-down counts as a scramble', () => {
   addShot(hole, { lie: 'rough', reduced: fakeReduced(offsetM(TEE, 368, 12)) }); // chip
   addShot(hole, { lie: 'green', reduced: fakeReduced(offsetM(TEE, 379, 1)) });
   setCup(hole, fakeReduced(cup));
+  setGreenEntry(hole, { putts: 1, distances: [], unit: 'feet' });
 
   eq(holeStrokes(hole), 4, 'strokes');
   eq(fir(hole), false, 'missed fairway');
@@ -444,6 +453,9 @@ test('a chip-in from off the green is a GIR when it beats par - 2', () => {
   addShot(hole, { lie: 'tee', reduced: fakeReduced(TEE) });
   addShot(hole, { lie: 'fairway', reduced: fakeReduced(offsetM(TEE, 250, 0)) });
   setCup(hole, fakeReduced(offsetM(TEE, 380, 0)));
+  // Holing out from off the green is a green entry of zero putts — an explicit
+  // statement, rather than inferring it from the presence of a cup mark.
+  setGreenEntry(hole, { putts: 0, distances: [] });
   eq(holePutts(hole), 0, 'no putts');
   eq(gir(hole), true, 'holed out inside par - 2');
   eq(holeStrokes(hole), 2, 'strokes');
@@ -458,6 +470,7 @@ test('penalties add strokes and suppress the unmeasurable shot length', () => {
   addShot(hole, { lie: 'fairway', reduced: fakeReduced(offsetM(TEE, 245, 3)) });
   addShot(hole, { lie: 'green', reduced: fakeReduced(offsetM(TEE, 376, 1)) });
   setCup(hole, fakeReduced(offsetM(TEE, 380, 0)));
+  setGreenEntry(hole, { putts: 1, distances: [], unit: 'feet' });
 
   eq(holeStrokes(hole), 5, '4 shots + 1 penalty');
   const geo = shotGeometry(hole);
@@ -493,6 +506,7 @@ test('par 3s report FIR as not-applicable', () => {
   addShot(hole, { lie: 'tee', reduced: fakeReduced(TEE) });
   addShot(hole, { lie: 'green', reduced: fakeReduced(offsetM(TEE, 150, 0)) });
   setCup(hole, fakeReduced(offsetM(TEE, 152, 0)));
+  setGreenEntry(hole, { putts: 2, distances: [], unit: 'feet' });
   eq(fir(hole), null, 'FIR is meaningless on a par 3');
   eq(gir(hole), true, 'on in one');
 });
@@ -901,8 +915,13 @@ test('totals aggregate only completed holes', () => {
     addShot(hole, { lie: 'green', reduced: fakeReduced(offsetM(TEE, 300, 0)) });
     addShot(hole, { lie: 'green', reduced: fakeReduced(offsetM(TEE, 305, 0)) });
     setCup(hole, fakeReduced(offsetM(TEE, 306, 0)));
+    setGreenEntry(hole, { putts: 2, distances: [], unit: 'feet' });
   }
-  addShot(round.holes[3], { lie: 'tee', reduced: fakeReduced(TEE) }); // in progress
+  // Shots but no putts recorded — a hole under way, not a finished one, even
+  // though a cup mark would once have been enough to count it.
+  addShot(round.holes[3], { lie: 'tee', reduced: fakeReduced(TEE) });
+  addShot(round.holes[4], { lie: 'tee', reduced: fakeReduced(TEE) });
+  setCup(round.holes[4], fakeReduced(offsetM(TEE, 300, 0)));
   const t = roundTotals(round);
   eq(t.holes, 3, 'three complete holes');
   eq(t.strokes, 12, 'strokes');
