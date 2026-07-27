@@ -40,7 +40,14 @@ export const currentHole = (round) => round?.holes?.[round.currentHoleIndex] ?? 
 
 /* -------------------------------------------------------------- mutations */
 
-/** Default lie for the next shot: tee first, else carry the previous lie forward. */
+/**
+ * Suggested lie for the next shot.
+ *
+ * No longer used to pre-select anything in the capture panel — a highlighted
+ * default read as "already chosen" while still requiring the tap. Kept because
+ * it is the right basis for any future suggestion that does not masquerade as
+ * a selection.
+ */
 export function defaultLie(hole) {
   if (!hole.shots.length) return 'tee';
   const prev = hole.shots[hole.shots.length - 1];

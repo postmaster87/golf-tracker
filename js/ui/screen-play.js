@@ -6,7 +6,6 @@ import { LIES, LIE_LABELS, PENALTY_TYPES } from '../data/schema.js';
 import { getCourse, playOrder, holeYards } from '../data/courses.js';
 import {
   currentHole,
-  defaultLie,
   addShot,
   setCup,
   undoLast,
@@ -196,9 +195,12 @@ export function playScreen(ctx) {
 
   function paint() {
     const hl = hole();
+    // The nav row directly below already shows which hole this is, so the
+    // "n/18" that used to live here was redundant — and it was pushing the
+    // stroke index off the end of the line on a phone.
     hudMeta.textContent = `${editing ? 'EDITING · ' : ''}Par ${hl.par}${
       hl.yards ? ` · ${hl.yards} yd` : ''
-    }${hl.hcp ? ` · HCP ${hl.hcp}` : ''} · ${round.currentHoleIndex + 1}/${round.holes.length}`;
+    }${hl.hcp ? ` · HCP ${hl.hcp}` : ''}`;
 
     body.replaceChildren();
     footer.replaceChildren();
@@ -426,8 +428,8 @@ export function playScreen(ctx) {
       h(
         'div',
         { class: 'cap-head' },
-        h('span', {
-          text: isShot ? 'Select the lie' : capture.kind === 'putt' ? 'Marking putt' : 'Marking cup',
+        h({ shot: 'span', putt: 'span', cup: 'span' }[capture.kind] ?? 'span', {
+          text: isShot ? 'Marking shot' : capture.kind === 'putt' ? 'Marking putt' : 'Marking cup',
         }),
         h('span', { class: 'val cap-meta', text: 'Capturing…' })
       )
@@ -460,8 +462,17 @@ export function playScreen(ctx) {
           })
         );
       }
-      wrap.appendChild(h('div', { class: 'cap-label', text: capture.club ? clubFull(capture.club) : 'Club (optional)' }));
-      wrap.appendChild(clubGrid);
+      wrap.appendChild(
+        h(
+          'div',
+          { class: 'field-optional' },
+          h('div', {
+            class: 'cap-label',
+            text: capture.club ? `Club · ${clubFull(capture.club)}` : 'Club — optional',
+          }),
+          clubGrid
+        )
+      );
     }
 
     if (isShot) {
@@ -484,7 +495,19 @@ export function playScreen(ctx) {
           })
         );
       }
-      wrap.appendChild(grid);
+      /*
+       * The required field, boxed and labelled as such. The label says what the
+       * tap actually DOES rather than naming the field, because tapping a lie
+       * is what saves the shot — that was not obvious from "Select the lie".
+       */
+      wrap.appendChild(
+        h(
+          'div',
+          { class: 'field-required' },
+          h('div', { class: 'req-label' }, h('span', { class: 'req-dot' }), 'Lie — tap one to save the shot'),
+          grid
+        )
+      );
     }
 
     footer.appendChild(wrap);
@@ -507,7 +530,16 @@ export function playScreen(ctx) {
     const controller = new AbortController();
     capture = {
       kind,
-      chosenLie: kind === 'shot' ? defaultLie(hole()) : 'green',
+      /*
+       * Deliberately NOT pre-selected for a shot.
+       *
+       * The lie used to default to "tee" and render highlighted, which reads as
+       * already-chosen — but the tap was still required, because tapping a lie
+       * IS the commit. The highlight promised something the interaction did not
+       * honour. Nothing is selected now, and the lie group carries a required
+       * marker instead.
+       */
+      chosenLie: kind === 'shot' ? null : 'green',
       lieConfirmed: false,
       club: null,
       reduced: null,

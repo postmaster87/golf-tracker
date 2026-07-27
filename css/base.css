@@ -581,6 +581,44 @@ input[type='text'] {
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--ink-3);
+  margin-bottom: 8px;
+}
+
+/*
+ * Required vs optional, stated structurally rather than by pre-selecting
+ * something. A pre-highlighted default reads as "already chosen" while still
+ * demanding a tap, which is the app promising one thing and requiring another.
+ * A box says "input needed here" without claiming any particular answer.
+ */
+.field-required {
+  border: 2px solid var(--accent-edge);
+  border-radius: 14px;
+  padding: 10px;
+  background: var(--surface);
+}
+
+.req-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.req-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex: 0 0 auto;
+}
+
+.field-optional {
+  padding: 0 2px;
 }
 
 /* The capture panel grows when clubs are shown, so let it scroll rather than
