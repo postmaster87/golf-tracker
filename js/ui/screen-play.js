@@ -277,25 +277,6 @@ export function playScreen(ctx) {
       );
     }
 
-    /*
-     * Cup reminder — persistent, not a toast.
-     *
-     * It appears the moment the ball is logged on the green and stays until the
-     * cup is marked, because the moment it needs to be read is several minutes
-     * later: phone back out of the pocket, ball being picked out of the hole.
-     * A message that had already faded would be no reminder at all.
-     */
-    const ballOnGreen = hl.shots.some((s) => s.lie === 'green' && s.mark);
-    if (!editing && ballOnGreen && !hl.cup && !hl.manual) {
-      body.appendChild(
-        h(
-          'div',
-          { class: 'banner', dataset: { kind: 'warn' } },
-          h('span', { text: 'Mark the cup when you hole out — it makes every distance on this hole exact.' }),
-          h('button', { class: 'btn sm', text: 'MARK CUP', onClick: () => beginCapture('cup') })
-        )
-      );
-    }
 
     if (showScoring()) body.appendChild(tally(hl));
     body.appendChild(shotList(hl));
@@ -680,10 +661,19 @@ export function playScreen(ctx) {
     markWarning = reduced.quality === 'poor' ? poorMarkWarning('shot') : null;
     paint();
 
-    // Immediate acknowledgement that the green was logged, alongside the
-    // persistent banner that carries the reminder to the hole.
-    if (chosenLie === 'green' && !hl.cup) {
-      toast('On the green. Mark the cup when you hole out.', { ms: 6000 });
+    /*
+     * The cup reminder fires once a round, on the first hole, and then stops.
+     *
+     * A prompt on every green would be seventeen repetitions of something
+     * already known by the second hole — and nagging is how a useful prompt
+     * turns into one that gets tapped away without reading. MARK CUP stays in
+     * the footer for the rest of the round, so the reminder can go quiet
+     * without the action going missing.
+     */
+    if (chosenLie === 'green' && !hl.cup && round.currentHoleIndex === 0) {
+      toast('On the green. Mark the cup when you hole out — it makes every distance on the hole exact.', {
+        ms: 8000,
+      });
     }
   }
 
