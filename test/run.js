@@ -42,7 +42,7 @@ import {
   detectStartingNine,
   fmtDistance,
 } from '../js/round/round.js';
-import { newAppState } from '../js/data/schema.js';
+import { newAppState, THEMES } from '../js/data/schema.js';
 import { expectedStrokes, validateBenchmarks, BASELINES } from '../js/analysis/benchmarks.js';
 import {
   holeStrokesGained,
@@ -1660,8 +1660,11 @@ export async function runContrastTests() {
     themes[m[1]] = vars;
   }
   const names = Object.keys(themes);
-  test('all four palettes are defined', () => {
-    eq(names.sort().join(','), 'clay,dusk,fairway,slate', 'palette names');
+  test('every palette offered in the picker is actually defined in CSS', () => {
+    // Guards the failure where a theme is added to one list but not the other,
+    // which would show a picker entry that silently does nothing.
+    for (const t of THEMES) assert(names.includes(t), `${t} is in THEMES but missing from themes.css`);
+    for (const t of names) assert(THEMES.includes(t), `${t} is in themes.css but missing from THEMES`);
   });
   for (const name of names) {
     const t = themes[name];

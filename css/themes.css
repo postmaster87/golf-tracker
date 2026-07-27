@@ -75,6 +75,134 @@
   --theme-color: #eaeef2;
 }
 
+/*
+ * INK — maximum legibility, minimum colour.
+ *
+ * The opposite end of the brief from Fairway: not soothing, just relentlessly
+ * readable. Near-black on white with an almost-black accent. If a round is
+ * played in brutal midday sun, this is the one that will not fight you.
+ */
+[data-theme='ink'] {
+  color-scheme: light;
+  --bg: #ffffff;
+  --surface: #f4f4f5;
+  --surface-2: #e4e4e7;
+  --ink: #0a0a0a;
+  --ink-2: #27272a;
+  --ink-3: #52525b;
+  --line: #c7c7cc;
+  --accent: #1c1c1e;
+  --accent-ink: #ffffff;
+  --accent-soft: #e4e4e7;
+  --accent-edge: #1c1c1e;
+  --good: #15803d;
+  /* Darkened from #a16207, which measured 4.48:1 on --surface against a 4.5
+     requirement. Two hundredths short is still short. */
+  --warn: #96590a;
+  --bad: #b91c1c;
+  --theme-color: #ffffff;
+}
+
+/*
+ * FOREST — the green Fairway is not.
+ *
+ * Same family, but with the saturation left in. For when "muted" reads as
+ * "washed out" and you want the course colour to actually look like a course.
+ */
+[data-theme='forest'] {
+  color-scheme: light;
+  --bg: #edf2ea;
+  --surface: #f8fbf6;
+  --surface-2: #dce6d5;
+  --ink: #10190e;
+  --ink-2: #2c3b27;
+  --ink-3: #55654e;
+  --line: #c2d2b8;
+  --accent: #1f5130;
+  --accent-ink: #ffffff;
+  --accent-soft: #d8e7d3;
+  --accent-edge: #1f5130;
+  --good: #1f5130;
+  --warn: #7a4c07;
+  --bad: #8c2c17;
+  --theme-color: #edf2ea;
+}
+
+/*
+ * OCEAN — cool and deliberately more saturated than Slate.
+ *
+ * Slate is grey that happens to lean blue. This is actually teal, which reads
+ * as a different instrument rather than a quieter version of the same one.
+ */
+[data-theme='ocean'] {
+  color-scheme: light;
+  --bg: #eaf2f5;
+  --surface: #f7fbfc;
+  --surface-2: #d5e4ea;
+  --ink: #0b1b22;
+  --ink-2: #274049;
+  --ink-3: #4e6b76;
+  --line: #b8d0d9;
+  --accent: #0e5a6e;
+  --accent-ink: #ffffff;
+  --accent-soft: #d2e7ee;
+  --accent-edge: #0e5a6e;
+  --good: #17643f;
+  --warn: #7a4c07;
+  --bad: #8e2b24;
+  --theme-color: #eaf2f5;
+}
+
+/*
+ * PAPER — warm sepia, like a yardage book left in the sun.
+ *
+ * Warmer and higher-contrast than Clay, which sits in a similar family but
+ * softer. This one has actual ink-on-paper bite.
+ */
+[data-theme='paper'] {
+  color-scheme: light;
+  --bg: #f5f0e6;
+  --surface: #fdfaf2;
+  --surface-2: #e8e0cf;
+  --ink: #2a2418;
+  --ink-2: #4a4030;
+  --ink-3: #6b5f4a;
+  --line: #d5cab2;
+  --accent: #7c4a21;
+  --accent-ink: #ffffff;
+  --accent-soft: #ede2cc;
+  --accent-edge: #7c4a21;
+  --good: #2f6b3a;
+  --warn: #8a5a12;
+  --bad: #9b3a1f;
+  --theme-color: #f5f0e6;
+}
+
+/*
+ * MIDNIGHT — a true neutral dark.
+ *
+ * Dusk is a green-tinted dark; this is charcoal with a cool accent, for anyone
+ * who wants dark mode without the app still insisting on being about grass.
+ */
+[data-theme='midnight'] {
+  color-scheme: dark;
+  --bg: #0b0b0c;
+  --surface: #17171a;
+  --surface-2: #242428;
+  --ink: #fafafa;
+  --ink-2: #d4d4d8;
+  --ink-3: #a1a1aa;
+  --line: #2e2e33;
+  --accent: #93c5fd;
+  --accent-ink: #0b0b0c;
+  --accent-soft: #1e293b;
+  --accent-edge: #93c5fd;
+  --good: #6ee7b7;
+  --warn: #fcd34d;
+  --bad: #fca5a5;
+  --theme-color: #0b0b0c;
+}
+
 [data-theme='dusk'] {
   color-scheme: dark;
   --bg: #111814;

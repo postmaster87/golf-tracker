@@ -57,7 +57,20 @@ export const PENALTY_TYPES = {
 
 export const ROUND_TYPES = ['practice', 'tournament'];
 export const TEE_SETS = ['blue', 'gold', 'white', 'red'];
-export const THEMES = ['fairway', 'clay', 'slate', 'dusk'];
+/** Light palettes first, then dark, so the picker reads in a sensible order. */
+export const THEMES = [
+  'fairway',
+  'forest',
+  'clay',
+  'paper',
+  'slate',
+  'ocean',
+  'ink',
+  'dusk',
+  'midnight',
+];
+
+export const DARK_THEMES = new Set(['dusk', 'midnight']);
 
 export function uid(prefix = '') {
   const raw =

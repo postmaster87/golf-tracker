@@ -5,7 +5,30 @@ import { VEENKER } from '../data/courses.js';
 import { BASELINES, SOURCE, CATEGORY_DEFINITION } from '../analysis/benchmarks.js';
 import * as wakeLock from '../gps/wakelock.js';
 
-const THEME_LABELS = { fairway: 'Fairway', clay: 'Clay', slate: 'Slate', dusk: 'Dusk' };
+const THEME_LABELS = {
+  fairway: 'Fairway',
+  forest: 'Forest',
+  clay: 'Clay',
+  paper: 'Paper',
+  slate: 'Slate',
+  ocean: 'Ocean',
+  ink: 'Ink',
+  dusk: 'Dusk',
+  midnight: 'Midnight',
+};
+
+/** One line on what each is actually for, since the swatches only say so much. */
+const THEME_NOTES = {
+  fairway: 'Soft sage on cream',
+  forest: 'Deeper green, not washed out',
+  clay: 'Warm taupe and sand',
+  paper: 'Sepia, ink-on-paper bite',
+  slate: 'Cool neutral grey',
+  ocean: 'Saturated teal',
+  ink: 'Maximum sunlight legibility',
+  dusk: 'Dark, green-tinted',
+  midnight: 'Dark, true neutral',
+};
 
 export function settingsScreen(ctx) {
   const el = h('div', { class: 'screen' });
@@ -51,7 +74,11 @@ export function settingsScreen(ctx) {
             },
           },
           h('span', { text: THEME_LABELS[name] }),
-          swatchRow(name)
+          swatchRow(name),
+          h('span', {
+            style: { fontSize: '11px', fontWeight: '600', opacity: '0.75', letterSpacing: '0' },
+            text: THEME_NOTES[name] ?? '',
+          })
         )
       );
     }
@@ -60,7 +87,7 @@ export function settingsScreen(ctx) {
       h('p', {
         class: 'note muted',
         style: { marginTop: '8px' },
-        text: 'All four palettes are contrast-checked for direct sunlight; Dusk is the low-light option for reviewing data in the evening.',
+        text: `All ${THEMES.length} palettes are contrast-checked pair by pair, so none of them trades legibility for looks. Ink is the one to reach for in brutal sun; Dusk and Midnight are the low-light options.`,
       })
     );
     body.appendChild(themeCard);
