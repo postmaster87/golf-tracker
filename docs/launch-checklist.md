@@ -1,4 +1,24 @@
-# Launch checklist — first real round
+# Launch checklist
+
+## Round 2 changes (after the July 26 field test)
+
+**Rescue round 1 first.** The round you started is still on your phone — open the app, History, tap it, then **EDIT THIS ROUND**. You can hand-enter every hole from your scorecard, including the birdie on 14 the app missed. Jump to any hole from the `HOLE n ▾` control. Enter a first-putt distance where you can remember one; without it that hole contributes nothing to putting strokes gained.
+
+**The lock replaces your phone's lock button.** Tap 🔒 in the header before pocketing. Unlock is **two taps: top half, then bottom half**, within about a second. No PIN. GPS keeps tracking the whole time it's locked — that is the whole point, and it is why you should stop using the hardware lock during a round.
+
+**Auto-lock is 15s, and adjustable mid-round** from the ≡ menu: 10 / 15 / 30 / 60 / off. If it ever locks while you're still entering a shot, change it right there. It already refuses to fire while a sheet is open or a GPS burst is running.
+
+**You can always get back.** A nav row sits under the header in *every* state — `‹ 13` / `HOLE 14 ▾` / `15 ›`. Any hole change raises a one-tap **← BACK TO 14** banner. The trap from round 1 is gone.
+
+**The next tap is the only coloured button.** Everything else is dimmed, and a line above the buttons says what to do in words. `MARK SHOT 2` names which shot it is recording.
+
+**Marks are taken at the ball, before you hit** — including on the tee. That was ambiguous before; the app now says so on screen.
+
+Zoom is disabled entirely, and the screen locks to portrait.
+
+---
+
+# First-round setup (reference)
 
 Morning prep in order, then the on-course reference. Total prep is ~15 minutes.
 
