@@ -14,6 +14,7 @@ import { GpsService } from './gps/gps.js';
 import * as wakeLock from './gps/wakelock.js';
 import { appendTrack } from './round/round.js';
 import { clear, toast } from './ui/dom.js';
+import * as pocketLock from './ui/lock.js';
 import { homeScreen } from './ui/screen-home.js';
 import { setupScreen } from './ui/screen-setup.js';
 import { playScreen } from './ui/screen-play.js';
@@ -93,14 +94,73 @@ function render() {
 
 /* -------------------------------------------------------------------- GPS */
 
+/**
+ * Portrait lock.
+ *
+ * The manifest already asks for portrait, which Android honours for an
+ * installed PWA. This is the belt for the braces: it covers the case where the
+ * app is opened as a plain browser tab, where the manifest is ignored. Most
+ * browsers reject the call outside fullscreen, hence the silent catch — there
+ * is nothing useful to do about a refusal.
+ */
+function lockOrientation() {
+  try {
+    screen.orientation?.lock?.('portrait').catch(() => {});
+  } catch {
+    /* not supported here; the manifest is the real mechanism */
+  }
+}
+
 function startGps() {
   if (!ctx.gps.running) ctx.gps.start();
   wakeLock.acquire();
+  lockOrientation();
+  pocketLock.enable();
 }
 
 function stopGps() {
   ctx.gps.stop();
   wakeLock.release();
+  pocketLock.disable();
+}
+
+/**
+ * What the locked screen shows. Read live on every repaint, so a glance at a
+ * locked phone still answers "which hole am I on and is the GPS happy?"
+ * without unlocking.
+ */
+pocketLock.configure({
+  idleMs: (ctx.app.settings.autoLockSec ?? 15) * 1000,
+  // Never auto-lock mid-task: a sheet open on screen or a GPS burst in flight
+  // both mean hands are on the phone deliberately.
+  canLock: () => !document.querySelector('.scrim, .capture'),
+  status: () => {
+    const hole = ctx.round?.holes?.[ctx.round.currentHoleIndex];
+    const fix = ctx.gps.current;
+    const max = ctx.app.settings.maxAccuracyM;
+    return {
+      holeLabel: hole ? `H${hole.number}` : '—',
+      holeMeta: hole
+        ? `Par ${hole.par}${hole.yards ? ` · ${hole.yards} yd` : ''} · ${
+            ctx.round.currentHoleIndex + 1
+          }/${ctx.round.holes.length}`
+        : '',
+      accuracy: fix ? `±${fix.acc.toFixed(1)} m` : 'GPS —',
+      quality: !fix ? 'none' : fix.acc <= max / 2 ? 'good' : fix.acc <= max ? 'degraded' : 'poor',
+    };
+  },
+});
+
+// Repaint the round UI when the lock is released, so anything that changed
+// while locked (GPS status, a resumed watch) is reflected immediately.
+pocketLock.onChange((locked) => {
+  if (!locked) active?.tick?.();
+});
+
+// Any deliberate interaction with the app pushes the auto-lock back out.
+// Capture phase so it counts even for handlers that stop propagation.
+for (const type of ['pointerdown', 'keydown']) {
+  document.addEventListener(type, () => pocketLock.noteActivity(), { capture: true, passive: true });
 }
 
 ctx.gps.subscribe((event) => {
@@ -115,7 +175,8 @@ ctx.gps.subscribe((event) => {
   const now = Date.now();
   if (now - lastTick > 400) {
     lastTick = now;
-    active?.tick?.();
+    if (pocketLock.isLocked()) pocketLock.tick();
+    else active?.tick?.();
   }
   if (event === 'error' && ctx.gps.error?.code === 1) {
     active?.tick?.();

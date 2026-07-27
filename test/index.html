@@ -31,9 +31,10 @@
     <div id="summary">running…</div>
     <div id="out"></div>
     <script type="module">
-      import { getResults, runContrastTests } from './run.js';
+      import { getResults, runContrastTests, runLockTests } from './run.js';
 
       await runContrastTests();
+      await runLockTests();
       const results = getResults();
       const failed = results.filter((r) => !r.ok);
 

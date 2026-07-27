@@ -53,6 +53,7 @@ import {
   CATEGORIES,
   DEFAULT_SHORT_GAME_YARDS,
 } from '../js/analysis/strokes-gained.js';
+import * as pocketLock from '../js/ui/lock.js';
 import {
   mean as tMean,
   stdDev,
@@ -1410,6 +1411,100 @@ test('categorySeries runs oldest to newest for plotting', () => {
   eq(pts[0].value, -3, 'oldest first');
   eq(pts[2].value, -1, 'newest last');
 });
+
+/* -------------------------------------------------------------- pocket lock */
+
+/**
+ * These are regression tests for a field failure, not hypotheticals. Round 1
+ * became unloggable because a phone in a back pocket, sat on, generated real
+ * touch events that advanced a hole. Each case below is a property of being
+ * sat on: sustained pressure, several contacts at once, smeared movement.
+ */
+group('pocket lock');
+
+const lockTap = async (y, { id = 1, holdMs = 80, dx = 0 } = {}) => {
+  const ov = document.querySelector('.lock-screen');
+  const fire = (type, cx) =>
+    ov.dispatchEvent(
+      new PointerEvent(type, { clientX: cx, clientY: y, pointerId: id, bubbles: true, cancelable: true })
+    );
+  fire('pointerdown', 100);
+  await new Promise((r) => setTimeout(r, holdMs));
+  fire('pointerup', 100 + dx);
+};
+
+const TOP = () => window.innerHeight * 0.2;
+const BOTTOM = () => window.innerHeight * 0.8;
+const pause = (ms) => new Promise((r) => setTimeout(r, ms));
+
+export async function runLockTests() {
+  group('pocket lock');
+
+  await (async () => {
+    try {
+      pocketLock.lock();
+      test('locking shows an overlay carrying hole and GPS status', () => {
+        const ov = document.querySelector('.lock-screen');
+        assert(ov, 'overlay present');
+        assert(ov.querySelector('.lock-hole'), 'hole shown');
+        assert(ov.querySelector('.lock-acc'), 'accuracy shown');
+        eq(pocketLock.isLocked(), true, 'reports locked');
+      });
+
+      // Sustained pressure IS a long press — this is why a hold gesture was
+      // rejected for this app.
+      await lockTap(TOP(), { holdMs: 900 });
+      await lockTap(BOTTOM(), { holdMs: 900 });
+      test('sitting on the phone (sustained pressure) does not unlock', () => {
+        eq(pocketLock.isLocked(), true, 'still locked');
+      });
+
+      const ov = document.querySelector('.lock-screen');
+      const fire = (type, x, y, id) =>
+        ov.dispatchEvent(new PointerEvent(type, { clientX: x, clientY: y, pointerId: id, bubbles: true, cancelable: true }));
+      fire('pointerdown', 100, TOP(), 1);
+      fire('pointerdown', 200, BOTTOM(), 2);
+      await pause(60);
+      fire('pointerup', 100, TOP(), 1);
+      fire('pointerup', 200, BOTTOM(), 2);
+      test('simultaneous contacts do not unlock', () => {
+        eq(pocketLock.isLocked(), true, 'still locked');
+      });
+
+      await lockTap(TOP());
+      await pause(80);
+      await lockTap(window.innerHeight * 0.25);
+      test('two taps in the same half do not unlock', () => {
+        eq(pocketLock.isLocked(), true, 'still locked');
+      });
+
+      await lockTap(TOP());
+      await pause(1500);
+      await lockTap(BOTTOM());
+      test('the two taps must fall inside the time window', () => {
+        eq(pocketLock.isLocked(), true, 'still locked');
+      });
+
+      await lockTap(TOP(), { dx: 90 });
+      await pause(80);
+      await lockTap(BOTTOM());
+      test('a smeared contact is not a tap', () => {
+        eq(pocketLock.isLocked(), true, 'still locked');
+      });
+
+      await lockTap(TOP());
+      await pause(120);
+      await lockTap(BOTTOM());
+      test('the deliberate gesture unlocks', () => {
+        eq(pocketLock.isLocked(), false, 'unlocked');
+        eq(document.querySelector('.lock-screen'), null, 'overlay removed');
+      });
+    } finally {
+      if (pocketLock.isLocked()) pocketLock.unlock();
+      pocketLock.disable();
+    }
+  })();
+}
 
 /* ------------------------------------------------------------ theme contrast */
 

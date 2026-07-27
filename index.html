@@ -2,7 +2,16 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <!--
+      user-scalable=no is normally an accessibility sin. Here it is a safety
+      feature: a sweaty two-finger brush inside a pocket was zooming the round
+      UI mid-hole, and there is nothing on this screen worth pinching. Every
+      target is already oversized for a gloved hand.
+    -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+    />
     <meta name="theme-color" content="#f2efe4" />
     <meta name="description" content="GPS shot-by-shot golf performance tracker" />
     <meta name="mobile-web-app-capable" content="yes" />

@@ -1,4 +1,5 @@
 import { h, card, sheet, confirmSheet, segmented, field, toast, frag } from './dom.js';
+import * as pocketLock from './lock.js';
 import { LIES, LIE_LABELS, PENALTY_TYPES } from '../data/schema.js';
 import { getCourse, playOrder, holeYards } from '../data/courses.js';
 import {
@@ -67,6 +68,14 @@ export function playScreen(ctx) {
         text: '≡',
         'aria-label': 'Round menu',
         onClick: openMenu,
+      }),
+      // Replaces the habit of hitting the phone's hardware lock: same one tap,
+      // but GPS keeps tracking and the round stays live underneath.
+      h('button', {
+        class: 'icon-btn',
+        text: '🔒',
+        'aria-label': 'Lock screen for pocket',
+        onClick: () => pocketLock.lock(),
       }),
       h('button', {
         class: 'hud-hole',
@@ -549,6 +558,9 @@ export function playScreen(ctx) {
                   h('button', {
                     class: 'btn',
                     text: '−',
+                    // Repeated fast taps are the interaction here, not a wet-screen
+                    // artefact, so this one opts out of the debounce.
+                    rapid: true,
                     onClick: () => {
                       draft.values[i] = Math.max(0, (draft.values[i] ?? 1) - 1);
                       render();
@@ -558,6 +570,7 @@ export function playScreen(ctx) {
                   h('button', {
                     class: 'btn',
                     text: '+',
+                    rapid: true,
                     onClick: () => {
                       draft.values[i] = (draft.values[i] ?? 0) + 1;
                       render();
@@ -957,6 +970,30 @@ export function playScreen(ctx) {
   function openMenu() {
     sheet('Round', (done) =>
       frag(
+        // Adjustable here, mid-hole, rather than buried in Settings — if the
+        // auto-lock is firing while you are still entering a shot, you need to
+        // fix that now, not after the round.
+        field(
+          'Auto-lock after',
+          segmented(
+            [
+              { value: 10, label: '10s' },
+              { value: 15, label: '15s' },
+              { value: 30, label: '30s' },
+              { value: 60, label: '60s' },
+              { value: 0, label: 'OFF' },
+            ],
+            ctx.app.settings.autoLockSec ?? 15,
+            (v) => {
+              ctx.app.settings.autoLockSec = v;
+              pocketLock.configure({ idleMs: v * 1000 });
+              ctx.persistApp();
+              done('autolock');
+              openMenu();
+            },
+            { columns: 5 }
+          )
+        ),
         // Optional refinement: exact distances for this hole, and one more
         // sample for the accumulated green position. Not needed to finish.
         h('button', {
@@ -1044,6 +1081,7 @@ export function playScreen(ctx) {
             h('button', {
               class: 'btn',
               text: '−',
+              rapid: true,
               onClick: (e) => {
                 draft[key] = Math.max(min, draft[key] - 1);
                 e.target.parentElement.querySelector('.v').textContent = String(draft[key]);
@@ -1053,6 +1091,7 @@ export function playScreen(ctx) {
             h('button', {
               class: 'btn',
               text: '+',
+              rapid: true,
               onClick: (e) => {
                 draft[key] = Math.min(max, draft[key] + 1);
                 e.target.parentElement.querySelector('.v').textContent = String(draft[key]);

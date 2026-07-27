@@ -88,6 +88,10 @@ export function newAppState() {
       puttUnit: 'paces', // how putt distances are entered
       paceFeet: 3.0, // Matt's stride, calibrated; used to convert paces to feet
       promptGreenEntry: true, // nudge for putts when leaving a hole without them
+      // Seconds of inactivity before the pocket lock engages; 0 = manual only.
+      // Adjustable mid-round from the round menu, because the right value
+      // depends on how long you linger on the screen between shots.
+      autoLockSec: 15,
       confirmHoleAdvance: true,
     },
     courses: {}, // custom courses only; built-ins live in courses.js

@@ -1,16 +1,41 @@
 /** Minimal DOM helpers. No framework — the whole app is a few screens. */
 
+/**
+ * How long a control ignores a repeat activation after firing.
+ *
+ * A wet screen doubles touches: one physical press lands as two events
+ * milliseconds apart, which on a hole-advance button is the difference between
+ * playing hole 15 and hole 16. 300ms is far longer than any such doubling and
+ * far shorter than a deliberate second press.
+ *
+ * Steppers and quick-value grids opt out with `rapid: true`, since there fast
+ * repeated taps are the actual interaction rather than an artefact.
+ */
+const CLICK_DEBOUNCE_MS = 300;
+
 export function h(tag, props = {}, ...children) {
   const el = document.createElement(tag);
+  const rapid = props?.rapid === true;
   for (const [k, v] of Object.entries(props ?? {})) {
     if (v == null || v === false) continue;
+    if (k === 'rapid') continue;
     if (k === 'class') el.className = v;
     else if (k === 'text') el.textContent = v;
     else if (k === 'html') el.innerHTML = v;
     else if (k === 'dataset') Object.assign(el.dataset, v);
     else if (k === 'style') Object.assign(el.style, v);
     else if (k.startsWith('on') && typeof v === 'function') {
-      el.addEventListener(k.slice(2).toLowerCase(), v);
+      const type = k.slice(2).toLowerCase();
+      const handler =
+        type === 'click' && !rapid
+          ? (e) => {
+              const now = performance.now();
+              if (now - (el.__lastFire ?? -Infinity) < CLICK_DEBOUNCE_MS) return;
+              el.__lastFire = now;
+              v(e);
+            }
+          : v;
+      el.addEventListener(type, handler);
     } else if (v === true) el.setAttribute(k, '');
     else el.setAttribute(k, v);
   }

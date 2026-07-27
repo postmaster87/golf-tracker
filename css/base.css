@@ -28,6 +28,21 @@ body {
   line-height: 1.4;
   overscroll-behavior-y: contain; /* no accidental pull-to-refresh mid-round */
   -webkit-tap-highlight-color: transparent;
+  /* Kills double-tap zoom everywhere, not just on buttons. Pinch is blocked by
+     the viewport meta; between them there is no gesture left that can change
+     the zoom level during a round. */
+  touch-action: manipulation;
+  /* Nothing on the round screen is text you would want to select, and a long
+     press on a wet screen was raising the selection handles. */
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Inputs are the one place selection must still work. */
+input,
+textarea {
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 button,
@@ -155,11 +170,26 @@ button {
   pointer-events: none;
 }
 
+/*
+ * Dead zones. A wet fingertip smears across a wider contact patch than a dry
+ * one, and an 8px gutter was letting a single smeared touch reach two adjacent
+ * controls. 16px between neighbours costs a little width and buys unambiguous
+ * hits — worth it when the two neighbours are UNDO and advance-a-hole.
+ */
 .btn-row {
   display: grid;
   grid-auto-flow: column;
   grid-auto-columns: 1fr;
-  gap: 8px;
+  gap: 16px;
+}
+
+.footer {
+  gap: 14px;
+}
+
+.seg,
+.lie-grid {
+  gap: 14px;
 }
 
 .btn.sm {
@@ -523,6 +553,117 @@ input[type='text'] {
 
 .sheet .btn {
   margin-bottom: 8px;
+}
+
+/* -------------------------------------------------------------- lock screen */
+
+/*
+ * Deliberately not theme-coloured. Near-black at all times: it is unmistakably
+ * a different mode from the round UI, it is the most readable thing possible in
+ * direct sun for the two numbers that matter, and it spares an OLED panel four
+ * hours of static bright pixels in a pocket.
+ */
+.lock-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: #050706;
+  color: #f4f1e8;
+  display: grid;
+  grid-template-rows: 1fr auto 1fr;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* The two tap targets are literally half the screen each — impossible to miss
+   with a gloved hand, and the armed one is unmistakable at a glance. */
+.lock-zone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 16px;
+  transition: background 120ms ease;
+}
+
+.lock-zone[data-armed='true'] {
+  background: #0e1c14;
+}
+
+.lock-cue {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  opacity: 0.35;
+}
+
+.lock-zone[data-armed='true'] .lock-cue {
+  opacity: 1;
+  color: #8fd0a4;
+}
+
+.lock-step {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  font-size: 14px;
+  letter-spacing: 0;
+}
+
+.lock-band {
+  display: grid;
+  place-items: center;
+  padding: 10px;
+  border-block: 1px solid #1c2620;
+}
+
+.lock-hole {
+  font-size: 64px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+
+.lock-meta {
+  font-size: 15px;
+  font-weight: 600;
+  opacity: 0.75;
+}
+
+.lock-acc {
+  font-size: 20px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  padding: 6px 16px;
+  border-radius: 12px;
+  border: 2px solid currentColor;
+}
+
+.lock-acc[data-q='good'] {
+  color: #8fd0a4;
+}
+.lock-acc[data-q='degraded'] {
+  color: #e8bd6d;
+}
+.lock-acc[data-q='poor'],
+.lock-acc[data-q='none'] {
+  color: #f0947c;
+}
+
+.lock-note {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  opacity: 0.55;
+  text-transform: uppercase;
 }
 
 /* ------------------------------------------------------------------ toast */
