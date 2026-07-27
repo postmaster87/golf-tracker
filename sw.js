@@ -15,7 +15,7 @@
  * the network is indistinguishable from being offline, so treat it as offline.
  */
 
-const CACHE = 'gt-shell-v4';
+const CACHE = 'gt-shell-v5';
 const NET_TIMEOUT_MS = 2500;
 const SHELL = [
   './',
@@ -40,6 +40,7 @@ const SHELL = [
   './js/analysis/trends.js',
   './js/ui/screen-trends.js',
   './js/ui/dom.js',
+  './js/ui/lock.js',
   './js/ui/screen-home.js',
   './js/ui/screen-setup.js',
   './js/ui/screen-play.js',

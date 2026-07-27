@@ -1758,6 +1758,65 @@ export async function runContrastTests() {
   }
 }
 
+/**
+ * The offline shell must list every module the app actually loads.
+ *
+ * This is not hypothetical: js/ui/lock.js was imported by app.js but absent
+ * from the service worker's SHELL, so a mid-round refresh out of signal — the
+ * exact scenario the offline cache exists for — would have failed to boot.
+ * A missing entry is invisible until the one moment it matters.
+ *
+ * Rather than trust a hand-maintained list, this walks the real import graph
+ * from the entry point and checks the cache list covers it.
+ */
+export async function runShellTests() {
+  group('offline shell');
+
+  const base = new URL('../', import.meta.url);
+  const swText = await fetch(new URL('sw.js', base)).then((r) => r.text());
+  const shell = [...swText.matchAll(/'\.\/([^']+)'/g)].map((m) => m[1]);
+
+  // Walk the static import graph from the entry point.
+  const seen = new Set();
+  const queue = ['js/app.js'];
+  while (queue.length) {
+    const path = queue.shift();
+    if (seen.has(path)) continue;
+    seen.add(path);
+    let src;
+    try {
+      src = await fetch(new URL(path, base)).then((r) => (r.ok ? r.text() : ''));
+    } catch {
+      src = '';
+    }
+    for (const m of src.matchAll(/from\s+'([^']+\.js)'/g)) {
+      const spec = m[1];
+      if (!spec.startsWith('.')) continue;
+      queue.push(new URL(spec, new URL(path, base)).pathname.replace(/^.*?\/(js\/)/, '$1'));
+    }
+  }
+
+  test('the service worker caches every module the app statically imports', () => {
+    const missing = [...seen].filter((p) => !shell.includes(p));
+    eq(missing.join(', ') || '(none)', '(none)', 'modules absent from the offline shell');
+  });
+
+  test('every file the service worker lists actually exists', async () => {
+    // Guards the reverse failure: a typo or a renamed file leaves the install
+    // step calling addAll on a 404, which rejects and silently disables the
+    // whole offline cache.
+    eq(shell.length > 10, true, `parsed ${shell.length} shell entries`);
+  });
+
+  for (const path of shell) {
+    if (!/\.(js|css|html|svg|webmanifest)$/.test(path)) continue;
+    const res = await fetch(new URL(path, base)).then((r) => r.status).catch(() => 0);
+    test(`shell entry resolves: ${path}`, () => {
+      eq(res, 200, `expected 200, got ${res}`);
+    });
+  }
+}
+
 export function getResults() {
   return results;
 }

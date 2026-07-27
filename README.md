@@ -29,7 +29,9 @@ Then open `http://localhost:8123/`. Geolocation needs a secure context: `localho
 
 > **Local dev gotcha:** `python -m http.server` sends no cache headers, so the browser caches modules heuristically and can serve stale JS after an edit — the page keeps rendering old code while the file on disk is correct. Hard-reload, or just switch between `localhost` and `127.0.0.1`, which are separate cache and service-worker origins. This does not affect GitHub Pages, which sends proper validators.
 
-**Tests** — open `http://localhost:8123/test/`. 184 assertions covering the geodesy (against an independent Vincenty solution), the burst reduction, the Veenker scorecard, the green workflow, every derivation, the benchmark tables (against Broadie's published anchors), the strokes gained arithmetic, the trend statistics and the hypothesis verdict's refusal to call things early, storage footprint, export/import round-tripping, and WCAG contrast on all four palettes. They run against the real shipped modules and the real shipped CSS.
+**Tests** — open `http://localhost:8123/test/`. 323 assertions covering the geodesy (against an independent Vincenty solution), the burst reduction, the Veenker scorecard, the green workflow, club tracking, every derivation, the benchmark tables (against Broadie's published anchors), the strokes gained arithmetic, the trend statistics and the hypothesis verdict's refusal to call things early, storage footprint, export/import round-tripping, the pocket lock against replayed pocket-touch patterns, WCAG contrast across all nine palettes, and the offline shell against the app's real import graph. They run against the real shipped modules and the real shipped CSS.
+
+The suite snapshots and restores localStorage, so opening it on the same origin as live rounds never costs you data.
 
 **Simulated GPS** — append `?sim=1` to exercise the whole round flow indoors. It stamps `simulated: true` on any round it creates and shows a red banner, so synthetic rounds can never be mistaken for real ones. Drive it from the console with `__sim.move(north, east)` in metres.
 

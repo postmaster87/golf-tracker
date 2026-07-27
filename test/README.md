@@ -32,6 +32,9 @@ To regenerate them, run a Vincenty implementation over the coordinate pairs in `
 | strokes gained | the SG identity by hand, the paper's worked example, additivity, categorisation, penalties, unattributed shots, practice priority |
 | trend statistics | sample sd, t-based intervals at small n, rolling windows reporting their real n, recency weighting doing real work |
 | the open question | refusing a verdict until the gap clears its interval, naming the right culprit once it does, and pairing surviving a large common per-round shift |
+| clubs | the bag and its order, putts auto-assigned the putter, club surviving into the analysis alongside measured shot length |
+| pocket lock | replays of the round-1 field failure — sustained pressure, simultaneous contacts, same-half taps, a stale window and a smeared contact all fail to unlock |
+| offline shell | walks the real import graph from `js/app.js` and asserts the service worker caches every module it finds, plus that every listed file resolves |
 | undo | ordering, restore, renumbering |
 | track decimation | movement/time thresholds, cap |
 | course learning | running means, poor marks excluded, cup sanity check, starting-nine detection abstaining |
