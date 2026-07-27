@@ -277,6 +277,26 @@ export function playScreen(ctx) {
       );
     }
 
+    /*
+     * Cup reminder — persistent, not a toast.
+     *
+     * It appears the moment the ball is logged on the green and stays until the
+     * cup is marked, because the moment it needs to be read is several minutes
+     * later: phone back out of the pocket, ball being picked out of the hole.
+     * A message that had already faded would be no reminder at all.
+     */
+    const ballOnGreen = hl.shots.some((s) => s.lie === 'green' && s.mark);
+    if (!editing && ballOnGreen && !hl.cup && !hl.manual) {
+      body.appendChild(
+        h(
+          'div',
+          { class: 'banner', dataset: { kind: 'warn' } },
+          h('span', { text: 'Mark the cup when you hole out — it makes every distance on this hole exact.' }),
+          h('button', { class: 'btn sm', text: 'MARK CUP', onClick: () => beginCapture('cup') })
+        )
+      );
+    }
+
     if (showScoring()) body.appendChild(tally(hl));
     body.appendChild(shotList(hl));
 
@@ -660,9 +680,11 @@ export function playScreen(ctx) {
     markWarning = reduced.quality === 'poor' ? poorMarkWarning('shot') : null;
     paint();
 
-    // Nothing auto-opens on the green mark any more: the cup is marked next,
-    // at the hole, and the putt entry follows from there with the first putt
-    // already measured.
+    // Immediate acknowledgement that the green was logged, alongside the
+    // persistent banner that carries the reminder to the hole.
+    if (chosenLie === 'green' && !hl.cup) {
+      toast('On the green. Mark the cup when you hole out.', { ms: 6000 });
+    }
   }
 
   /**
