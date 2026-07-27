@@ -72,6 +72,22 @@ export function playScreen(ctx) {
   const hole = () => currentHole(round);
   const isLastHole = () => round.currentHoleIndex >= round.holes.length - 1;
 
+  /**
+   * Whether to show scoring and distances while the round is being played.
+   *
+   * Knowing you are three over on the seventh changes how the eighth gets
+   * played, and in a practice round that is noise — the point is the swing, not
+   * the number. In a tournament it is information you need. Editing a finished
+   * round always shows everything, since there is nothing left to influence.
+   */
+  const showScoring = () => {
+    if (editing) return true;
+    const mode = ctx.app.settings.showScoring ?? 'tournament';
+    if (mode === 'always') return true;
+    if (mode === 'never') return false;
+    return round.type === 'tournament';
+  };
+
   /** Save whichever round this screen is driving. */
   const persist = () => {
     if (editing) ctx.persistRound(round);
@@ -258,7 +274,7 @@ export function playScreen(ctx) {
       );
     }
 
-    body.appendChild(tally(hl));
+    if (showScoring()) body.appendChild(tally(hl));
     body.appendChild(shotList(hl));
 
     if (capture) paintCapture();
@@ -389,12 +405,17 @@ export function playScreen(ctx) {
               : null,
             s.penalty ? h('span', { class: 'flag', text: `+${s.penalty.strokes} ${s.penalty.type}` }) : null,
             s.mark?.quality === 'poor' ? h('span', { class: 'flag', text: 'poor fix' }) : null,
-            h(
-              'span',
-              { class: 'dist' },
-              primary,
-              h('small', { text: g.toHoleM != null ? `to hole${secondary ? ` · ${secondary}` : ''}` : secondary })
-            )
+            // Distances are part of "statistics" — hidden mid-practice-round
+            // for the same reason as the score. The mark is still recorded and
+            // shows in full on the round card afterwards.
+            showScoring()
+              ? h(
+                  'span',
+                  { class: 'dist' },
+                  primary,
+                  h('small', { text: g.toHoleM != null ? `to hole${secondary ? ` · ${secondary}` : ''}` : secondary })
+                )
+              : h('span', { class: 'dist' }, h('small', { text: s.mark ? 'marked' : 'entered' }))
           )
         )
       );
@@ -475,7 +496,19 @@ export function playScreen(ctx) {
       );
     }
 
-    if (isShot) {
+    if (isShot && capture.firstShot) {
+      // Nothing to choose — say what is being saved and let the burst finish.
+      wrap.appendChild(
+        h(
+          'div',
+          { class: 'field-settled' },
+          h('span', { class: 'settled-tick', text: '✓' }),
+          h('span', { text: 'Tee shot — saving when the fix settles' })
+        )
+      );
+    }
+
+    if (isShot && !capture.firstShot) {
       const grid = h('div', { class: 'lie-grid' });
       for (const lie of LIES) {
         grid.appendChild(
@@ -528,19 +561,22 @@ export function playScreen(ctx) {
   function beginCapture(kind) {
     if (capture) return;
     const controller = new AbortController();
+    /*
+     * The first shot of a hole is from the tee by definition, so the app knows
+     * the lie without being told and commits as soon as the burst completes.
+     * One tap for a tee shot.
+     *
+     * For every later shot nothing is pre-selected: a highlighted default reads
+     * as already-chosen while still requiring the tap, which is the app
+     * promising one thing and demanding another.
+     */
+    const firstShot = kind === 'shot' && hole().shots.length === 0;
+
     capture = {
       kind,
-      /*
-       * Deliberately NOT pre-selected for a shot.
-       *
-       * The lie used to default to "tee" and render highlighted, which reads as
-       * already-chosen — but the tap was still required, because tapping a lie
-       * IS the commit. The highlight promised something the interaction did not
-       * honour. Nothing is selected now, and the lie group carries a required
-       * marker instead.
-       */
-      chosenLie: kind === 'shot' ? null : 'green',
-      lieConfirmed: false,
+      firstShot,
+      chosenLie: kind === 'shot' ? (firstShot ? 'tee' : null) : 'green',
+      lieConfirmed: kind !== 'shot' || firstShot,
       club: null,
       reduced: null,
       controller,
@@ -613,6 +649,11 @@ export function playScreen(ctx) {
     persist();
     markWarning = reduced.quality === 'poor' ? poorMarkWarning('shot') : null;
     paint();
+
+    // Ball on the green means the hole is one step from finished, so the putt
+    // entry comes up on its own rather than waiting to be found. Closing it
+    // costs nothing — ENTER PUTTS reopens it whenever.
+    if (chosenLie === 'green') openGreenEntry(hl);
   }
 
   /**
@@ -756,14 +797,6 @@ export function playScreen(ctx) {
                 }
               )
             )
-          );
-          wrap.appendChild(
-            h('p', {
-              class: 'note muted',
-              text: `Distance to the hole before each putt${
-                draft.unit === 'paces' ? ` · your pace is set to ${draft.paceFeet} ft` : ''
-              }. Leave one blank if you didn't step it off — a missing number is better than a made-up one.`,
-            })
           );
         }
 
@@ -1113,17 +1146,22 @@ export function playScreen(ctx) {
                 openGreenEntry(hl);
               },
             })
-          : h('button', {
-              class: 'btn',
-              text:
-                shot.distanceFt != null
-                  ? `Distance to hole: ${Math.round(shot.distanceFt / 3)} yd (entered)`
-                  : 'Enter distance to hole',
-              onClick: () => {
-                done('distance');
-                openShotDistance(hl, shot);
-              },
-            }),
+          : // Only offered on par 3s. Everywhere else GPS measures the distance
+            // to the hole perfectly well, and a hand-entry field for it is
+            // clutter on a screen that cannot afford any.
+            hl.par === 3
+            ? h('button', {
+                class: 'btn',
+                text:
+                  shot.distanceFt != null
+                    ? `Distance to hole: ${Math.round(shot.distanceFt / 3)} yd (entered)`
+                    : 'Enter distance to hole',
+                onClick: () => {
+                  done('distance');
+                  openShotDistance(hl, shot);
+                },
+              })
+            : null,
         shot.mark
           ? h('p', {
               class: 'note muted',

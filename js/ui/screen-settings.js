@@ -302,6 +302,34 @@ export function settingsScreen(ctx) {
     );
     body.appendChild(dataCard);
 
+    /* ------------------------------------------------- during a round */
+    const duringCard = card('While you are playing');
+    duringCard.appendChild(
+      field(
+        'Show scoring and distances',
+        segmented(
+          [
+            { value: 'never', label: 'NEVER' },
+            { value: 'tournament', label: 'TOURNAMENT' },
+            { value: 'always', label: 'ALWAYS' },
+          ],
+          s.showScoring ?? 'tournament',
+          (v) => {
+            s.showScoring = v;
+            ctx.persistApp();
+            paint();
+          }
+        )
+      )
+    );
+    duringCard.appendChild(
+      h('p', {
+        class: 'note muted',
+        text: 'Hides the running score, putts, penalties and shot distances on the play screen. Knowing you are three over changes how the next hole gets played, which is noise in a practice round and information in a tournament. Nothing is lost — the round card and Trends always show everything afterwards.',
+      })
+    );
+    body.appendChild(duringCard);
+
     /* ------------------------------------------------------------ clubs */
     const clubCard = card('Club tracking');
     clubCard.appendChild(

@@ -108,6 +108,16 @@ export function newAppState() {
       // Club per shot. On by default because it is the only way to find out
       // whether the extra tap is worth it; one switch turns it off.
       trackClubs: true,
+      /**
+       * Whether the play screen shows scoring and distances mid-round.
+       * 'never' | 'tournament' | 'always'.
+       *
+       * Default 'tournament': in a practice round the score is a distraction
+       * from the thing being practised, but in a tournament you need to know
+       * where you stand. The round card and Trends are unaffected — this is
+       * only about what is visible while standing over the ball.
+       */
+      showScoring: 'tournament',
       confirmHoleAdvance: true,
     },
     courses: {}, // custom courses only; built-ins live in courses.js

@@ -590,10 +590,19 @@ input[type='text'] {
  * demanding a tap, which is the app promising one thing and requiring another.
  * A box says "input needed here" without claiming any particular answer.
  */
+/*
+ * Required uses --warn, NOT --accent.
+ *
+ * Bordering it in the theme accent made it a slightly darker shade of whatever
+ * the app already is — it read as decoration rather than as a demand. Amber is
+ * a different hue from every palette's accent (green, blue, teal, brown, grey),
+ * so "input needed" is legible as a category rather than as emphasis. Every
+ * palette's --warn is already contrast-tested against --surface.
+ */
 .field-required {
-  border: 2px solid var(--accent-edge);
+  border: 3px solid var(--warn);
   border-radius: 14px;
-  padding: 10px;
+  padding: 12px;
   background: var(--surface);
 }
 
@@ -601,19 +610,19 @@ input[type='text'] {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 8px;
-  font-size: 13px;
+  margin-bottom: 10px;
+  font-size: 14px;
   font-weight: 800;
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  color: var(--accent);
+  color: var(--warn);
 }
 
 .req-dot {
-  width: 9px;
-  height: 9px;
+  width: 11px;
+  height: 11px;
   border-radius: 50%;
-  background: var(--accent);
+  background: var(--warn);
   flex: 0 0 auto;
 }
 
@@ -981,12 +990,64 @@ input[type='text'] {
 .hole-jump {
   display: grid;
   grid-template-columns: repeat(6, 1fr);
-  gap: 6px;
+  gap: 10px;
 }
 
 .hole-jump .seg-btn {
   min-height: 56px;
   font-size: 17px;
+}
+
+/*
+ * The putt-distance quick tapper. Bigger than the generic grid: it is used
+ * several times a hole with a glove on, and the explanatory note that used to
+ * sit under it has been removed to buy exactly this room.
+ */
+.sheet .hole-jump {
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+
+.sheet .hole-jump .seg-btn {
+  min-height: 74px;
+  font-size: 24px;
+  font-weight: 800;
+}
+
+/* Stepper row either side of the readout, same reasoning. */
+.sheet .btn-row .btn {
+  min-height: 74px;
+  font-size: 30px;
+}
+
+.sheet .btn-row .stat .v {
+  font-size: 34px;
+}
+
+/* Nothing is pre-selected, but the lie the app already knows is stated. */
+.field-settled {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 12px;
+  border-radius: 14px;
+  border: 2px solid var(--line);
+  background: var(--surface);
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.settled-tick {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--good);
+  color: var(--bg);
+  font-size: 15px;
+  font-weight: 800;
+  flex: 0 0 auto;
 }
 
 .hole-jump .seg-btn[data-done='true'] {

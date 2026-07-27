@@ -137,9 +137,17 @@ function stopGps() {
  */
 pocketLock.configure({
   idleMs: (ctx.app.settings.autoLockSec ?? 15) * 1000,
-  // Never auto-lock mid-task: a sheet open on screen or a GPS burst in flight
-  // both mean hands are on the phone deliberately.
-  canLock: () => !document.querySelector('.scrim, .capture'),
+  /*
+   * Only an in-flight GPS burst blocks the auto-lock.
+   *
+   * An open sheet used to block it too, but the putt entry now opens by itself
+   * when a ball is marked on the green — so a blocking sheet would mean the
+   * phone goes into a back pocket unlocked with a modal up, which is precisely
+   * the failure the lock exists to prevent. The idle timer already resets on
+   * every interaction, so an actively-used sheet never locks; one left open and
+   * untouched for the idle period should.
+   */
+  canLock: () => !document.querySelector('.capture'),
   status: () => {
     const hole = ctx.round?.holes?.[ctx.round.currentHoleIndex];
     const fix = ctx.gps.current;
