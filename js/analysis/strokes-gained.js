@@ -116,11 +116,18 @@ export function holeStrokesGained(hole, opts = {}) {
     // A hand-entered hole has no shot-level detail. Its putting is still
     // recoverable if a first-putt distance was written down.
     const puttSG = puttingSG(hole, { baseline });
+    const putts = hole.manual.putts ?? 0;
     if (puttSG != null) {
       out.categories.putting += puttSG;
-      out.counts.putting += hole.manual.putts ?? 0;
+      out.counts.putting += putts;
+    } else if (putts > 0) {
+      // Without a first-putt distance these putts produce no analysis either.
+      // Dropping them silently would under-report how much of the hole the
+      // round card could not account for.
+      out.unattributed += putts;
+      out.reasons.push(`hole ${hole.number}: hand-entered, ${putts} putt(s) with no first-putt distance`);
     }
-    const others = (hole.manual.strokes ?? 0) - (hole.manual.putts ?? 0);
+    const others = (hole.manual.strokes ?? 0) - putts;
     out.unattributed += Math.max(0, others);
     if (others > 0) out.reasons.push(`hole ${hole.number}: hand-entered, ${others} full shot(s) have no positions`);
     return out;

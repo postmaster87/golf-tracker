@@ -758,6 +758,69 @@ test('a hole with a putt count but no distances still counts toward 3-putts', ()
   eq(t.proximityFt.length, 0, 'but contributes no proximity');
 });
 
+group('editing a finished round');
+
+/**
+ * The golfer is the source of truth about what happened, so a saved round has
+ * to stay fully malleable. These pin the invariants the edit screen relies on:
+ * completed holes accept changes, derivations follow, and nothing about editing
+ * quietly reopens a round that was finished.
+ */
+test('a completed hole can be re-scored and the derivations follow', () => {
+  const round = par4Round();
+  const hole = round.holes[0];
+  addShot(hole, { lie: 'tee', reduced: fakeReduced(TEE) });
+  addShot(hole, { lie: 'green', reduced: fakeReduced(offsetM(TEE, 330, 0)) });
+  setGreenEntry(hole, { putts: 2, distances: [12, 1], unit: 'feet' });
+  round.status = 'completed';
+  // The ball marked on the green IS the first putt, so this is tee + 2 putts.
+  eq(holeStrokes(hole), 3, 'as first logged');
+
+  // Weeks later: it was actually a three-putt.
+  setGreenEntry(hole, { putts: 3, distances: [12, 4, 1], unit: 'feet' });
+  eq(holeStrokes(hole), 4, 'score follows the correction');
+  eq(roundTotals(round).threePlusPutts, 1, 'and so do the putting stats');
+  eq(round.status, 'completed', 'editing does not reopen the round');
+});
+
+test('a hole missed entirely can be added afterwards', () => {
+  const round = par4Round();
+  round.status = 'completed';
+  const hole = round.holes[13]; // the hole the app lost in round 1
+  eq(isHoleComplete(hole), false, 'nothing logged at the time');
+
+  setManualHole(hole, { strokes: 3, putts: 1, firstPuttFt: 3 });
+  eq(holeStrokes(hole), 3, 'the birdie is recorded');
+  eq(roundTotals(round).holes, 1, 'and it counts toward the round');
+  const sg = holeStrokesGained(hole, { baseline: 'scratch' });
+  assert(sg.categories.putting > 0, 'a 3-foot one-putt gains putting strokes');
+});
+
+test('a hand-entered hole without a putt distance is honest about it', () => {
+  const round = par4Round();
+  const hole = round.holes[0];
+  setManualHole(hole, { strokes: 5, putts: 2 }); // no firstPuttFt
+  const sg = holeStrokesGained(hole, { baseline: 'scratch' });
+  eq(sg.categories.putting, 0, 'no putting SG can be computed');
+  eq(sg.unattributed, 5, 'every stroke is reported as unattributed');
+  assert(sg.reasons.length > 0, 'with the reason stated');
+});
+
+test('correcting a lie on a finished hole moves the strokes between categories', () => {
+  const round = par4Round();
+  const hole = round.holes[0];
+  addShot(hole, { lie: 'tee', reduced: fakeReduced(TEE) });
+  const second = addShot(hole, { lie: 'rough', reduced: fakeReduced(offsetM(TEE, 240, 0)) });
+  addShot(hole, { lie: 'green', reduced: fakeReduced(offsetM(TEE, 340, 0)) });
+  setGreenEntry(hole, { putts: 2, distances: [15, 2], unit: 'feet' });
+  const before = holeStrokesGained(hole, { baseline: 'tour' }).shots[1].expectedStart;
+
+  second.lie = 'fairway'; // it was actually in the short stuff
+  const after = holeStrokesGained(hole, { baseline: 'tour' }).shots[1].expectedStart;
+  assert(after < before, `fairway should be easier than rough: ${after} vs ${before}`);
+  eq(fir(hole), true, 'and the fairway now counts as hit');
+});
+
 group('undo');
 
 test('undo removes the last mark and restore puts it back', () => {

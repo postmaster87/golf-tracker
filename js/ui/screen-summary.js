@@ -103,6 +103,15 @@ export function summaryScreen(ctx) {
   body.appendChild(dataQuality(round, t));
 
   if (!ctx.params.live) {
+    // Full control after the fact: the golfer is the source of truth about
+    // what happened, not the app's record of it.
+    body.appendChild(
+      h('button', {
+        class: 'btn primary',
+        text: 'EDIT THIS ROUND',
+        onClick: () => ctx.go('play', { roundId: round.id }),
+      })
+    );
     body.appendChild(
       h('button', {
         class: 'btn',

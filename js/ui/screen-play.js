@@ -1,5 +1,6 @@
 import { h, card, sheet, confirmSheet, segmented, field, toast, frag } from './dom.js';
 import * as pocketLock from './lock.js';
+import { loadRound } from '../data/store.js';
 import { LIES, LIE_LABELS, PENALTY_TYPES } from '../data/schema.js';
 import { getCourse, playOrder, holeYards } from '../data/courses.js';
 import {
@@ -38,8 +39,23 @@ import {
  * taps and about as long as it takes to look at the ball.
  */
 export function playScreen(ctx) {
-  const round = ctx.round;
   const el = h('div', { class: 'screen' });
+
+  /**
+   * EDIT MODE
+   *
+   * The same screen drives a live round and a finished one. That is deliberate:
+   * "fix hole 14 three weeks later" and "go back to hole 14 right now" are the
+   * same operation on the same data, and building them twice would mean two
+   * chances to get stored data wrong.
+   *
+   * In edit mode there is no GPS capture — you are not standing on the course —
+   * so everything is entered by hand, and the round being edited is saved
+   * directly rather than through the active-round path.
+   */
+  const editingId = ctx.params.roundId && ctx.params.roundId !== ctx.round?.id ? ctx.params.roundId : null;
+  const round = editingId ? loadRound(editingId) : ctx.round;
+  const editing = Boolean(editingId);
 
   if (!round) {
     queueMicrotask(() => ctx.go('home'));
@@ -49,15 +65,23 @@ export function playScreen(ctx) {
   /** @type {null | {kind:string, chosenLie:string|null, lieConfirmed:boolean, reduced:any, controller:AbortController, progress:any}} */
   let capture = null;
   let markWarning = null;
+  /** Set whenever the hole changes, so the change is always one tap from undo. */
+  let holeChange = null;
 
   const hole = () => currentHole(round);
   const isLastHole = () => round.currentHoleIndex >= round.holes.length - 1;
 
+  /** Save whichever round this screen is driving. */
+  const persist = () => {
+    if (editing) ctx.persistRound(round);
+    else ctx.persistRound();
+  };
+
   /* --------------------------------------------------------------- chrome */
 
   const accChip = h('div', { class: 'acc-chip', dataset: { q: 'none' } });
-  const hudNum = h('span', { class: 'hud-num' });
   const hudMeta = h('span', { class: 'hud-meta' });
+  const navRow = h('nav', { class: 'holenav' });
 
   el.appendChild(
     h(
@@ -69,28 +93,66 @@ export function playScreen(ctx) {
         'aria-label': 'Round menu',
         onClick: openMenu,
       }),
-      // Replaces the habit of hitting the phone's hardware lock: same one tap,
-      // but GPS keeps tracking and the round stays live underneath.
-      h('button', {
-        class: 'icon-btn',
-        text: '🔒',
-        'aria-label': 'Lock screen for pocket',
-        onClick: () => pocketLock.lock(),
-      }),
-      h('button', {
-        class: 'hud-hole',
-        style: { background: 'none', border: 'none', padding: 0 },
-        'aria-label': 'Jump to hole',
-        onClick: openHoleJump,
-      }, hudNum, hudMeta),
-      accChip
+      h('div', { class: 'hud-hole' }, hudMeta),
+      editing
+        ? h('button', { class: 'icon-btn', text: 'DONE', onClick: () => ctx.go('summary', { roundId: round.id, from: 'history' }) })
+        : frag(
+            // Replaces the habit of hitting the phone's hardware lock: same one
+            // tap, but GPS keeps tracking and the round stays live underneath.
+            h('button', {
+              class: 'icon-btn',
+              text: '🔒',
+              'aria-label': 'Lock screen for pocket',
+              onClick: () => pocketLock.lock(),
+            }),
+            accChip
+          )
     )
   );
+
+  /*
+   * Hole navigation is its own row, present in EVERY state.
+   *
+   * This is the fix for the round-1 failure. Previously the back control only
+   * appeared once a hole was complete, so a stray touch that advanced you onto
+   * an unfinished hole left forward as the only direction — the golfer was
+   * structurally trapped. Navigation must never depend on the state of the hole
+   * you happen to be standing on.
+   */
+  el.appendChild(navRow);
 
   const body = h('div', { class: 'body' });
   const footer = h('div', { class: 'footer' });
   el.appendChild(body);
   el.appendChild(footer);
+
+  function paintNav() {
+    const i = round.currentHoleIndex;
+    const prev = round.holes[i - 1];
+    const next = round.holes[i + 1];
+    navRow.replaceChildren(
+      h('button', {
+        class: 'holenav-arrow',
+        text: prev ? `‹ ${prev.number}` : '‹',
+        disabled: !prev,
+        'aria-label': 'Previous hole',
+        onClick: () => goToHole(i - 1),
+      }),
+      h('button', {
+        class: 'holenav-current',
+        'aria-label': 'Jump to any hole',
+        onClick: openHoleJump,
+        html: `HOLE <strong>${hole().number}</strong> <span class="holenav-caret">▾</span>`,
+      }),
+      h('button', {
+        class: 'holenav-arrow',
+        text: next ? `${next.number} ›` : '›',
+        disabled: !next,
+        'aria-label': 'Next hole',
+        onClick: () => goToHole(i + 1),
+      })
+    );
+  }
 
   /* ------------------------------------------------------------ live bits */
 
@@ -132,16 +194,46 @@ export function playScreen(ctx) {
 
   function paint() {
     const hl = hole();
-    hudNum.textContent = `H${hl.number}`;
-    hudMeta.textContent = `Par ${hl.par}${hl.yards ? ` · ${hl.yards} yd` : ''}${
-      hl.hcp ? ` · HCP ${hl.hcp}` : ''
-    } · ${round.currentHoleIndex + 1}/${round.holes.length}`;
+    hudMeta.textContent = `${editing ? 'EDITING · ' : ''}Par ${hl.par}${
+      hl.yards ? ` · ${hl.yards} yd` : ''
+    }${hl.hcp ? ` · HCP ${hl.hcp}` : ''} · ${round.currentHoleIndex + 1}/${round.holes.length}`;
 
     body.replaceChildren();
     footer.replaceChildren();
-    tick();
+    paintNav();
+    if (!editing) tick();
 
-    if (ctx.gps.error?.code === 1) {
+    /*
+     * Every hole change is one tap from being reversed, however it happened —
+     * a deliberate NEXT HOLE, an arrow, a jump, or a phantom touch. On round 1
+     * an accidental advance made the rest of the round unloggable; now the way
+     * back is on screen the moment it occurs.
+     */
+    if (holeChange) {
+      body.appendChild(
+        banner(
+          'warn',
+          `Moved to hole ${holeChange.to}.`,
+          `← BACK TO ${holeChange.from}`,
+          () => {
+            const idx = round.holes.findIndex((x) => x.number === holeChange.from);
+            holeChange = null;
+            if (idx >= 0) goToHole(idx, { silent: true });
+          }
+        )
+      );
+    }
+
+    if (editing) {
+      body.appendChild(
+        h('p', {
+          class: 'note muted',
+          text: 'Editing a saved round. Every hole can be changed or hand-entered, and strokes gained recomputes from whatever you leave here.',
+        })
+      );
+    }
+
+    if (!editing && ctx.gps.error?.code === 1) {
       body.appendChild(
         banner(
           'bad',
@@ -433,7 +525,7 @@ export function playScreen(ctx) {
     if (kind === 'cup') {
       setCup(hl, reduced);
       const { warning } = learnCup(ctx.app, round, hl.number, hl.cup);
-      ctx.persistRound();
+      persist();
       if (warning) markWarning = { kind: 'bad', text: warning, action: 'OK' };
       else if (reduced.quality === 'poor') markWarning = poorMarkWarning('cup');
       else markWarning = null;
@@ -450,7 +542,7 @@ export function playScreen(ctx) {
     // A ball resting on the green is a free sample of where that green is.
     if (chosenLie === 'green') learnGreen(ctx.app, round, hl.number, shot.mark);
 
-    ctx.persistRound();
+    persist();
     markWarning = reduced.quality === 'poor' ? poorMarkWarning('shot') : null;
     paint();
   }
@@ -619,7 +711,7 @@ export function playScreen(ctx) {
                 paceFeet: draft.paceFeet,
               });
               ctx.app.settings.puttUnit = draft.unit;
-              ctx.persistRound();
+              persist();
               ctx.persistApp();
               markWarning = null;
               paint();
@@ -643,7 +735,7 @@ export function playScreen(ctx) {
       onAction: () => {
         const hl = hole();
         undoLast(hl);
-        ctx.persistRound();
+        persist();
         paint();
         beginCapture(what === 'cup' ? 'cup' : 'shot');
       },
@@ -703,19 +795,59 @@ export function playScreen(ctx) {
     round.holes[0].shots = [firstShot];
     round.startingNine = nine;
     ctx.app.settings.startingNine = nine;
-    ctx.persistRound();
+    persist();
     paint();
     toast(`Switched to the ${nine} nine.`);
   }
 
   /* ------------------------------------------------------------- actions */
 
+  /**
+   * The one thing the app expects next. Exactly one control carries the accent
+   * fill at any moment; everything else is dimmed. Round 1 exposed that a wall
+   * of equally-weighted buttons gives no clue what to press, especially on the
+   * green where the flow changes.
+   */
+  function nextAction(hl) {
+    if (hl.manual || isHoleComplete(hl)) return 'next';
+    if (!hl.shots.length) return 'mark';
+    return hl.shots[hl.shots.length - 1].lie === 'green' ? 'putts' : 'mark';
+  }
+
+  /**
+   * Says what to do in words, including the bit that was ambiguous: the mark is
+   * taken AT THE BALL, BEFORE the shot. "Mark shot" alone reads equally well as
+   * "record the shot I just hit".
+   */
+  function nextStepHint(hl) {
+    if (hl.manual) return 'Hand-entered hole. Re-enter it from the menu, or move on.';
+    if (isHoleComplete(hl)) {
+      return isLastHole()
+        ? 'Last hole is done — finish the round when ready.'
+        : `Hole ${hl.number} is done. Move to hole ${round.holes[round.currentHoleIndex + 1].number}.`;
+    }
+    if (editing) return 'Editing: hand-enter this hole, or fix individual shots in the list above.';
+    if (!hl.shots.length) return 'Stand on the tee, then MARK SHOT 1 — before you hit it.';
+    const last = hl.shots[hl.shots.length - 1];
+    if (last.lie === 'green') {
+      return 'Ball marked on the green. Putt out, then ENTER PUTTS on the next tee.';
+    }
+    return `Walk to your ball, then MARK SHOT ${hl.shots.length + 1} — before you hit it.`;
+  }
+
   function paintActions(hl) {
+    const next = nextAction(hl);
+    const pri = (kind) => (next === kind ? 'btn primary' : 'btn dim');
+
+    footer.appendChild(h('p', { class: 'hint', text: nextStepHint(hl) }));
+
     if (isHoleComplete(hl)) {
       footer.appendChild(
         h('button', {
-          class: 'btn primary huge',
-          text: isLastHole() ? 'FINISH ROUND' : 'NEXT HOLE ›',
+          class: `${pri('next')} huge`,
+          text: isLastHole()
+            ? 'FINISH ROUND'
+            : `NEXT HOLE · ${round.holes[round.currentHoleIndex + 1].number} ›`,
           onClick: () => (isLastHole() ? finishRound() : advanceHole(1)),
         })
       );
@@ -724,27 +856,38 @@ export function playScreen(ctx) {
           'div',
           { class: 'btn-row' },
           !hl.manual
-            ? h('button', { class: 'btn sm', text: 'EDIT PUTTS', onClick: () => openGreenEntry(hl) })
+            ? h('button', { class: 'btn sm dim', text: 'EDIT PUTTS', onClick: () => openGreenEntry(hl) })
             : null,
-          h('button', { class: 'btn sm', text: 'UNDO', onClick: doUndo }),
-          h('button', { class: 'btn sm', text: 'Hole ‹', onClick: () => advanceHole(-1) })
+          h('button', { class: 'btn sm dim', text: 'UNDO', onClick: doUndo })
         )
       );
       return;
     }
 
-    footer.appendChild(
-      h('button', {
-        class: 'btn primary huge',
-        text: 'MARK SHOT',
-        disabled: Boolean(hl.manual),
-        onClick: () => beginCapture('shot'),
-      })
-    );
+    if (editing) {
+      // No GPS off the course, so hand entry is the primary path here.
+      footer.appendChild(
+        h('button', {
+          class: 'btn primary huge',
+          text: 'HAND-ENTER THIS HOLE',
+          onClick: openManualEntry,
+        })
+      );
+    } else {
+      footer.appendChild(
+        h('button', {
+          class: `${pri('mark')} huge`,
+          text: `MARK SHOT ${hl.shots.length + 1}`,
+          disabled: Boolean(hl.manual),
+          onClick: () => beginCapture('shot'),
+        })
+      );
+    }
+
     // Finishes the hole. Tapped on the next tee, not on the green.
     footer.appendChild(
       h('button', {
-        class: 'btn',
+        class: pri('putts'),
         text: 'ENTER PUTTS ▸',
         disabled: Boolean(hl.manual),
         onClick: () => openGreenEntry(hl),
@@ -754,9 +897,8 @@ export function playScreen(ctx) {
       h(
         'div',
         { class: 'btn-row' },
-        h('button', { class: 'btn sm', text: 'PENALTY', disabled: !hl.shots.length, onClick: openPenalty }),
-        h('button', { class: 'btn sm', text: 'UNDO', onClick: doUndo }),
-        h('button', { class: 'btn sm', text: 'Hole ›', onClick: () => advanceHole(1) })
+        h('button', { class: 'btn sm dim', text: 'PENALTY', disabled: !hl.shots.length, onClick: openPenalty }),
+        h('button', { class: 'btn sm dim', text: 'UNDO', onClick: doUndo })
       )
     );
   }
@@ -765,36 +907,61 @@ export function playScreen(ctx) {
     const hl = hole();
     const token = undoLast(hl);
     if (!token) return toast('Nothing to undo on this hole.');
-    ctx.persistRound();
+    persist();
     markWarning = null;
     paint();
     toast(`Removed ${token.kind === 'cup' ? 'cup mark' : token.kind === 'manual' ? 'hand entry' : 'last shot'}.`, {
       action: 'RESTORE',
       onAction: () => {
         restoreUndo(hl, token);
-        ctx.persistRound();
+        persist();
         paint();
       },
     });
   }
 
-  function advanceHole(delta, { force = false } = {}) {
-    const next = round.currentHoleIndex + delta;
-    if (next < 0 || next >= round.holes.length) return;
+  /**
+   * Move to any hole, from any state.
+   *
+   * `silent` suppresses the undo banner — used when the move IS the undo, so
+   * pressing "back to 14" does not immediately offer to send you to 15 again.
+   */
+  function goToHole(index, { silent = false, force = false } = {}) {
+    if (index < 0 || index >= round.holes.length || index === round.currentHoleIndex) return;
+    const from = hole();
 
-    // Matt's workflow is to log the green on the next tee, so leaving a hole
-    // with shots but no putts is the moment to ask — not a nag, a catch.
-    const hl = hole();
-    if (!force && delta > 0 && hl.shots.length && !isHoleComplete(hl) && ctx.app.settings.promptGreenEntry) {
-      openGreenEntry(hl, { thenAdvance: true });
+    // The green-entry nudge fires only when stepping forward off an unfinished
+    // hole — never when going back, and never when jumping. Matt's workflow is
+    // to log the green on the next tee, so this is a catch, not a nag.
+    if (
+      !force &&
+      !silent &&
+      index === round.currentHoleIndex + 1 &&
+      from.shots.length &&
+      !isHoleComplete(from) &&
+      ctx.app.settings.promptGreenEntry
+    ) {
+      openGreenEntry(from, { thenAdvance: true });
       return;
     }
 
-    round.currentHoleIndex = next;
+    round.currentHoleIndex = index;
     markWarning = null;
-    ctx.persistRound();
+    holeChange = silent ? null : { from: from.number, to: round.holes[index].number };
+    clearTimeout(holeChangeTimer);
+    if (holeChange) {
+      holeChangeTimer = setTimeout(() => {
+        holeChange = null;
+        paint();
+      }, 20000);
+    }
+    persist();
     paint();
   }
+
+  let holeChangeTimer = null;
+
+  const advanceHole = (delta, opts) => goToHole(round.currentHoleIndex + delta, opts);
 
   /* -------------------------------------------------------------- sheets */
 
@@ -810,7 +977,7 @@ export function playScreen(ctx) {
             text: `${def.label.toUpperCase()}  +1`,
             onClick: () => {
               attachPenalty(shot, { type: key, strokes: 1 });
-              ctx.persistRound();
+              persist();
               paint();
               done(key);
               toast('Penalty added. Mark your next shot from the drop.');
@@ -823,7 +990,7 @@ export function playScreen(ctx) {
               text: 'REMOVE PENALTY',
               onClick: () => {
                 shot.penalty = null;
-                ctx.persistRound();
+                persist();
                 paint();
                 done('removed');
               },
@@ -843,7 +1010,7 @@ export function playScreen(ctx) {
             shot.lie,
             (v) => {
               shot.lie = v;
-              ctx.persistRound();
+              persist();
               paint();
               done('lie');
             },
@@ -881,7 +1048,7 @@ export function playScreen(ctx) {
           text: 'DELETE SHOT',
           onClick: () => {
             removeShot(hl, shot.id);
-            ctx.persistRound();
+            persist();
             paint();
             done('deleted');
           },
@@ -921,7 +1088,7 @@ export function playScreen(ctx) {
           text: 'SAVE',
           onClick: () => {
             setShotDistance(shot, { value, unit: 'yards' });
-            ctx.persistRound();
+            persist();
             paint();
             done('saved');
           },
@@ -932,7 +1099,7 @@ export function playScreen(ctx) {
               text: 'Clear — go back to the measured distance',
               onClick: () => {
                 setShotDistance(shot, { value: null });
-                ctx.persistRound();
+                persist();
                 paint();
                 done('cleared');
               },
@@ -943,27 +1110,36 @@ export function playScreen(ctx) {
   }
 
   function openHoleJump() {
-    sheet('Jump to hole', (done) => {
+    sheet('Go to hole', (done) => {
       const grid = h('div', { class: 'hole-jump' });
       round.holes.forEach((hl, i) => {
+        const strokes = holeStrokes(hl);
         grid.appendChild(
-          h('button', {
-            class: 'seg-btn',
-            type: 'button',
-            text: String(hl.number),
-            'aria-pressed': String(i === round.currentHoleIndex),
-            dataset: { done: String(isHoleComplete(hl)) },
-            onClick: () => {
-              round.currentHoleIndex = i;
-              ctx.persistRound();
-              markWarning = null;
-              paint();
-              done(i);
+          h(
+            'button',
+            {
+              class: 'seg-btn',
+              type: 'button',
+              'aria-pressed': String(i === round.currentHoleIndex),
+              dataset: { done: String(isHoleComplete(hl)) },
+              onClick: () => {
+                done(i);
+                // Silent: an explicit jump is not something to offer to undo.
+                goToHole(i, { silent: true });
+              },
             },
-          })
+            String(hl.number),
+            h('span', { class: 'jump-score', text: strokes == null ? '·' : String(strokes) })
+          )
         );
       });
-      return grid;
+      return frag(
+        h('p', {
+          class: 'note muted',
+          text: 'Any hole, any time. Completed holes show their score and stay fully editable.',
+        }),
+        grid
+      );
     });
   }
 
@@ -1051,7 +1227,7 @@ export function playScreen(ctx) {
             round.status = 'abandoned';
             round.completedAt = new Date().toISOString();
             ctx.app.activeRoundId = null;
-            ctx.persistRound();
+            persist();
             ctx.round = null;
             ctx.stopGps();
             ctx.go('home');
@@ -1113,16 +1289,26 @@ export function playScreen(ctx) {
         num('Putts', 'putts', 0, 10),
         num('Penalty strokes', 'penalties', 0, 6),
         field(
-          'First putt distance (ft, optional)',
-          h('input', {
-            type: 'number',
-            inputmode: 'numeric',
-            min: '0',
-            placeholder: 'e.g. 22',
-            onInput: (e) => {
-              draft.firstPuttFt = e.target.value;
-            },
-          })
+          'First putt distance (ft)',
+          frag(
+            h('input', {
+              type: 'number',
+              inputmode: 'numeric',
+              min: '0',
+              placeholder: 'e.g. 22',
+              onInput: (e) => {
+                draft.firstPuttFt = e.target.value;
+              },
+            }),
+            // Not decoration: without this number the hole cannot produce any
+            // putting strokes gained at all, and its strokes land in the
+            // "unattributed" pile on the round card. Worth an estimate.
+            h('p', {
+              class: 'note muted',
+              style: { marginTop: '6px' },
+              text: 'Leave this blank and the hole contributes nothing to putting strokes gained — an estimate is far better than nothing.',
+            })
+          )
         ),
         h('button', {
           class: 'btn primary',
@@ -1137,7 +1323,7 @@ export function playScreen(ctx) {
               penalties: draft.penalties,
               firstPuttFt: draft.firstPuttFt === '' ? null : Number(draft.firstPuttFt),
             });
-            ctx.persistRound();
+            persist();
             paint();
             done('saved');
           },
@@ -1160,7 +1346,7 @@ export function playScreen(ctx) {
     round.status = 'completed';
     round.completedAt = new Date().toISOString();
     ctx.app.activeRoundId = null;
-    ctx.persistRound();
+    persist();
     const id = round.id;
     ctx.round = null;
     ctx.stopGps();

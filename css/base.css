@@ -351,6 +351,72 @@ input[type='text'] {
   border-color: var(--bad);
 }
 
+/* ------------------------------------------------------- hole navigation */
+
+/*
+ * Always present, in every hole state. The round-1 failure was that the back
+ * control only existed once a hole was complete, so an accidental advance onto
+ * an unfinished hole left forward as the only direction available.
+ */
+.holenav {
+  display: grid;
+  grid-template-columns: 1fr 1.4fr 1fr;
+  gap: 12px;
+  padding: 8px 12px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+
+.holenav button {
+  min-height: 54px;
+  border-radius: 12px;
+  border: 2px solid var(--line);
+  background: var(--bg);
+  color: var(--ink);
+  font-size: 17px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.holenav button[disabled] {
+  opacity: 0.3;
+}
+
+.holenav-current {
+  letter-spacing: 0.06em;
+  font-size: 15px !important;
+}
+
+.holenav-current strong {
+  font-size: 21px;
+}
+
+.holenav-caret {
+  opacity: 0.6;
+}
+
+.jump-score {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  opacity: 0.65;
+}
+
+/* The single expected next action, versus everything else. */
+.btn.dim {
+  background: var(--surface);
+  border-color: var(--line);
+  color: var(--ink-2);
+}
+
+.hint {
+  margin: 0 2px 4px;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--ink-2);
+}
+
 /* --------------------------------------------------------------- shot list */
 
 .tally {

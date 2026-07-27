@@ -70,11 +70,17 @@ function persistApp() {
   saveApp(ctx.app);
 }
 
-/** Persist the active round and keep the round index in step with it. */
-function persistRound() {
-  if (!ctx.round) return;
-  saveRound(ctx.round);
-  upsertRoundSummary(ctx.app, ctx.round);
+/**
+ * Persist a round and keep the index in step with it.
+ *
+ * Takes an explicit round so the play screen can drive a completed round in
+ * edit mode without it becoming the active one — editing hole 14 from three
+ * weeks ago must never resume that round.
+ */
+function persistRound(round = ctx.round) {
+  if (!round) return;
+  saveRound(round);
+  upsertRoundSummary(ctx.app, round);
   saveApp(ctx.app);
 }
 
