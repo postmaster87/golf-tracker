@@ -113,6 +113,19 @@ Two things the engine refuses to do:
 
 SG is measured against **distance, not par**. Veenker's gold tees are 6,029 yards, so the benchmark expects better than par — a 473-yard par 5 carries an expectation near 4.4, because by tour standards that is a long par 4. **Level par off the golds shows as about −2.5 strokes gained, and that is correct.** Judge the trend and the category ranking, not the sign of the total.
 
+## Clubs
+
+Optional, toggled in Settings. When on, the capture panel offers the bag alongside the lie — driver, 3W, 3H, 4–PW, GW, SW, LW — so a club costs one tap in a panel you are already looking at, rather than a dropdown that has to be opened, scrolled and dismissed with a glove on. **Putts are assigned the putter automatically**, so the green costs nothing extra.
+
+Club is optional per shot and stays `null` when not recorded. That matters for honesty: a shot with no club is excluded from every club's numbers rather than quietly bucketed, and the count of excluded shots is shown.
+
+The payoff is the **By club** table on Trends, which reports two things that answer different questions:
+
+- **SG per shot** — is the club doing its job?
+- **Spread** — is it predictable? Reported as the middle half of your shots, so one topped 3-wood doesn't define the club.
+
+A club can look fine on average and still be the problem if half of them come up twenty yards short. Rows with fewer than three measured shots are flagged amber — n decides whether the rest of the row means anything.
+
 ## Trends and practice priority
 
 Everything is normalised to **strokes gained per 18 holes**, so nine-hole and part-finished rounds sit in the same series without distorting it. Rolling 5 / 10 / 20-round windows always report the n they actually have, and an unfilled window shows its n in amber rather than implying it is full.

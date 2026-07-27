@@ -302,6 +302,33 @@ export function settingsScreen(ctx) {
     );
     body.appendChild(dataCard);
 
+    /* ------------------------------------------------------------ clubs */
+    const clubCard = card('Club tracking');
+    clubCard.appendChild(
+      field(
+        'Record the club for each shot',
+        segmented(
+          [
+            { value: true, label: 'ON' },
+            { value: false, label: 'OFF' },
+          ],
+          s.trackClubs,
+          (v) => {
+            s.trackClubs = v;
+            ctx.persistApp();
+            paint();
+          }
+        )
+      )
+    );
+    clubCard.appendChild(
+      h('p', {
+        class: 'note muted',
+        text: 'Adds one tap per full shot and unlocks the per-club breakdown on the Trends screen — which clubs cost you strokes, and which ones are simply unpredictable. Putts are assigned the putter automatically, so the green costs nothing extra. Turning this off later keeps every club already recorded.',
+      })
+    );
+    body.appendChild(clubCard);
+
     /* --------------------------------------------------- strokes gained */
     const sgCard = card('Strokes gained');
     sgCard.appendChild(

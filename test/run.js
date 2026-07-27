@@ -19,6 +19,7 @@ import {
   restoreUndo,
   attachPenalty,
   setManualHole,
+  setShotClub,
   setShotDistanceFt,
   setShotDistance,
   setGreenEntry,
@@ -54,6 +55,7 @@ import {
   DEFAULT_SHORT_GAME_YARDS,
 } from '../js/analysis/strokes-gained.js';
 import * as pocketLock from '../js/ui/lock.js';
+import { CLUBS, SELECTABLE_CLUBS, clubOrder } from '../js/data/clubs.js';
 import {
   mean as tMean,
   stdDev,
@@ -1351,6 +1353,62 @@ test('a round aggregates its holes and reports what it could not attribute', () 
 });
 
 /* ------------------------------------------------------------------ trends */
+
+group('clubs');
+
+test('the bag is Matt\'s, in order, longest to shortest', () => {
+  const ids = SELECTABLE_CLUBS.map((c) => c.id);
+  eq(
+    ids.join(','),
+    'driver,3w,3h,4i,5i,6i,7i,8i,9i,pw,gw,sw,lw',
+    'driver, 3W, 3H, 4-PW, GW, SW, LW'
+  );
+  eq(CLUBS.length, 14, 'plus the putter');
+  assert(!ids.includes('putter'), 'the putter is never offered for selection');
+});
+
+test('a putt is assigned the putter without being asked', () => {
+  const round = par4Round();
+  const hole = round.holes[0];
+  const shot = addShot(hole, { lie: 'green', reduced: fakeReduced(TEE) });
+  eq(shot.club, 'putter', 'assigned automatically');
+  // And the ones created by the green entry too.
+  setGreenEntry(hole, { putts: 2, distances: [10, 1], unit: 'feet' });
+  eq(hole.shots.filter((s) => s.club === 'putter').length, 2, 'both putts');
+});
+
+test('club is recorded on a full shot and can be changed or cleared later', () => {
+  const round = par4Round();
+  const hole = round.holes[0];
+  const drive = addShot(hole, { lie: 'tee', reduced: fakeReduced(TEE), club: 'driver' });
+  eq(drive.club, 'driver', 'recorded at capture');
+
+  setShotClub(drive, '3w');
+  eq(drive.club, '3w', 'changed after the fact');
+  setShotClub(drive, null);
+  eq(drive.club, null, 'and cleared');
+});
+
+test('a shot with no club stays null rather than defaulting to something', () => {
+  const round = par4Round();
+  const hole = round.holes[0];
+  const shot = addShot(hole, { lie: 'fairway', reduced: fakeReduced(TEE) });
+  eq(shot.club, null, 'unknown is not a club');
+});
+
+test('strokes gained carries the club and the measured shot length', () => {
+  const round = par4Round();
+  const hole = round.holes[0];
+  addShot(hole, { lie: 'tee', reduced: fakeReduced(TEE), club: 'driver' });
+  addShot(hole, { lie: 'fairway', reduced: fakeReduced(offsetM(TEE, 228.6, 0)), club: '7i' }); // 250 yd
+  addShot(hole, { lie: 'green', reduced: fakeReduced(offsetM(TEE, 320, 0)) });
+  setGreenEntry(hole, { putts: 2, distances: [15, 2], unit: 'feet' });
+
+  const sg = holeStrokesGained(hole, { baseline: 'tour' });
+  eq(sg.shots[0].club, 'driver', 'club travels through to the analysis');
+  near(sg.shots[0].lengthYards, 250, 0.5, 'and so does how far it actually went');
+  eq(sg.shots[2].club, 'putter', 'putts included');
+});
 
 group('trend statistics');
 

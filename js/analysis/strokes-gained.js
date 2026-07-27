@@ -84,6 +84,9 @@ export function holeStates(hole, fallbackPos = null) {
       lie: g.shot.lie,
       distance: g.toHoleM == null ? null : onGreen ? toFeet(g.toHoleM) : toYards(g.toHoleM),
       distanceYards: g.toHoleM == null ? null : toYards(g.toHoleM),
+      // How far the ball actually travelled — the number club analysis is
+      // built on, and distinct from how far it still had to go.
+      lengthYards: g.lengthM == null ? null : toYards(g.lengthM),
       onGreen,
       source: g.toHoleSource,
     };
@@ -155,10 +158,12 @@ export function holeStrokesGained(hole, opts = {}) {
       shot: st.shot,
       seq: st.shot.seq,
       lie: st.lie,
+      club: st.shot.club ?? null,
       category,
       distance: st.distance,
       distanceUnit: st.onGreen ? 'ft' : 'yd',
       distanceSource: st.source,
+      lengthYards: st.lengthYards,
       expectedStart: eStart,
       expectedEnd: eEnd,
       penalty,

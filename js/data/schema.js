@@ -105,6 +105,9 @@ export function newAppState() {
       // Adjustable mid-round from the round menu, because the right value
       // depends on how long you linger on the screen between shots.
       autoLockSec: 15,
+      // Club per shot. On by default because it is the only way to find out
+      // whether the extra tap is worth it; one switch turns it off.
+      trackClubs: true,
       confirmHoleAdvance: true,
     },
     courses: {}, // custom courses only; built-ins live in courses.js
@@ -202,6 +205,15 @@ export function newShot({ seq, lie, mark = null, source = 'gps' }) {
      * already logged, instead of silently poisoning them.
      */
     distanceEntry: null,
+    /**
+     * Club id from js/data/clubs.js, or null when club tracking is off or the
+     * club was not recorded.
+     *
+     * Null is a real answer here and must stay distinguishable from "unknown" —
+     * per-club stats are only honest if a shot with no club recorded is
+     * excluded from every club's numbers rather than quietly bucketed.
+     */
+    club: null,
     note: null,
     ts: nowIso(),
   };

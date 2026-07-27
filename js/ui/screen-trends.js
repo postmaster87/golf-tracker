@@ -6,8 +6,10 @@ import {
   weightedPriority,
   hypothesisVerdict,
   categorySeries,
+  clubBreakdown,
   WINDOWS,
 } from '../analysis/trends.js';
+import { clubLabel } from '../data/clubs.js';
 import { BASELINES } from '../analysis/benchmarks.js';
 import { allCourses } from '../data/courses.js';
 
@@ -103,6 +105,7 @@ export function trendsScreen(ctx) {
     body.appendChild(priorityCard(series));
     body.appendChild(questionCard(series));
     body.appendChild(windowsCard(series));
+    body.appendChild(clubCard());
     body.appendChild(sparklineCard(series));
 
     body.appendChild(
@@ -297,6 +300,90 @@ export function trendsScreen(ctx) {
         text: 'A window shows however many rounds actually exist. An amber n means it has not filled yet.',
       })
     );
+    return wrap;
+  }
+
+  /* --------------------------------------------------------------- clubs */
+
+  /**
+   * Two columns that answer different questions. Strokes gained per shot says
+   * whether the club does its job; the spread says whether it is predictable.
+   * A club can look fine on average and still be the problem if half of them
+   * come up twenty yards short — which is exactly the insight club tracking
+   * was turned on to find.
+   */
+  function clubCard() {
+    const { rows, unrecorded, minShots } = clubBreakdown(ctx.app, filters);
+    const wrap = card('By club');
+
+    if (!rows.length) {
+      wrap.appendChild(
+        h('p', {
+          class: 'note muted',
+          text: 'No clubs recorded yet. Turn on club tracking in Settings and they will appear here after a round.',
+        })
+      );
+      return wrap;
+    }
+
+    const table = h('table', { class: 'grid-card' });
+    table.appendChild(
+      h(
+        'thead',
+        {},
+        h(
+          'tr',
+          {},
+          h('th', { text: 'Club' }),
+          h('th', { text: 'n' }),
+          h('th', { text: 'Median' }),
+          h('th', { text: 'Spread' }),
+          h('th', { text: 'SG/shot' })
+        )
+      )
+    );
+    const tbody = h('tbody');
+    for (const r of rows) {
+      if (r.club === 'putter') continue; // putting has its own card
+      tbody.appendChild(
+        h(
+          'tr',
+          {},
+          h('td', { text: clubLabel(r.club) }),
+          // A thin sample is marked rather than hidden: n is the first thing
+          // that decides whether the rest of the row means anything.
+          h('td', {
+            style: r.thin ? { color: 'var(--warn)', fontWeight: '800' } : null,
+            text: String(r.shots),
+          }),
+          h('td', { text: r.medianYds != null ? `${Math.round(r.medianYds)}` : '—' }),
+          h('td', { text: r.spreadYds != null ? `±${Math.round(r.spreadYds / 2)}` : '—' }),
+          h('td', {
+            style: r.sgPerShot != null && r.sgPerShot < 0 ? { color: 'var(--bad)' } : null,
+            text: r.sgPerShot != null ? fmtSG(r.sgPerShot, 2) : '—',
+          })
+        )
+      );
+    }
+    table.appendChild(tbody);
+    wrap.appendChild(table);
+    wrap.appendChild(
+      h('p', {
+        class: 'note muted',
+        style: { marginTop: '8px' },
+        text: `Distances in yards, measured. Spread is the middle half of your shots, so one topped 3-wood does not define the club. An amber n means fewer than ${minShots} measured shots — read that row as a hint, not a finding.`,
+      })
+    );
+    if (unrecorded) {
+      wrap.appendChild(
+        h('p', {
+          class: 'note',
+          text: `${unrecorded} shot${unrecorded === 1 ? '' : 's'} had no club recorded and ${
+            unrecorded === 1 ? 'is' : 'are'
+          } excluded from every row above rather than guessed at.`,
+        })
+      );
+    }
     return wrap;
   }
 

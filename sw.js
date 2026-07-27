@@ -30,6 +30,7 @@ const SHELL = [
   './js/data/schema.js',
   './js/data/store.js',
   './js/data/courses.js',
+  './js/data/clubs.js',
   './js/gps/gps.js',
   './js/gps/wakelock.js',
   './js/round/round.js',

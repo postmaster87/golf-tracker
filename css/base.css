@@ -562,6 +562,46 @@ input[type='text'] {
   letter-spacing: 0.02em;
 }
 
+/* ------------------------------------------------------------------ clubs */
+
+.club-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 10px;
+}
+
+.club-chip {
+  min-height: 52px;
+  font-size: 16px;
+}
+
+.cap-label {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+/* The capture panel grows when clubs are shown, so let it scroll rather than
+   push the lie buttons off a short screen. */
+.footer {
+  max-height: 78dvh;
+  overflow-y: auto;
+}
+
+.club-tag {
+  display: inline-grid;
+  place-items: center;
+  min-width: 30px;
+  padding: 2px 6px;
+  border-radius: 7px;
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-edge);
+  font-size: 13px;
+  font-weight: 800;
+}
+
 /* ---------------------------------------------------------------- banners */
 
 .banner {

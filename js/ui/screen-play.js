@@ -1,6 +1,7 @@
 import { h, card, sheet, confirmSheet, segmented, field, toast, frag } from './dom.js';
 import * as pocketLock from './lock.js';
 import { loadRound } from '../data/store.js';
+import { SELECTABLE_CLUBS, clubLabel, clubFull } from '../data/clubs.js';
 import { LIES, LIE_LABELS, PENALTY_TYPES } from '../data/schema.js';
 import { getCourse, playOrder, holeYards } from '../data/courses.js';
 import {
@@ -13,6 +14,7 @@ import {
   removeShot,
   attachPenalty,
   setManualHole,
+  setShotClub,
   setShotDistance,
   setGreenEntry,
   puttDistancesFt,
@@ -380,6 +382,9 @@ export function playScreen(ctx) {
             },
             h('span', { class: 'seq', text: String(i + 1) }),
             h('span', { class: 'lie', text: LIE_LABELS[s.lie] }),
+            s.club && s.club !== 'putter'
+              ? h('span', { class: 'club-tag', text: clubLabel(s.club) })
+              : null,
             s.penalty ? h('span', { class: 'flag', text: `+${s.penalty.strokes} ${s.penalty.type}` }) : null,
             s.mark?.quality === 'poor' ? h('span', { class: 'flag', text: 'poor fix' }) : null,
             h(
@@ -429,6 +434,36 @@ export function playScreen(ctx) {
     );
     wrap.appendChild(h('div', { class: 'cap-bar' }, h('span')));
 
+    /*
+     * Club sits in the same panel as the lie rather than behind a dropdown.
+     * A native select costs tap-open, scroll, tap-select with a glove on; a
+     * grid costs one tap and never covers the burst progress. Club is
+     * optional — tapping a lie commits with whatever is selected, including
+     * nothing, so the extra step can always be skipped mid-round.
+     */
+    if (isShot && ctx.app.settings.trackClubs) {
+      const clubGrid = h('div', { class: 'club-grid' });
+      for (const c of SELECTABLE_CLUBS) {
+        clubGrid.appendChild(
+          h('button', {
+            class: 'seg-btn club-chip',
+            type: 'button',
+            text: c.label,
+            'aria-label': c.full,
+            'aria-pressed': String(capture.club === c.id),
+            onClick: () => {
+              // Tapping the selected club again clears it, so a mis-tap does
+              // not force a wrong club into the data.
+              capture.club = capture.club === c.id ? null : c.id;
+              paint();
+            },
+          })
+        );
+      }
+      wrap.appendChild(h('div', { class: 'cap-label', text: capture.club ? clubFull(capture.club) : 'Club (optional)' }));
+      wrap.appendChild(clubGrid);
+    }
+
     if (isShot) {
       const grid = h('div', { class: 'lie-grid' });
       for (const lie of LIES) {
@@ -474,6 +509,7 @@ export function playScreen(ctx) {
       kind,
       chosenLie: kind === 'shot' ? defaultLie(hole()) : 'green',
       lieConfirmed: false,
+      club: null,
       reduced: null,
       controller,
       progress: { elapsed: 0, total: ctx.app.settings.burstMs, count: 0, bestAcc: null },
@@ -507,7 +543,7 @@ export function playScreen(ctx) {
   }
 
   function commit() {
-    const { kind, chosenLie, reduced } = capture;
+    const { kind, chosenLie, reduced, club } = capture;
     capture = null;
 
     if (!reduced) {
@@ -533,7 +569,7 @@ export function playScreen(ctx) {
       return;
     }
 
-    const shot = addShot(hl, { lie: chosenLie, reduced });
+    const shot = addShot(hl, { lie: chosenLie, reduced, club });
 
     if (chosenLie === 'tee' && shot.seq === 1) {
       learnTee(ctx.app, round, hl.number, shot.mark);
@@ -1003,6 +1039,25 @@ export function playScreen(ctx) {
   function openShotEditor(hl, shot, index) {
     sheet(`Shot ${index + 1}`, (done) =>
       frag(
+        // Club is editable after the fact for the same reason everything else
+        // is: remembering it on the next tee is easier than fumbling for it
+        // before the swing.
+        shot.lie !== 'green'
+          ? field(
+              'Club',
+              segmented(
+                SELECTABLE_CLUBS.map((c) => ({ value: c.id, label: c.label })),
+                shot.club ?? null,
+                (v) => {
+                  setShotClub(shot, shot.club === v ? null : v);
+                  persist();
+                  paint();
+                  done('club');
+                },
+                { columns: 5 }
+              )
+            )
+          : null,
         field(
           'Lie',
           segmented(

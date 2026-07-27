@@ -20,6 +20,7 @@ import { roundStrokesGained, CATEGORIES, CATEGORY_LABELS } from './strokes-gaine
 import { accumulatedHolePosition } from '../round/round.js';
 import { loadRound } from '../data/store.js';
 import { DEFAULT_BASELINE } from './benchmarks.js';
+import { clubOrder } from '../data/clubs.js';
 
 export const WINDOWS = [5, 10, 20];
 
@@ -77,6 +78,13 @@ export function buildSeries(app, { type = 'all', courseId = 'all', baseline = DE
 export function mean(xs) {
   if (!xs.length) return null;
   return xs.reduce((a, b) => a + b, 0) / xs.length;
+}
+
+export function median(xs) {
+  const v = xs.filter(Number.isFinite).slice().sort((a, b) => a - b);
+  if (!v.length) return null;
+  const mid = v.length >> 1;
+  return v.length % 2 ? v[mid] : (v[mid - 1] + v[mid]) / 2;
 }
 
 /** Sample standard deviation. Null below two points, where it is undefined. */
@@ -237,6 +245,75 @@ export function hypothesisVerdict(series, { a = 'off_tee', b = 'approach' } = {}
       ? `${CATEGORY_LABELS[worse]} is losing more, and the gap is larger than the 95% interval`
       : 'the gap is still inside the 95% interval — could go either way',
   };
+}
+
+/**
+ * Per-club breakdown — which clubs are actually costing strokes.
+ *
+ * Two numbers matter and they answer different questions. Strokes gained per
+ * shot says whether the club is doing its job; the spread of distances says
+ * whether it is predictable. A club can be fine on average and still be the
+ * problem, if half of them come up twenty yards short.
+ *
+ * Shots with no club recorded are counted separately and never folded into a
+ * club's figures — a per-club average built partly from "don't know" is worse
+ * than no average at all.
+ */
+export function clubBreakdown(app, { type = 'all', courseId = 'all', baseline = DEFAULT_BASELINE, minShots = 3 } = {}) {
+  const byClub = new Map();
+  let unrecorded = 0;
+  let roundsUsed = 0;
+
+  for (const summary of app.rounds) {
+    if (summary.status !== 'completed') continue;
+    if (type !== 'all' && summary.type !== type) continue;
+    if (courseId !== 'all' && summary.courseId !== courseId) continue;
+    const round = loadRound(summary.id);
+    if (!round) continue;
+    roundsUsed++;
+
+    const sg = roundStrokesGained(round, {
+      baseline,
+      fallbackFor: (hole) => accumulatedHolePosition(app, round.courseId, hole.number),
+    });
+
+    for (const hole of sg.holes) {
+      for (const s of hole.shots) {
+        if (!s.club) {
+          unrecorded++;
+          continue;
+        }
+        if (!byClub.has(s.club)) byClub.set(s.club, { club: s.club, shots: 0, sgValues: [], lengths: [] });
+        const entry = byClub.get(s.club);
+        entry.shots++;
+        if (s.sg != null) entry.sgValues.push(s.sg);
+        if (s.lengthYards != null) entry.lengths.push(s.lengthYards);
+      }
+    }
+  }
+
+  const rows = [...byClub.values()]
+    .map((e) => {
+      const lengths = e.lengths.slice().sort((a, b) => a - b);
+      const q = (p) => (lengths.length ? lengths[Math.min(lengths.length - 1, Math.floor(p * lengths.length))] : null);
+      return {
+        club: e.club,
+        order: clubOrder(e.club),
+        shots: e.shots,
+        measured: e.sgValues.length,
+        sgPerShot: e.sgValues.length ? mean(e.sgValues) : null,
+        sgTotal: e.sgValues.length ? e.sgValues.reduce((a, b) => a + b, 0) : null,
+        medianYds: lengths.length ? median(lengths) : null,
+        // Interquartile spread rather than min-to-max: one topped 3-wood should
+        // not define how consistent the club is.
+        spreadYds: lengths.length >= 4 ? q(0.75) - q(0.25) : null,
+        lengthN: lengths.length,
+        thin: e.sgValues.length < minShots,
+      };
+    })
+    .sort((a, b) => a.order - b.order);
+
+  return { rows, unrecorded, roundsUsed, minShots };
 }
 
 /** Simple per-category series for sparkline-style display, oldest first. */

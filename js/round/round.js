@@ -9,6 +9,7 @@
 
 import { distanceM, toYards, toFeet, feetToM } from '../util/geo.js';
 import { newRound, newHole, newShot, newMark } from '../data/schema.js';
+import { PUTTER } from '../data/clubs.js';
 import { playOrder, holeYards } from '../data/courses.js';
 
 /* ------------------------------------------------------------ construction */
@@ -47,7 +48,13 @@ export function defaultLie(hole) {
   return 'fairway';
 }
 
-export function addShot(hole, { lie, reduced, source = 'gps' }) {
+/** Record which club was used. Pass null to clear it. */
+export function setShotClub(shot, club) {
+  shot.club = club || null;
+  return shot;
+}
+
+export function addShot(hole, { lie, reduced, source = 'gps', club = null }) {
   const mark = reduced
     ? newMark({
         lat: reduced.lat,
@@ -61,6 +68,9 @@ export function addShot(hole, { lie, reduced, source = 'gps' }) {
       })
     : null;
   const shot = newShot({ seq: hole.shots.length + 1, lie, mark, source });
+  // A shot from the green is a putt by definition — no reason to make anyone
+  // tell the app that.
+  shot.club = lie === 'green' ? PUTTER : club || null;
   hole.shots.push(shot);
   return shot;
 }
@@ -324,6 +334,7 @@ export function setGreenEntry(hole, { putts, distances = [], unit = 'paces', pac
   for (let i = 0; i < putts; i++) {
     const shot =
       i === 0 && markedFirst ? markedFirst : newShot({ seq: 0, lie: 'green', mark: null, source: 'manual' });
+    shot.club = PUTTER;
     setShotDistance(shot, { value: distances[i] ?? null, unit, paceFeet });
     hole.shots.push(shot);
   }
