@@ -641,20 +641,12 @@ export function playScreen(ctx) {
       else markWarning = null;
       paint();
       /*
-       * The putt sheet does NOT open here.
-       *
-       * The cup is marked on the walk from ball to hole — before the putt, not
-       * after it — so at this moment the putt count does not exist yet.
-       * Opening the sheet would be asking a question that cannot be answered,
-       * on the green, which is the one place the phone should be away.
-       *
-       * The exception is when the cup was marked FROM the sheet to measure a
-       * first putt; then going back is the whole point.
+       * Back to the sheet, however the cup was reached — from inside it, or
+       * from the footer. Nothing should ever have to be tapped to bring the
+       * putting menu back once the ball is on the green.
        */
-      if (reopenPuttsAfterCup) {
-        reopenPuttsAfterCup = false;
-        openGreenEntry(hl);
-      }
+      reopenPuttsAfterCup = false;
+      if (!hl.manual && hl.shots.some((s) => s.lie === 'green')) openGreenEntry(hl);
       return;
     }
 
@@ -672,18 +664,23 @@ export function playScreen(ctx) {
     paint();
 
     /*
-     * The cup reminder fires once a round, on the first hole, and then stops.
+     * The putt sheet opens itself once the ball is marked on the green, and is
+     * the green workspace from there to the next tee — not a form to summon.
      *
-     * A prompt on every green would be seventeen repetitions of something
-     * already known by the second hole — and nagging is how a useful prompt
-     * turns into one that gets tapped away without reading. MARK CUP stays in
-     * the footer for the rest of the round, so the reminder can go quiet
-     * without the action going missing.
+     * Matt's routine on every green, without deviation: mark the ball at the
+     * coin, walk behind the hole to read the putt, mark the cup while he is
+     * back there, putt, pace it off, then fill in the numbers. The sheet
+     * carries its own cup control so that whole sequence happens in one place,
+     * and it survives the pocket lock — phone away for the putt, phone out
+     * again and it is exactly where he left it.
      */
-    if (chosenLie === 'green' && !hl.cup && round.currentHoleIndex === 0) {
-      toast('Now walk to the hole and mark the cup — then putt. Distances go in afterwards.', {
-        ms: 8000,
-      });
+    if (chosenLie === 'green') {
+      openGreenEntry(hl);
+      // Once a round, on the first hole. Seventeen repetitions of something
+      // known by the second hole is how a prompt gets dismissed unread.
+      if (!hl.cup && round.currentHoleIndex === 0) {
+        toast('Mark the cup from here when you walk behind the hole.', { ms: 8000 });
+      }
     }
   }
 
@@ -872,8 +869,11 @@ export function playScreen(ctx) {
                     },
                   })
                 : h('button', {
-                    class: 'btn sm dim',
-                    text: 'MARK THE CUP TO MEASURE IT',
+                    // Primary, not dim: marking the cup from behind the hole is
+                    // part of the routine on every green, and it is what makes
+                    // every distance on the hole exact rather than approximate.
+                    class: 'btn primary',
+                    text: 'MARK CUP',
                     disabled: !ballMark,
                     onClick: () => {
                       done('markcup');
@@ -1053,8 +1053,8 @@ export function playScreen(ctx) {
     const last = hl.shots[hl.shots.length - 1];
     if (last.lie === 'green') {
       return hl.cup
-        ? 'Cup marked. Putt out — enter your putts afterwards, first one already measured.'
-        : 'Walk to the hole and MARK CUP. Pace it off on the way if you want.';
+        ? 'Cup marked. Putt out, then fill in the putts — the first one is measured already.'
+        : 'Open the putts sheet and mark the cup from there when you read the putt.';
     }
     return `Walk to your ball, then MARK SHOT ${hl.shots.length + 1} — before you hit it.`;
   }
