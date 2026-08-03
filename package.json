@@ -4,9 +4,9 @@
   "private": true,
   "type": "module",
   "description": "GPS shot-by-shot golf performance tracker",
-  "comment": "No dependencies and no build step — this file exists only to document the two commands. The app is plain ES modules served as static files.",
+  "comment": "No dependencies and no build step — this file exists only to document the two commands. The app is plain ES modules served as static files. Serving MUST go through tools/devserver.py: python -m http.server sends no cache headers, the browser then caches modules heuristically, and a test run can pass against code that has already been deleted. That happened — see commit 8be9c30.",
   "scripts": {
-    "serve": "python -m http.server 8123",
+    "serve": "python tools/devserver.py 8123",
     "test": "echo \"Serve the repo, then open http://localhost:8123/test/ — the suite runs in the browser against the shipped modules. See test/README.md.\""
   }
 }
