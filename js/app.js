@@ -12,6 +12,7 @@ import {
 } from './data/store.js';
 import { GpsService } from './gps/gps.js';
 import * as wakeLock from './gps/wakelock.js';
+import { createTrackWriter } from './data/trackstore.js';
 import { appendTrack } from './round/round.js';
 import { clear, toast } from './ui/dom.js';
 import * as pocketLock from './ui/lock.js';
@@ -177,12 +178,50 @@ for (const type of ['pointerdown', 'keydown']) {
   document.addEventListener(type, () => pocketLock.noteActivity(), { capture: true, passive: true });
 }
 
+/*
+ * Dense track writer, driven off the round rather than off the screens.
+ *
+ * The round is started, resumed, abandoned and cleared from four different
+ * places across three screens. Rather than add a lifecycle hook to each — and
+ * rely on every future one remembering — the writer follows `ctx.round.id` from
+ * inside the GPS loop, which is the one place that already runs whenever a
+ * round is live. A round ending simply means the id stops matching, and the
+ * previous writer is flushed and closed.
+ */
+let trackWriter = null;
+let trackWriterRoundId = null;
+
+function syncTrackWriter(round) {
+  const id = round?.status === 'in_progress' ? round.id : null;
+  if (id === trackWriterRoundId) return trackWriter;
+  // Fire-and-forget: close() flushes what is buffered. Awaiting here would
+  // block the GPS callback on a disk write for a round that is already over.
+  trackWriter?.close();
+  trackWriter = id ? createTrackWriter(id) : null;
+  trackWriterRoundId = id;
+  return trackWriter;
+}
+
 ctx.gps.subscribe((event) => {
   if (event === 'fix' && ctx.round && ctx.round.status === 'in_progress') {
+    /*
+     * Two tracks, deliberately.
+     *
+     * The dense track is the analysis input and lives in IndexedDB. The
+     * decimated breadcrumb stays exactly as it was, in the round record, for
+     * ~1% of the size — so if IndexedDB is unavailable or the dense write
+     * fails, rev 2 degrades to rev 1 behaviour instead of recording nothing.
+     * The dense path never touches localStorage and never rewrites the round.
+     */
+    if (ctx.app.settings.denseTrack !== false) {
+      syncTrackWriter(ctx.round)?.push(ctx.gps.last);
+    }
     if (ctx.app.settings.recordTrack && appendTrack(ctx.round, ctx.gps.last)) {
       // Only touches storage on the ~30s cadence the decimator allows.
       saveRound(ctx.round);
     }
+  } else if (trackWriterRoundId) {
+    syncTrackWriter(ctx.round);
   }
   // Live indicators update in place; a full re-render on every fix would fight
   // the user's thumb.

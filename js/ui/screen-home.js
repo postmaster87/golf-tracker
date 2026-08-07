@@ -2,6 +2,7 @@ import { h, card } from './dom.js';
 import { getCourse } from '../data/courses.js';
 import { roundTotals, fmtToPar } from '../round/round.js';
 import { loadRound } from '../data/store.js';
+import { revisionLabel, revisionInfo, isWorkingRevision } from '../data/revision.js';
 
 const NINE_LABEL = { front: 'Front 9 first', back: 'Back 9 first' };
 
@@ -111,6 +112,28 @@ export function homeScreen(ctx) {
       })
     );
   }
+
+  /*
+   * Which build is actually on the phone.
+   *
+   * The service worker is network-first with a cache fallback, which is correct
+   * for staying playable on a course with no signal — but it means the build in
+   * your hand is not necessarily the one that was last deployed. Before this
+   * line there was no way to tell from inside the app, which made "did the new
+   * version make it to my phone?" unanswerable without a laptop.
+   *
+   * Marked when unshipped, because that is the state where a round is most
+   * likely to hit something new.
+   */
+  el.appendChild(
+    h('p', {
+      class: 'note muted',
+      style: { textAlign: 'center', marginTop: '18px' },
+      text: `${revisionLabel()} — ${revisionInfo()?.title ?? 'untitled'}${
+        isWorkingRevision() ? ' · not yet played' : ''
+      }`,
+    })
+  );
 
   return { el };
 }

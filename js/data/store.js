@@ -11,6 +11,7 @@
  */
 
 import { migrate, newAppState, summarizeRound, APP_VERSION } from './schema.js';
+import { REVISION } from './revision.js';
 
 const APP_KEY = 'gt:app';
 const ROUND_PREFIX = 'gt:round:';
@@ -172,6 +173,9 @@ export function buildExport(app) {
     formatVersion: 1,
     exportedAt: new Date().toISOString(),
     appVersion: APP_VERSION,
+    // The build that produced the FILE, which is not necessarily the build that
+    // produced the rounds inside it — each of those carries its own `revision`.
+    exportedByRevision: REVISION,
     app,
     rounds,
   };

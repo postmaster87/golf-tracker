@@ -43,7 +43,24 @@ import {
   detectStartingNine,
   fmtDistance,
 } from '../js/round/round.js';
-import { newAppState, THEMES } from '../js/data/schema.js';
+import { newAppState, THEMES, migrate, summarizeRound } from '../js/data/schema.js';
+import {
+  REVISION,
+  REVISION_HISTORY,
+  revisionInfo,
+  roundRevisionLabel,
+} from '../js/data/revision.js';
+import { segmentTrack, stopCandidates, proposeStops } from '../js/round/track-analysis.js';
+import {
+  createTrackWriter,
+  readTrack,
+  trackSize,
+  deleteTrack,
+  expandFix,
+  pruneOrphanTracks,
+  trackedRoundIds,
+  openTrackDb,
+} from '../js/data/trackstore.js';
 import { expectedStrokes, validateBenchmarks, BASELINES } from '../js/analysis/benchmarks.js';
 import {
   holeStrokesGained,
@@ -1777,6 +1794,200 @@ export async function runContrastTests() {
   }
 }
 
+/* ---------------------------------------------------------------- revision */
+
+group('build revision');
+
+test('the running revision has an entry in the history', () => {
+  const info = revisionInfo(REVISION);
+  assert(info, `no REVISION_HISTORY entry for rev ${REVISION}`);
+  eq(info.rev, REVISION, 'entry matches');
+});
+
+test('revisions are unique and start at 0 with no gaps', () => {
+  const revs = REVISION_HISTORY.map((r) => r.rev);
+  eq(new Set(revs).size, revs.length, 'no duplicate revision numbers');
+  eq(Math.min(...revs), 0, 'numbering starts at 0');
+  const sorted = [...revs].sort((a, b) => a - b);
+  for (let i = 0; i < sorted.length; i++) eq(sorted[i], i, `contiguous at index ${i}`);
+});
+
+test('a new round is stamped with the current revision', () => {
+  const round = par4Round();
+  eq(round.revision, REVISION, 'stamped at creation');
+});
+
+test('migrate never invents a revision for a legacy round', () => {
+  // The exact failure this guards: defaulting the stamp would relabel field
+  // test 1 and 2 data as having come from a build that did not exist yet.
+  const legacy = { schemaVersion: 1, id: 'r_old', holes: [], track: [] };
+  const out = migrate(legacy);
+  eq('revision' in out && out.revision != null, false, 'no revision fabricated');
+  eq(roundRevisionLabel(out).includes('unstamped'), true, 'renders as unstamped');
+});
+
+test('the round index carries the revision, null for legacy rounds', () => {
+  eq(summarizeRound(par4Round()).revision, REVISION, 'stamped round');
+  eq(summarizeRound({ id: 'x', holes: [] }).revision, null, 'legacy round is null, not undefined');
+});
+
+/* ---------------------------------------------------------- track analysis */
+
+group('track analysis');
+
+/**
+ * Synthesise a 1 Hz track from legs — stand somewhere, or travel to somewhere
+ * at a speed. Jitter is deterministic (fixed-seed LCG) because a stop detector
+ * tested against Math.random() passes and fails on different days, and this
+ * suite has already been burned once by non-determinism.
+ */
+function synthTrack(legs, { startTs = 1_700_000_000_000, acc = 5, jitterM = 0 } = {}) {
+  let ts = startTs;
+  let seed = 42;
+  const rnd = () => {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    return seed / 0x7fffffff - 0.5;
+  };
+  const pts = [];
+  const push = (pt, speed) => {
+    const p = jitterM ? offsetM(pt, rnd() * jitterM * 2, rnd() * jitterM * 2) : pt;
+    pts.push([Number(p.lat.toFixed(7)), Number(p.lon.toFixed(7)), acc, ts, speed]);
+    ts += 1000;
+  };
+  const lerp = (a, b, f) => ({ lat: a.lat + (b.lat - a.lat) * f, lon: a.lon + (b.lon - a.lon) * f });
+
+  let at = legs[0].stand ?? legs[0].to;
+  for (const leg of legs) {
+    if (leg.stand) {
+      for (let i = 0; i < leg.seconds; i++) push(leg.stand, 0);
+      at = leg.stand;
+    } else if (leg.to) {
+      const secs = Math.max(1, Math.round(distanceM(at, leg.to) / leg.speed));
+      for (let i = 1; i <= secs; i++) push(lerp(at, leg.to, i / secs), leg.speed);
+      at = leg.to;
+    } else if (leg.gapSeconds) {
+      ts += leg.gapSeconds * 1000; // receiver dropout: time passes, no fixes
+    }
+  }
+  return pts;
+}
+
+const BALL_1 = offsetM(TEE, 210, 12);
+const BALL_2 = offsetM(TEE, 330, 20);
+
+test('a stand becomes a stop and a cart leg becomes a move', () => {
+  const pts = synthTrack([
+    { stand: TEE, seconds: 12 },
+    { to: BALL_1, speed: 5 },
+    { stand: BALL_1, seconds: 10 },
+  ]);
+  const segs = segmentTrack(pts);
+  const stops = segs.filter((s) => s.kind === 'stop');
+  eq(stops.length, 2, 'two stops');
+  near(distanceM(stops[0], TEE), 0, 3, 'first stop is at the tee');
+  near(distanceM(stops[1], BALL_1), 0, 3, 'second stop is at the ball');
+  assert(
+    segs.some((s) => s.kind === 'move' && s.speed > 3),
+    'the drive between them reads as movement'
+  );
+});
+
+test('standing still with GPS jitter stays ONE stop', () => {
+  // The failure this guards is silent and fatal to ranking: a stop that
+  // fragments into four short ones has four scores, all of them low.
+  const pts = synthTrack([{ stand: TEE, seconds: 20 }], { jitterM: 6, acc: 6 });
+  const stops = segmentTrack(pts).filter((s) => s.kind === 'stop');
+  eq(stops.length, 1, 'one stop, not several');
+});
+
+test('a receiver dropout is not a dwell', () => {
+  const pts = synthTrack([
+    { stand: TEE, seconds: 4 },
+    { gapSeconds: 180 },
+    { stand: TEE, seconds: 4 },
+  ]);
+  const stops = segmentTrack(pts).filter((s) => s.kind === 'stop');
+  eq(stops.length, 0, 'three minutes of missing fixes is not three minutes of standing');
+});
+
+test('fixes worse than the accuracy gate are dropped', () => {
+  const good = synthTrack([{ stand: TEE, seconds: 10 }], { acc: 5 });
+  const junk = synthTrack([{ stand: offsetM(TEE, 400, 0), seconds: 10 }], { acc: 60 });
+  const stops = segmentTrack([...good, ...junk].sort((a, b) => a[3] - b[3]));
+  eq(stops.filter((s) => s.kind === 'stop').length, 1, 'only the accurate cluster survives');
+});
+
+test('a shot outranks a walk behind the hole', () => {
+  const green = offsetM(TEE, 430, 30);
+  const behind = offsetM(green, 22, 0); // far enough to resolve past GPS scatter
+  const pts = synthTrack([
+    { stand: TEE, seconds: 12 },
+    { to: BALL_1, speed: 5 },
+    { stand: BALL_1, seconds: 10 },
+    { to: green, speed: 5 },
+    { stand: green, seconds: 10 },
+    { to: behind, speed: 1.2 },
+    { stand: behind, seconds: 12 },
+    { to: green, speed: 1.2 },
+    { stand: green, seconds: 10 },
+  ]);
+  const cands = stopCandidates(pts);
+  const behindStop = cands.find((c) => distanceM(c, behind) < 15);
+  const teeStop = cands.find((c) => distanceM(c, TEE) < 15);
+  assert(behindStop, 'the walk behind the hole is still reported, not suppressed');
+  assert(teeStop, 'the tee shot is reported');
+  assert(
+    teeStop.score > behindStop.score,
+    `tee shot (${teeStop.score}) should outrank reading the putt (${behindStop.score})`
+  );
+  assert(
+    behindStop.departureM < 40,
+    `a putt read departs a few metres, got ${behindStop.departureM}`
+  );
+});
+
+test('candidates explain themselves', () => {
+  const pts = synthTrack([
+    { stand: TEE, seconds: 12 },
+    { to: BALL_1, speed: 5 },
+    { stand: BALL_1, seconds: 10 },
+  ]);
+  const [first] = stopCandidates(pts);
+  assert(Array.isArray(first.reasons) && first.reasons.length, 'reasons are populated');
+  assert(first.score >= 0 && first.score <= 1, 'score is normalised');
+  eq(first.speedSource, 'device', 'device speed used when present');
+});
+
+test('proposeStops returns the requested count in TIME order', () => {
+  const pts = synthTrack([
+    { stand: TEE, seconds: 12 },
+    { to: BALL_1, speed: 5 },
+    { stand: BALL_1, seconds: 10 },
+    { to: BALL_2, speed: 5 },
+    { stand: BALL_2, seconds: 10 },
+  ]);
+  const proposed = proposeStops(pts, { count: 2 });
+  eq(proposed.length, 2, 'two proposed');
+  assert(proposed[0].startTs < proposed[1].startTs, 'ordered by time, not by score');
+});
+
+test('proposeStops honours a time window', () => {
+  const pts = synthTrack([
+    { stand: TEE, seconds: 12 },
+    { to: BALL_1, speed: 5 },
+    { stand: BALL_1, seconds: 10 },
+  ]);
+  const all = stopCandidates(pts);
+  const late = proposeStops(pts, { fromTs: all[1].startTs });
+  eq(late.length, 1, 'only the stop inside the window');
+});
+
+test('an empty or unusable track yields no candidates rather than throwing', () => {
+  eq(stopCandidates([]).length, 0, 'empty');
+  eq(stopCandidates(null).length, 0, 'null');
+  eq(stopCandidates([[NaN, NaN, 5, 1]]).length, 0, 'garbage fixes filtered');
+});
+
 /**
  * The offline shell must list every module the app actually loads.
  *
@@ -1834,6 +2045,112 @@ export async function runShellTests() {
       eq(res, 200, `expected 200, got ${res}`);
     });
   }
+}
+
+/**
+ * Dense track storage, against the REAL IndexedDB.
+ *
+ * Async, so it follows the same shape as the shell tests: do the I/O first,
+ * then assert synchronously on what came back. Mocking IndexedDB here would
+ * test the mock — and the failure modes that matter (a transaction that aborts,
+ * a buffer lost when the page hides) live in the real implementation.
+ */
+export async function runTrackStoreTests() {
+  group('dense track store');
+
+  const db = await openTrackDb();
+  if (!db) {
+    test('IndexedDB is available', () => {
+      throw new Error(
+        'IndexedDB unavailable in this browser/profile — dense tracking would fall back to the ' +
+          'decimated breadcrumb. Not a code failure, but this suite proved nothing.'
+      );
+    });
+    return;
+  }
+
+  const ID_A = 'r_test_track_a';
+  const ID_B = 'r_test_track_b';
+  await deleteTrack(ID_A);
+  await deleteTrack(ID_B);
+
+  // A short ride: enough points to cross MAX_BUFFER and force a mid-run flush.
+  const writer = createTrackWriter(ID_A, { flushMs: 50, maxBuffer: 10 });
+  const t0 = 1_700_000_000_000;
+  for (let i = 0; i < 25; i++) {
+    writer.push({ lat: 42.035 + i * 1e-5, lon: -93.645, acc: 4.25, ts: t0 + i * 1000, speed: 4.5 });
+  }
+  await writer.close();
+
+  const read = await readTrack(ID_A);
+  const size = await trackSize(ID_A);
+
+  test('every buffered fix survives a close', () => {
+    eq(read.length, 25, 'all 25 fixes written');
+    eq(size, 25, 'trackSize agrees without materialising points');
+  });
+
+  test('points come back in time order across chunk boundaries', () => {
+    for (let i = 1; i < read.length; i++) {
+      assert(read[i][3] >= read[i - 1][3], `out of order at ${i}`);
+    }
+    eq(read[0][3], t0, 'first timestamp preserved');
+    eq(read[24][3], t0 + 24000, 'last timestamp preserved');
+  });
+
+  test('a fix round-trips through storage with its speed intact', () => {
+    const f = expandFix(read[0]);
+    near(f.lat, 42.035, 1e-6, 'lat');
+    near(f.lon, -93.645, 1e-6, 'lon');
+    near(f.acc, 4.3, 0.06, 'accuracy kept to 0.1 m');
+    near(f.speed, 4.5, 0.01, 'device speed kept — the stop detector needs it');
+    eq(f.heading, null, 'absent heading stays null rather than being invented');
+  });
+
+  test('a fix with no coordinates is refused, not stored as garbage', () => {
+    const w = createTrackWriter('r_test_reject', { flushMs: 10_000, maxBuffer: 1000 });
+    eq(w.push({ lat: NaN, lon: -93.6, acc: 4, ts: t0 }), false, 'NaN rejected');
+    eq(w.push(null), false, 'null rejected');
+    eq(w.stats().inBuffer, 0, 'nothing buffered');
+  });
+
+  // Deletion and orphan pruning.
+  const writerB = createTrackWriter(ID_B, { flushMs: 50, maxBuffer: 5 });
+  for (let i = 0; i < 8; i++) {
+    writerB.push({ lat: 42.04, lon: -93.65, acc: 5, ts: t0 + i * 1000 });
+  }
+  await writerB.close();
+
+  const deleted = await deleteTrack(ID_A);
+  const afterDelete = await trackSize(ID_A);
+  const bSurvives = await trackSize(ID_B);
+
+  test('deleting one round leaves the others alone', () => {
+    eq(deleted, true, 'delete reported success');
+    eq(afterDelete, 0, 'target track gone');
+    eq(bSurvives, 8, 'the other round is untouched');
+  });
+
+  /*
+   * Prune with a live set that spares everything except ID_B.
+   *
+   * NOT `pruneOrphanTracks([])`, which by its own contract would delete every
+   * track in the browser profile — including real rounds if this suite is ever
+   * opened on Matt's phone, which it will be.
+   */
+  const storedBefore = await trackedRoundIds();
+  const live = storedBefore.filter((id) => id !== ID_B);
+  const pruned = await pruneOrphanTracks(live);
+  const bAfterPrune = await trackSize(ID_B);
+  const survivorCount = (await trackedRoundIds()).length;
+
+  test('orphan pruning removes tracks whose round is gone, and only those', () => {
+    eq(pruned, 1, 'exactly one orphan removed');
+    eq(bAfterPrune, 0, 'orphaned track cleaned up');
+    eq(survivorCount, live.length, 'every live track survived');
+  });
+
+  await deleteTrack('r_test_reject');
 }
 
 export function getResults() {

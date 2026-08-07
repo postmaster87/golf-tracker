@@ -15,7 +15,7 @@
  * the network is indistinguishable from being offline, so treat it as offline.
  */
 
-const CACHE = 'gt-shell-v5';
+const CACHE = 'gt-shell-v6';
 const NET_TIMEOUT_MS = 2500;
 const SHELL = [
   './',
@@ -31,9 +31,12 @@ const SHELL = [
   './js/data/store.js',
   './js/data/courses.js',
   './js/data/clubs.js',
+  './js/data/revision.js',
+  './js/data/trackstore.js',
   './js/gps/gps.js',
   './js/gps/wakelock.js',
   './js/round/round.js',
+  './js/round/track-analysis.js',
   './js/analysis/tour-benchmark.js',
   './js/analysis/benchmarks.js',
   './js/analysis/strokes-gained.js',

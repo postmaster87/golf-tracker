@@ -5,11 +5,31 @@ re-learning lessons that were paid for in the field.
 
 ---
 
-## 0. Start here — morning of 2026-08-03
+## 0. Start here — 2026-08-07
 
-Last night ended **mid-conversation, inside agenda item 1 (tracking)**. Nothing
-was built. The session was spent redesigning capture after field test 2 and then
-verifying this document.
+**Agenda item 1 (tracking) is now BUILT.** See `docs/REVISIONS.md`. The
+2026-08-03 session hung without committing anything; nothing was lost, because
+nothing had been built. Rev 2 was built on 2026-08-07 and is unplayed.
+
+What changed since the section-0 text below was written:
+
+- **Revision numbering exists**, starting at 0 per Matt's convention at work.
+  Rev 0 = field test 1, rev 1 = field test 2, rev 2 = current and unplayed.
+  Source of truth is `js/data/revision.js`; every round is stamped at creation.
+- **The dense-track storage decision is resolved** — see section 6. It did not
+  need Matt's call in the end; the answer was to stop asking localStorage to do
+  it. Tracks now live in IndexedDB.
+- **Tests: 346/346**, up from 323.
+- Still owed by Matt: **"what worked"** from field test 2, and **permission to
+  open the embargoed JSON**. Both still stand. Ask.
+
+**Do not skip ahead to agenda items 2 and 3.** Item 1 being done does not make
+item 2 started; he has stopped this twice for exactly that.
+
+*(Historical, from the 2026-08-02 session:)* That night ended
+**mid-conversation, inside agenda item 1 (tracking)**. Nothing was built. The
+session was spent redesigning capture after field test 2 and then verifying this
+document.
 
 **Open the conversation by asking Matt for two things he still owes:**
 
@@ -147,8 +167,10 @@ before touching capture.
 - **Live and serving** at <https://postmaster87.github.io/golf-tracker/> —
   confirmed by fetching the deployed `js/app.js` and `sw.js` (both 200) on
   2026-08-02, not assumed from a successful push.
-- **323 / 323 tests passing.** Re-run in-browser on 2026-08-02 against the
-  no-cache dev server — not copied from a prior report. 24 groups, 0 failures.
+- **346 / 346 tests passing.** Re-run in-browser on 2026-08-07 against the
+  no-cache dev server — not copied from a prior report. 0 failures. The 23 added
+  in rev 2 cover revision stamping, stop detection, and the IndexedDB track
+  store against the real IndexedDB rather than a mock.
 - Dev server: `python tools/devserver.py 8123`, wired into `.claude/launch.json`.
   It sends `no-store` (`tools/devserver.py:23`). **Use only this one.**
   `python -m http.server` sends no cache headers at all, which is what caused
@@ -331,11 +353,23 @@ What each settles (my reading, for review — none of this is his words):
   (`js/round/round.js:518`) decimates to one point per 30 s or 25 m, capped at
   3000. Its own doc comment (`:513–516`) states the reasoning: full 1 Hz for 4.5
   hours is ~16k points, and at two dozen rounds that alone would threaten the
-  localStorage budget. **Dense recording therefore breaks the stated rationale
-  for the current design and needs an explicit decision, not a parameter tweak.**
-  Matt said *"Storage is not a problem"* early on, but that was about round data,
-  not about a ~30× track increase, and the localStorage ceiling is a hard limit
-  rather than a preference. Raise it with him before changing it.
+  localStorage budget.
+
+  **RESOLVED 2026-08-07 — and it was not the decision it looked like.** Framing
+  it as "will Matt accept ~30× more data in localStorage?" was the wrong
+  question, in the same way the cart-position question was. The size ceiling was
+  only half the problem, and the smaller half. The round is ONE localStorage
+  key, so appending a track point rewrites the entire round — every mark, every
+  raw sample. At 30 s that is free; at 1 Hz it is a synchronous
+  `JSON.stringify` of a growing megabyte on the main thread, every second, for
+  four hours, on a phone in a pocket in the sun. No quota answer fixes that.
+
+  So the dense track moved to IndexedDB (`js/data/trackstore.js`): async, off
+  the main thread, append-only, quota proportional to disk. The rev-1
+  breadcrumb still runs unchanged as the fallback, so losing IndexedDB costs
+  analysis quality, not the round. Matt was not asked, because engineering
+  answered it — but he should be told, since section 6 previously promised he
+  would decide.
 
 ### Open, not yet discussed
 
@@ -420,8 +454,15 @@ putts but 1 putt better."*
 
 1. Whether to rewrite pushed commit `cbc81fd` to scrub the work email (needs
    force-push approval).
-2. The dense-track storage increase (section 6) — a real decision, not a tweak.
+2. ~~The dense-track storage increase~~ — resolved 2026-08-07, see section 6.
+   Tell him it was resolved without him and how, since he was promised the call.
 3. Firestore sync + Google Sign-In (`SPEC.md` step 4) has not been started.
+4. **Pushing is blocked from the `mpost7` account.** The repo is owned by
+   `MPOST7-7440\Administrator`, git needs
+   `-c safe.directory='C:/Temp/gitRepos/golf-tracker'` to run at all, and the
+   GitHub credential lives in the Administrator profile's Credential Manager —
+   so `git push` hangs on an interactive prompt that cannot be answered here.
+   Commits land locally; pushing has to happen from Matt's elevated session.
 
 ---
 

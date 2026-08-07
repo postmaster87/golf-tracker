@@ -1,5 +1,6 @@
 import { h, card, segmented, confirmSheet, sheet, frag, toast } from './dom.js';
 import { loadRound, deleteRound, reconcileIndex } from '../data/store.js';
+import { deleteTrack } from '../data/trackstore.js';
 import { roundTotals, fmtToPar } from '../round/round.js';
 
 export function historyScreen(ctx) {
@@ -151,6 +152,10 @@ export function historyScreen(ctx) {
     );
     if (!ok) return;
     deleteRound(summary.id);
+    // The dense track lives in a separate store, so deleting the round does not
+    // reach it. An orphaned track is invisible and is the single largest thing
+    // this app writes — leaving it behind would quietly fill the disk.
+    deleteTrack(summary.id);
     if (ctx.app.activeRoundId === summary.id) {
       ctx.app.activeRoundId = null;
       ctx.round = null;

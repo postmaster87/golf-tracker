@@ -34,6 +34,8 @@
  * upgrades on read, so a schema bump never orphans data.
  */
 
+import { REVISION } from './revision.js';
+
 export const SCHEMA_VERSION = 1;
 export const APP_VERSION = '1.0.0';
 
@@ -97,6 +99,15 @@ export function newAppState() {
       maxAccuracyM: 8, // reject-and-warn threshold from the spec
       burstMs: 3000,
       recordTrack: true, // decimated breadcrumb for future pace/auto-advance work
+      /**
+       * Full-rate position recording to IndexedDB (rev 2). This is what makes
+       * shots recoverable after the round instead of during it.
+       *
+       * Independent of `recordTrack` on purpose: the breadcrumb is the fallback
+       * that keeps a round useful when this cannot run, so turning the dense
+       * track off must never turn the breadcrumb off with it.
+       */
+      denseTrack: true,
       sgBaseline: 'scratch', // strokes gained benchmark: scratch per the spec
       // Feet, not paces. Matt steps off in paces but converts to feet in his
       // head on the way to the phone, so asking for paces made him convert back.
@@ -275,6 +286,13 @@ export function newRound({
   return {
     schemaVersion: SCHEMA_VERSION,
     appVersion: APP_VERSION,
+    /**
+     * Which build recorded this round. See js/data/revision.js.
+     *
+     * Stamped at creation and never updated afterwards — editing a rev-1 round
+     * on a rev-3 build must not relabel where the data came from.
+     */
+    revision: REVISION,
     id: uid('r'),
     courseId,
     courseName,
@@ -302,6 +320,10 @@ export function newRound({
 export function summarizeRound(round) {
   return {
     id: round.id,
+    // Carried into the index so History can group and filter by build without
+    // loading every round off disk. `?? null` keeps pre-rev rounds honest
+    // rather than defaulting them to the current build.
+    revision: round.revision ?? null,
     courseId: round.courseId,
     courseName: round.courseName,
     type: round.type,
@@ -334,6 +356,19 @@ export function migrate(payload) {
   if (p.settings && p.settings.puttUnit === 'paces' && !p.settings.puttUnitDefaultedToFeet) {
     p = { ...p, settings: { ...p.settings, puttUnit: 'feet', puttUnitDefaultedToFeet: true } };
   }
+  /*
+   * DELIBERATELY NOT MIGRATED: `revision`.
+   *
+   * Rounds recorded before rev 2 carry no revision stamp, and there is no
+   * honest way to add one — the app would be guessing which build produced
+   * data it did not label. Design rule 5 says measured and inferred data are
+   * never mixed silently, and provenance is the last field that should break
+   * that rule. They stay `undefined`, and render as "unstamped".
+   *
+   * Do not "fix" this by defaulting to REVISION. That would relabel field-test
+   * data as having come from a build that did not exist when it was recorded.
+   */
+
   // Future: while (p.schemaVersion < SCHEMA_VERSION) { ...; p.schemaVersion++ }
   return p;
 }

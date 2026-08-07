@@ -8,6 +8,9 @@ import {
 } from '../analysis/strokes-gained.js';
 import { BASELINES } from '../analysis/benchmarks.js';
 import { loadRound, downloadExport } from '../data/store.js';
+import { readTrack } from '../data/trackstore.js';
+import { roundRevisionLabel } from '../data/revision.js';
+import { stopCandidates } from '../round/track-analysis.js';
 import { toYards } from '../util/geo.js';
 import { median } from '../util/stats.js';
 import {
@@ -426,5 +429,43 @@ function dataQuality(round, t) {
       })
     );
   }
+
+  // Which build recorded this. Cheap to show, and the whole reason a round that
+  // turns out to be wrong can be quarantined by filter instead of by memory.
+  wrap.appendChild(
+    h('p', { class: 'note muted', text: `Recorded by ${roundRevisionLabel(round)}.` })
+  );
+
+  /*
+   * Dense track, filled in asynchronously.
+   *
+   * IndexedDB cannot be read synchronously, and this card is built during a
+   * render. Rather than make the whole summary async — which would stall the
+   * screen behind a disk read on every visit — the line appends itself when the
+   * read lands. A round with no dense track says so instead of showing nothing,
+   * because "no track" and "not loaded yet" must not look the same.
+   */
+  const trackLine = h('p', { class: 'note muted', text: 'Track: reading…' });
+  wrap.appendChild(trackLine);
+  readTrack(round.id)
+    .then((points) => {
+      if (!points.length) {
+        trackLine.textContent =
+          round.revision == null || round.revision < 2
+            ? 'Track: none — this round predates continuous recording.'
+            : 'Track: none recorded. Continuous recording may have been off, or unavailable on this device.';
+        return;
+      }
+      const candidates = stopCandidates(points);
+      const strong = candidates.filter((c) => c.score >= 0.5).length;
+      const spanMin = Math.round((points[points.length - 1][3] - points[0][3]) / 60000);
+      trackLine.textContent =
+        `Track: ${points.length.toLocaleString()} fixes over ${spanMin} min · ` +
+        `${candidates.length} stops found, ${strong} look like shots.`;
+    })
+    .catch(() => {
+      trackLine.textContent = 'Track: could not be read.';
+    });
+
   return wrap;
 }
