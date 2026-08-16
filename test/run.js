@@ -9,7 +9,7 @@
 import { GEO_FIXTURES } from './fixtures.js';
 import { distanceM, bearingDeg, radiiAt, toYards, toFeet, feetToM, weightedCentroid } from '../js/util/geo.js';
 import { median, mad } from '../js/util/stats.js';
-import { reduceBurst } from '../js/gps/gps.js';
+import { reduceBurst, GpsService } from '../js/gps/gps.js';
 import { VEENKER, playOrder, holeYards, newCustomCourse } from '../js/data/courses.js';
 import {
   createRound,
@@ -689,6 +689,76 @@ test('yardages are independent of shots, penalties and hand entry', () => {
   setManualHole(hole, { strokes: 5, putts: 2, firstPuttFt: 12, penalties: 0 });
   eq(laseredCount(hole), 2, 'hand entry does not disturb them');
   eq(holeStrokes(hole), 5, 'and they add nothing to the score');
+});
+
+group('gps watch recovery (the phone gets locked)');
+
+/**
+ * Stub `navigator.geolocation`. It is getter-only, so plain assignment throws —
+ * the same trap that once blanked the app from the dev simulator.
+ */
+function withStubbedGeolocation(fn) {
+  const original = Object.getOwnPropertyDescriptor(navigator, 'geolocation');
+  const calls = { watch: 0, cleared: [] };
+  Object.defineProperty(navigator, 'geolocation', {
+    configurable: true,
+    value: {
+      watchPosition: () => ++calls.watch,
+      clearWatch: (id) => calls.cleared.push(id),
+      getCurrentPosition: () => {},
+    },
+  });
+  try {
+    return fn(calls);
+  } finally {
+    if (original) Object.defineProperty(navigator, 'geolocation', original);
+    else delete navigator.geolocation;
+  }
+}
+
+test('restart tears down the old watch and arms a fresh one', () => {
+  withStubbedGeolocation((calls) => {
+    const gps = new GpsService();
+    gps.start();
+    const first = gps.watchId;
+    eq(calls.watch, 1, 'one watch armed');
+    gps.restart();
+    eq(calls.cleared[0], first, 'the dead watch is cleared by its own id');
+    eq(calls.watch, 2, 'and a replacement is armed');
+    assert(gps.running, 'still running afterwards');
+  });
+});
+
+test('restart on a stopped service does not quietly start one', () => {
+  withStubbedGeolocation((calls) => {
+    const gps = new GpsService();
+    gps.restart();
+    eq(calls.watch, 0, 'nothing armed');
+    eq(gps.running, false, 'and it stays stopped');
+  });
+});
+
+test('a service that has never had a fix reads as infinitely stale', () => {
+  // Load-bearing: this is what makes the post-unlock check fire when the freeze
+  // killed the watch before any fix landed. Treating "never" as "just now"
+  // would leave exactly that case unrecovered.
+  withStubbedGeolocation(() => {
+    const gps = new GpsService();
+    eq(gps.staleSinceMs(), Infinity, 'no fix yet');
+    gps.last = { ts: Date.now() };
+    assert(gps.staleSinceMs() < 100, 'a fresh fix is not stale');
+  });
+});
+
+test('stopping cancels a pending revive, so it cannot resurrect a dead service', () => {
+  withStubbedGeolocation(() => {
+    const gps = new GpsService();
+    gps.start();
+    gps._reviveTimer = setTimeout(() => gps.restart(), 5);
+    gps.stop();
+    eq(gps.running, false, 'stopped');
+    eq(gps._reviveTimer, null, 'and the pending revive is cancelled');
+  });
 });
 
 group('green workflow (no phone on the green)');

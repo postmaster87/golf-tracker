@@ -37,6 +37,13 @@ export const GPS_DEFAULTS = {
   staleFixMs: 4000, // a fix older than this is not "current"
   seedWindowMs: 1200, // reuse a fix that landed just before the tap
   accFloorM: 0.5,
+  /**
+   * How long to let a thawed page resume delivering on its own before the watch
+   * is treated as dead and re-armed. Long enough that a watch which is merely
+   * slow to wake is not thrown away, short enough that a dead one is caught
+   * before the next shot.
+   */
+  reviveGraceMs: 3000,
 };
 
 /**
@@ -142,6 +149,8 @@ export class GpsService {
     this.fixCount = 0;
     this._subs = new Set();
     this._bursts = new Set();
+    this._reviveTimer = null;
+    this._visibilityBound = false;
   }
 
   get supported() {
@@ -187,16 +196,63 @@ export class GpsService {
       (err) => this._onError(err),
       { enableHighAccuracy: true, maximumAge: 0, timeout: 30000 }
     );
+    this._bindVisibility();
     this._emit('started');
     return true;
   }
 
   stop() {
+    clearTimeout(this._reviveTimer);
+    this._reviveTimer = null;
     if (this.watchId != null) {
       navigator.geolocation.clearWatch(this.watchId);
       this.watchId = null;
       this._emit('stopped');
     }
+  }
+
+  /**
+   * Re-arm the watch when the page comes back from being hidden.
+   *
+   * Android freezes a backgrounded page, and nothing guarantees that a
+   * `watchPosition` subscription resumes delivering once it thaws. The failure
+   * is silent in the worst possible way: `watchId` stays non-null either way,
+   * so `running` is still true and `start()` short-circuits — the app looks
+   * healthy while recording nothing.
+   *
+   * This is not an edge case for this user. Locking the phone is a stated
+   * habit, so a round WILL contain lock/unlock cycles; the track gap while it
+   * is locked is unavoidable, but failing to resume afterwards is not.
+   *
+   * Re-arming only happens when fixes have actually stopped — a watch that woke
+   * up on its own is left alone, since a needless restart costs a receiver cold
+   * start. The grace period is what tells those two apart.
+   */
+  _bindVisibility() {
+    if (this._visibilityBound || typeof document === 'undefined') return;
+    this._visibilityBound = true;
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState !== 'visible' || !this.running) return;
+      clearTimeout(this._reviveTimer);
+      this._reviveTimer = setTimeout(() => {
+        if (!this.running) return;
+        if (this.staleSinceMs() > this.opts.staleFixMs) this.restart();
+      }, this.opts.reviveGraceMs);
+    });
+  }
+
+  /** Age of the newest fix, or Infinity if none has ever landed. */
+  staleSinceMs() {
+    return this.last ? Date.now() - this.last.ts : Infinity;
+  }
+
+  /** Tear the watch down and arm a fresh one. Safe when already stopped. */
+  restart() {
+    const wasRunning = this.running;
+    this.stop();
+    if (wasRunning) this.start();
+    this._emit('restarted');
+    return this.running;
   }
 
   _onFix(pos) {
