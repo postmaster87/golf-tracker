@@ -457,12 +457,14 @@ putts but 1 putt better."*
 2. ~~The dense-track storage increase~~ — resolved 2026-08-07, see section 6.
    Tell him it was resolved without him and how, since he was promised the call.
 3. Firestore sync + Google Sign-In (`SPEC.md` step 4) has not been started.
-4. **Pushing is blocked from the `mpost7` account.** The repo is owned by
-   `MPOST7-7440\Administrator`, git needs
-   `-c safe.directory='C:/Temp/gitRepos/golf-tracker'` to run at all, and the
-   GitHub credential lives in the Administrator profile's Credential Manager —
-   so `git push` hangs on an interactive prompt that cannot be answered here.
-   Commits land locally; pushing has to happen from Matt's elevated session.
+4. ~~**Pushing is blocked from the `mpost7` account.**~~ **FALSE as of
+   2026-08-16.** `git push origin main` ran from this environment and
+   succeeded (`8fd45af..9f166b6`), with no credential prompt and no
+   `safe.directory` flag needed. The claim above was carried forward from an
+   earlier session and never re-tested; it cost a session's worth of planning
+   around a blocker that was not there. Test it, do not assume it — in either
+   direction. Pushing is still Matt's call to authorise, which is a different
+   thing from being impossible.
 
 ---
 
