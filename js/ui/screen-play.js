@@ -14,6 +14,9 @@ import {
   removeShot,
   attachPenalty,
   setManualHole,
+  setLaseredYards,
+  laseredYards,
+  laseredCount,
   setShotClub,
   setShotDistance,
   setGreenEntry,
@@ -100,6 +103,13 @@ export function playScreen(ctx) {
   /* --------------------------------------------------------------- chrome */
 
   const accChip = h('div', { class: 'acc-chip', dataset: { q: 'none' } });
+  /*
+   * Proof the dense track is actually recording, on screen, during the round.
+   * Rev 2's whole premise is that the phone records while it is in a pocket; if
+   * that write is failing there is no other way to find out until the round is
+   * over and the summary says "Track: none recorded".
+   */
+  const trackChip = h('div', { class: 'acc-chip', dataset: { q: 'none' } });
   const hudMeta = h('span', { class: 'hud-meta' });
   const navRow = h('nav', { class: 'holenav' });
 
@@ -125,7 +135,8 @@ export function playScreen(ctx) {
               'aria-label': 'Lock screen for pocket',
               onClick: () => pocketLock.lock(),
             }),
-            accChip
+            accChip,
+            trackChip
           )
     )
   );
@@ -176,7 +187,52 @@ export function playScreen(ctx) {
 
   /* ------------------------------------------------------------ live bits */
 
+  /**
+   * Fixes committed to IndexedDB — not merely seen.
+   *
+   * `buffered` counts what the writer accepted, `written` counts what actually
+   * landed. Showing the former would read as healthy during exactly the failure
+   * this chip exists to catch, because pushing into an in-memory buffer cannot
+   * fail. Nothing is durable until the first flush, 30 fixes or 15 s in, so the
+   * pre-flush state is shown as pending rather than as a count.
+   */
+  function paintTrackChip() {
+    const s = ctx.trackStats?.();
+    if (!s) {
+      trackChip.dataset.q = 'none';
+      trackChip.replaceChildren(h('small', { text: 'track' }), document.createTextNode('—'));
+      return;
+    }
+    if (s.failures > 0) {
+      trackChip.dataset.q = 'poor';
+      trackChip.replaceChildren(h('small', { text: 'track' }), document.createTextNode('FAIL'));
+      return;
+    }
+    trackChip.dataset.q = s.written > 0 ? 'good' : 'degraded';
+    trackChip.replaceChildren(
+      h('small', { text: 'track' }),
+      document.createTextNode(s.written > 0 ? String(s.written) : `${s.inBuffer}…`)
+    );
+  }
+
+  /*
+   * The track chip drives itself rather than riding `tick()`.
+   *
+   * `tick()` is called from the GPS subscription in app.js, and on 2026-08-16 it
+   * was found not to be firing on this screen at all — the accuracy chip beside
+   * this one sits frozen on a stale reading (verified in the simulator: forcing
+   * accuracy 3 → 9 changed nothing on screen). That is a separate bug and is not
+   * fixed here. But this indicator exists precisely to be trusted mid-round, and
+   * an indicator that silently stops updating is worse than no indicator, so it
+   * does not depend on that path. Self-cancels once the screen is gone.
+   */
+  const trackTimer = setInterval(() => {
+    if (!document.contains(el)) return clearInterval(trackTimer);
+    paintTrackChip();
+  }, 2000);
+
   function tick() {
+    paintTrackChip();
     const fix = ctx.gps.current;
     if (ctx.gps.error?.code === 1) {
       accChip.dataset.q = 'poor';
@@ -1065,6 +1121,22 @@ export function playScreen(ctx) {
 
     footer.appendChild(h('p', { class: 'hint', text: nextStepHint(hl) }));
 
+    /*
+     * Present in EVERY state, including a hole with no shots marked on it.
+     * Yardages are entered after holing out, which is both before the hole is
+     * complete (nothing logged all hole) and after it (putts entered) — so it
+     * cannot live in one branch. It is also the only control that works when
+     * the phone never came out of a pocket, which is the intended way to play.
+     */
+    const yardageBtn = () => {
+      const n = laseredCount(hl);
+      return h('button', {
+        class: pri('yardages'),
+        text: n ? `YARDAGES · ${n} ▸` : 'ENTER YARDAGES ▸',
+        onClick: () => openYardages(hl),
+      });
+    };
+
     if (isHoleComplete(hl)) {
       footer.appendChild(
         h('button', {
@@ -1075,6 +1147,7 @@ export function playScreen(ctx) {
           onClick: () => (isLastHole() ? finishRound() : advanceHole(1)),
         })
       );
+      footer.appendChild(yardageBtn());
       footer.appendChild(
         h(
           'div',
@@ -1126,6 +1199,7 @@ export function playScreen(ctx) {
         onClick: () => openGreenEntry(hl),
       })
     );
+    footer.appendChild(yardageBtn());
     footer.appendChild(
       h(
         'div',
@@ -1197,6 +1271,85 @@ export function playScreen(ctx) {
   const advanceHole = (delta, opts) => goToHole(round.currentHoleIndex + delta, opts);
 
   /* -------------------------------------------------------------- sheets */
+
+  /**
+   * Lasered yardages, entered after the hole.
+   *
+   * Deliberately independent of shot records. Under the continuous-track model
+   * the phone stays in a pocket and nothing gets marked during the hole, so
+   * this has to work with `hl.shots` empty — which is the normal case, not the
+   * degraded one.
+   *
+   * A blank row is left blank on purpose. Inside 60 yards Matt plays by feel
+   * and does not range it, so "shot happened, not lasered" has to be sayable;
+   * the alternative is him inventing a number, which is worse than no number
+   * when the whole point of these is to be ground truth.
+   */
+  function openYardages(hl) {
+    const draft = [...laseredYards(hl)];
+    // Enough rows for a par-4 gone wrong, without making him tap ADD on a par 3.
+    while (draft.length < Math.max(4, hl.par + 1)) draft.push(null);
+
+    sheet(`Hole ${hl.number} — yardages`, (done) => {
+      const rows = h('div');
+      const paintRows = () => {
+        rows.replaceChildren(
+          ...draft.map((v, i) =>
+            field(
+              `Shot ${i + 1}`,
+              h('input', {
+                type: 'number',
+                inputmode: 'numeric',
+                min: '1',
+                max: '700',
+                // The card yardage is the obvious first-shot value, so show it
+                // as a placeholder — visible, but never entered on his behalf.
+                placeholder: i === 0 && hl.yards ? `${hl.yards}` : '— not lasered',
+                value: v == null ? '' : String(v),
+                onInput: (e) => {
+                  const n = Number(e.target.value);
+                  draft[i] = Number.isFinite(n) && n > 0 ? n : null;
+                },
+              })
+            )
+          )
+        );
+      };
+      paintRows();
+
+      return frag(
+        h('p', {
+          class: 'note muted',
+          text: 'Distance to the pin before each shot, in yards, as you lasered it. Leave a row blank if you did not range that one — inside 60 yards the track covers it. These are the ground truth the GPS gets checked against, so an estimate is worth less here than a blank.',
+        }),
+        rows,
+        h('button', {
+          class: 'btn sm',
+          text: '+ ANOTHER SHOT',
+          onClick: () => {
+            draft.push(null);
+            paintRows();
+          },
+        }),
+        h('button', {
+          class: 'btn primary',
+          text: 'SAVE YARDAGES',
+          onClick: () => {
+            setLaseredYards(hl, draft);
+            persist();
+            paint();
+            done('saved');
+            const n = laseredCount(hl);
+            toast(
+              n
+                ? `Hole ${hl.number}: ${n} yardage${n === 1 ? '' : 's'} saved.`
+                : `Hole ${hl.number}: yardages cleared.`
+            );
+          },
+        })
+      );
+    });
+  }
 
   function openPenalty() {
     const hl = hole();

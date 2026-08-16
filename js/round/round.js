@@ -198,6 +198,40 @@ function renumber(hole) {
   });
 }
 
+/**
+ * Lasered yardages for a hole, entered after holing out.
+ *
+ * Entry `i` is the distance to the pin before shot `i + 1`. Stored against the
+ * hole rather than against shots because under the continuous-track model no
+ * shot records exist while the hole is played — these arrive before the shots
+ * they describe do.
+ *
+ * A `null` entry is kept, not dropped. It states that the shot happened and was
+ * NOT ranged, which is different from the shot not existing, and inside 60
+ * yards it is the normal case. Trailing nulls ARE dropped, because a blank row
+ * at the end is an untouched input rather than a claim about a shot.
+ *
+ * Values are rounded to whole yards. A laser reads to a yard; storing more
+ * precision than the instrument has would overstate the ground truth these
+ * exist to provide.
+ */
+export function setLaseredYards(hole, list) {
+  const yards = (list ?? []).map((v) => {
+    const n = Number(v);
+    return Number.isFinite(n) && n > 0 ? Math.round(n) : null;
+  });
+  while (yards.length && yards[yards.length - 1] == null) yards.pop();
+  if (!yards.length) {
+    hole.lasered = null;
+    return null;
+  }
+  hole.lasered = { yards, enteredAt: new Date().toISOString() };
+  return hole.lasered;
+}
+
+export const laseredYards = (hole) => hole.lasered?.yards ?? [];
+export const laseredCount = (hole) => laseredYards(hole).filter((y) => y != null).length;
+
 /** Hand-entered hole, used when GPS was unusable. Flagged, never blended. */
 export function setManualHole(hole, { strokes, putts, firstPuttFt = null, penalties = 0 }) {
   hole.manual = { strokes, putts, firstPuttFt, penalties, enteredAt: new Date().toISOString() };

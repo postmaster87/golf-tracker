@@ -49,6 +49,17 @@ const ctx = {
   setTheme,
   startGps,
   stopGps,
+  /*
+   * Live dense-track stats, for the on-course indicator.
+   *
+   * The dense write is fire-and-forget from inside the GPS callback, so a
+   * failing IndexedDB is silent by construction — and the only place the fix
+   * count surfaced was the round summary, i.e. after the round was already
+   * over. That turns a recoverable "the track is not recording" into four
+   * wasted hours. Reads the module-level writer at call time; null means no
+   * round is live.
+   */
+  trackStats: () => trackWriter?.stats() ?? null,
 };
 
 let active = null; // { el, tick }

@@ -19,6 +19,9 @@ import {
   restoreUndo,
   attachPenalty,
   setManualHole,
+  setLaseredYards,
+  laseredYards,
+  laseredCount,
   setShotClub,
   setShotDistanceFt,
   setShotDistance,
@@ -612,6 +615,80 @@ test('manual entry is honoured and stays flagged', () => {
   const totals = roundTotals(round);
   eq(totals.manualHoles, 1, 'counted as hand-entered');
   eq(totals.gpsShots, 0, 'no measured shots');
+});
+
+group('lasered yardages (entered after the hole)');
+
+test('yardages are stored on a hole with no shots on it at all', () => {
+  // The point of these: under the continuous-track model nothing is marked
+  // while the hole is played, so this MUST work against an empty shot list.
+  const round = par4Round();
+  const hole = round.holes[0];
+  eq(hole.shots.length, 0, 'no shots marked');
+  setLaseredYards(hole, [385, 152, 18]);
+  eq(laseredYards(hole).length, 3, 'three entries kept');
+  eq(laseredCount(hole), 3, 'three of them lasered');
+  eq(hole.lasered.yards[1], 152, 'second shot yardage');
+  assert(hole.lasered.enteredAt, 'stamped with when it was entered');
+});
+
+test('a blank row is kept, because "not lasered" is a fact about that shot', () => {
+  const round = par4Round();
+  const hole = round.holes[0];
+  // Inside 60 yards Matt does not range it — the third shot here is a wedge.
+  setLaseredYards(hole, [385, 152, null, 40]);
+  eq(laseredYards(hole).length, 4, 'four shots described');
+  eq(laseredYards(hole)[2], null, 'the un-ranged shot is still a shot');
+  eq(laseredCount(hole), 3, 'but only three carry a measurement');
+});
+
+test('trailing blanks are dropped, so untouched rows do not invent shots', () => {
+  const round = par4Round();
+  const hole = round.holes[0];
+  setLaseredYards(hole, [385, 152, null, null, null]);
+  eq(laseredYards(hole).length, 2, 'the empty tail is not a claim');
+});
+
+test('junk and non-positive entries become blanks rather than numbers', () => {
+  const round = par4Round();
+  const hole = round.holes[0];
+  setLaseredYards(hole, ['385', '', 'abc', 0, -12, 151.6]);
+  eq(laseredYards(hole)[0], 385, 'numeric strings are accepted');
+  eq(laseredYards(hole)[1], null, 'empty is blank');
+  eq(laseredYards(hole)[2], null, 'text is blank');
+  eq(laseredYards(hole)[3], null, 'zero is blank');
+  eq(laseredYards(hole)[4], null, 'negative is blank');
+  // A laser reads to the yard; storing more precision would overstate it.
+  eq(laseredYards(hole)[5], 152, 'rounded to whole yards');
+});
+
+test('an all-blank entry clears rather than storing an empty record', () => {
+  const round = par4Round();
+  const hole = round.holes[0];
+  setLaseredYards(hole, [385, 152]);
+  setLaseredYards(hole, ['', '', '']);
+  eq(hole.lasered, null, 'cleared');
+  eq(laseredCount(hole), 0, 'and reads as none');
+});
+
+test('yardages survive an export/import round trip', () => {
+  // These are the ground truth the GPS gets checked against, so losing them in
+  // transport would silently remove the only reference the track has.
+  const round = par4Round();
+  setLaseredYards(round.holes[0], [385, null, 96]);
+  const restored = migrate(JSON.parse(JSON.stringify(round)));
+  eq(laseredYards(restored.holes[0])[0], 385, 'first survives');
+  eq(laseredYards(restored.holes[0])[1], null, 'the blank survives as a blank');
+  eq(laseredYards(restored.holes[0])[2], 96, 'third survives');
+});
+
+test('yardages are independent of shots, penalties and hand entry', () => {
+  const round = par4Round();
+  const hole = round.holes[0];
+  setLaseredYards(hole, [385, 152]);
+  setManualHole(hole, { strokes: 5, putts: 2, firstPuttFt: 12, penalties: 0 });
+  eq(laseredCount(hole), 2, 'hand entry does not disturb them');
+  eq(holeStrokes(hole), 5, 'and they add nothing to the score');
 });
 
 group('green workflow (no phone on the green)');

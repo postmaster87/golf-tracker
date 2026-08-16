@@ -265,6 +265,21 @@ export function newHole({ number, playOrder, par, yards, hcp }) {
      */
     greenEntry: null, // { putts, unit, paceFeet, enteredAt }
     /**
+     * Yardages Matt lasered on this hole, entered after holing out. Entry `i`
+     * is the distance to the pin before shot `i + 1`.
+     *
+     * Hole-level rather than per-shot on purpose. Under the continuous-track
+     * model the phone stays in a pocket and no shot records exist while the
+     * hole is being played, so there is nothing to hang them on until the round
+     * is reconstructed. A `null` entry is meaningful: it says that shot was not
+     * ranged, which inside 60 yards is the normal case.
+     *
+     * These are ground truth, not a convenience. Three or more on one hole make
+     * the pin position solvable from the track alone, which turns GPS error
+     * into something measurable without any surveyed reference.
+     */
+    lasered: null, // { yards: (number|null)[], enteredAt }
+    /**
      * Only populated when GPS was unavailable / the hole was hand-entered.
      * Kept separate from `shots` so measured data is never diluted.
      */
