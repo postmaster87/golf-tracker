@@ -60,7 +60,9 @@ export const REVISION_HISTORY = [
     title: 'Continuous track',
     summary:
       'Record position continuously instead of logging every shot by hand. ' +
-      'Dense track moves to IndexedDB; stop candidates derived from it afterwards.',
+      'Dense track moves to IndexedDB; stop candidates derived from it afterwards. ' +
+      'Lasered yardages entered after each hole, as ground truth to check the track against. ' +
+      'Live track indicator, so a failed write is visible during the round rather than after it.',
   },
 ];
 

@@ -78,6 +78,19 @@ GPS. That is what rev 2 exists to replace.
 Record position continuously and recover the shots afterwards, instead of
 logging each one on the course.
 
+Also carries, added 2026-08-16 before the build was first played:
+
+- **Lasered yardages, entered after each hole.** Hole-level and independent of
+  shot records, because nothing is marked during a hole under this model. These
+  are ground truth — three on one hole make the pin solvable from the track
+  alone, which turns GPS error into something measurable against Matt's laser.
+- **A live track indicator.** Counts fixes committed to IndexedDB, not fixes
+  seen. The dense write is fire-and-forget, so without this a failed write is
+  invisible until the round summary, i.e. until the round is already over.
+
+Not bumped to rev 3: the rule is to bump when a build is about to be played,
+and rev 2 had not been played yet. It goes to the course as rev 2.
+
 - **Dense track in IndexedDB** (`js/data/trackstore.js`). Full-rate recording,
   buffered and flushed off the main thread. Not in localStorage, for two
   reasons: ~1.5 MB per round against a ~5 MB origin quota, and — worse — the
