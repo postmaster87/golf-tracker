@@ -12,6 +12,7 @@
 
 import { migrate, newAppState, summarizeRound, APP_VERSION } from './schema.js';
 import { REVISION } from './revision.js';
+import { readTrack, writeTrackChunk } from './trackstore.js';
 
 const APP_KEY = 'gt:app';
 const ROUND_PREFIX = 'gt:round:';
@@ -181,6 +182,37 @@ export function buildExport(app) {
   };
 }
 
+/**
+ * Export, with the dense tracks attached.
+ *
+ * `buildExport` reads localStorage only, which meant the export carried every
+ * round record and none of the continuous tracks — the tracks live in
+ * IndexedDB, and they are the entire reason rev 2 exists. A backup that
+ * silently omits the most expensive data in the app is worse than no backup,
+ * because it looks like one.
+ *
+ * Tracks go in a sibling map keyed by round id rather than inside the round
+ * objects, so `rounds` stays byte-for-byte what a formatVersion-1 importer
+ * expects and an older reader degrades to "no tracks" instead of failing.
+ */
+export async function buildExportWithTracks(app) {
+  const payload = buildExport(app);
+  const tracks = {};
+  let points = 0;
+  for (const round of payload.rounds) {
+    try {
+      const pts = await readTrack(round.id);
+      if (pts.length) {
+        tracks[round.id] = pts;
+        points += pts.length;
+      }
+    } catch {
+      // A track that cannot be read must not take the round data down with it.
+    }
+  }
+  return { ...payload, tracks, trackPoints: points };
+}
+
 export function exportFilename(now = new Date()) {
   const p = (n) => String(n).padStart(2, '0');
   return `golf-tracker-${now.getFullYear()}${p(now.getMonth() + 1)}${p(now.getDate())}-${p(
@@ -188,8 +220,15 @@ export function exportFilename(now = new Date()) {
   )}${p(now.getMinutes())}.json`;
 }
 
-export function downloadExport(app) {
-  const payload = buildExport(app);
+/**
+ * Write the export to a file. Async because the tracks come from IndexedDB.
+ *
+ * Returns both counts. The caller reports the track point count to the user on
+ * purpose: an export that quietly contained no track is the exact failure this
+ * function was changed to fix, and it must not look identical to one that did.
+ */
+export async function downloadExport(app) {
+  const payload = await buildExportWithTracks(app);
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -199,19 +238,48 @@ export function downloadExport(app) {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
-  return payload.rounds.length;
+  return { rounds: payload.rounds.length, trackPoints: payload.trackPoints };
+}
+
+/**
+ * Restore dense tracks from an export, after `importExport` has added the
+ * rounds it is going to add.
+ *
+ * Separate and async because IndexedDB is, and deliberately not folded into
+ * `importExport`: a track that fails to restore must not take down a round that
+ * has already been written. Pass the ids that were actually added, or every
+ * track in the file gets written — including onto rounds that were skipped
+ * because this device already had them, which would duplicate their points.
+ */
+export async function restoreTracks(parsed, addedIds = null) {
+  const tracks = parsed?.tracks;
+  const out = { rounds: 0, points: 0 };
+  if (!tracks || typeof tracks !== 'object') return out;
+  const allow = addedIds ? new Set(addedIds) : null;
+  for (const [roundId, pts] of Object.entries(tracks)) {
+    if (allow && !allow.has(roundId)) continue;
+    const n = await writeTrackChunk(roundId, pts);
+    if (n) {
+      out.rounds++;
+      out.points += n;
+    }
+  }
+  return out;
 }
 
 /**
  * Restore from an export. `mode` is 'merge' (default — keeps rounds already on
  * this device, adds anything missing) or 'replace'.
  * Returns a report rather than throwing on partial failure.
+ *
+ * Does NOT restore dense tracks — call `restoreTracks` with `report.addedIds`
+ * afterwards.
  */
 export function importExport(parsed, mode = 'merge') {
   if (parsed?.format !== 'golf-tracker-export') {
     throw new Error('Not a golf-tracker export file.');
   }
-  const report = { added: 0, skipped: 0, failed: 0, replaced: mode === 'replace' };
+  const report = { added: 0, skipped: 0, failed: 0, replaced: mode === 'replace', addedIds: [] };
 
   if (mode === 'replace') {
     for (const id of allRoundIds()) deleteRound(id);
@@ -227,8 +295,13 @@ export function importExport(parsed, mode = 'merge') {
       report.skipped++;
       continue;
     }
-    if (saveRound(migrate(round))) report.added++;
-    else report.failed++;
+    if (saveRound(migrate(round))) {
+      report.added++;
+      // Recorded so the track restore only writes tracks for rounds that were
+      // actually added — re-writing a track for a skipped round would duplicate
+      // points onto a track already on this device.
+      report.addedIds.push(round.id);
+    } else report.failed++;
   }
 
   const app = mode === 'replace' ? { ...newAppState(), ...migrate(parsed.app ?? {}) } : loadApp();

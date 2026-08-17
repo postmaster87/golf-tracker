@@ -294,6 +294,49 @@ export async function readTrack(roundId) {
   }
 }
 
+/**
+ * Bulk-write a round's track, for restoring from an export.
+ *
+ * Written as one chunk per call rather than replayed through a writer: this is
+ * not a live round and there is nothing to buffer. Existing chunks for the
+ * round are left alone and this is appended after them, so a restore onto a
+ * device that already has part of the track adds rather than replaces —
+ * `readTrack` sorts by timestamp and is the thing that makes that safe.
+ *
+ * Returns the number of points written; 0 means nothing was stored, which the
+ * caller must not report as success.
+ */
+export async function writeTrackChunk(roundId, points) {
+  const pts = (points ?? []).filter((p) => Array.isArray(p) && Number.isFinite(p[3]));
+  if (!pts.length) return 0;
+  const db = await openTrackDb();
+  if (!db) return 0;
+  try {
+    const tx = db.transaction(STORE, 'readwrite');
+    const store = tx.objectStore(STORE);
+    // Continue the round's own sequence rather than restarting at 0, which
+    // would collide with chunks already present and reorder the merge.
+    const existing = (await reqToPromise(store.index('roundId').getAll(roundId), [])) ?? [];
+    const nextSeq = existing.reduce((m, c) => Math.max(m, (c.seq ?? 0) + 1), 0);
+    store.add({
+      roundId,
+      seq: nextSeq,
+      from: pts[0][3],
+      to: pts[pts.length - 1][3],
+      n: pts.length,
+      pts,
+    });
+    const ok = await new Promise((resolve) => {
+      tx.oncomplete = () => resolve(true);
+      tx.onerror = () => resolve(false);
+      tx.onabort = () => resolve(false);
+    });
+    return ok ? pts.length : 0;
+  } catch {
+    return 0;
+  }
+}
+
 /** Point count for a round without materialising the points. */
 export async function trackSize(roundId) {
   const db = await openTrackDb();

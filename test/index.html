@@ -37,12 +37,14 @@
         runLockTests,
         runShellTests,
         runTrackStoreTests,
+        runExportTrackTests,
       } from './run.js';
 
       await runContrastTests();
       await runLockTests();
       await runShellTests();
       await runTrackStoreTests();
+      await runExportTrackTests();
       const results = getResults();
       const failed = results.filter((r) => !r.ok);
 

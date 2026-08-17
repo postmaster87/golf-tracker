@@ -86,7 +86,18 @@ import {
   hypothesisVerdict,
   categorySeries,
 } from '../js/analysis/trends.js';
-import { buildExport, importExport, saveRound, saveApp, loadRound, allRoundIds, deleteRound } from '../js/data/store.js';
+import {
+  buildExport,
+  buildExportWithTracks,
+  importExport,
+  restoreTracks,
+  loadApp,
+  saveRound,
+  saveApp,
+  loadRound,
+  allRoundIds,
+  deleteRound,
+} from '../js/data/store.js';
 
 /* ------------------------------------------------------- storage safety net */
 
@@ -2298,6 +2309,108 @@ export async function runTrackStoreTests() {
   });
 
   await deleteTrack('r_test_reject');
+}
+
+/**
+ * The export carrying the dense track, against the real IndexedDB.
+ *
+ * Same shape as the track-store tests: all the I/O first, then assert
+ * synchronously. `test()` does not await, so an async test function reports
+ * success the instant it yields and its failure escapes as an unhandled
+ * rejection — which is exactly how this got written wrong the first time.
+ *
+ * Round ids are fixed and namespaced rather than taken from `par4Round()`, and
+ * localStorage is left alone apart from those ids. An earlier draft cleared
+ * every round to get a clean slate and broke a later test that depended on one
+ * being there.
+ */
+export async function runExportTrackTests() {
+  group('export carries the dense track');
+
+  const ID = 'r_export_track_test';
+  const ID_SKIP = 'r_export_skip_test';
+  await deleteTrack(ID);
+  await deleteTrack(ID_SKIP);
+  deleteRound(ID);
+  deleteRound(ID_SKIP);
+
+  const round = par4Round();
+  round.id = ID;
+  saveRound(round);
+  const app = loadApp();
+
+  const writer = createTrackWriter(ID, { flushMs: 40, maxBuffer: 3 });
+  const t0 = Date.now();
+  for (let i = 0; i < 7; i++) {
+    writer.push({ lat: 42.03 + i * 1e-5, lon: -93.64, acc: 4, ts: t0 + i * 1000, speed: 1.2 });
+  }
+  await writer.close();
+
+  const payload = await buildExportWithTracks(app);
+  const mine = payload.tracks?.[ID] ?? [];
+  // Survives serialisation — this is what actually leaves the phone.
+  const wire = JSON.parse(JSON.stringify(payload));
+
+  test('the dense track rides along in the export, under its round id', () => {
+    // The failure this guards: buildExport reads localStorage only, so the
+    // export carried every round record and none of the tracks — the most
+    // expensive data in the app, silently missing from its own backup.
+    eq(mine.length, 7, 'every fix exported');
+    eq(mine[0][3], t0, 'oldest first');
+    eq(mine[6][3], t0 + 6000, 'through to the newest');
+    assert(payload.trackPoints >= 7, 'and counted in the summary total');
+  });
+
+  test('the track survives JSON serialisation intact', () => {
+    eq(wire.tracks[ID].length, 7, 'still seven after a round trip through JSON');
+    eq(wire.tracks[ID][3][3], t0 + 3000, 'timestamps unchanged');
+  });
+
+  await deleteTrack(ID);
+  const emptied = await readTrack(ID);
+  const restored = await restoreTracks(wire, [ID]);
+  const back = await readTrack(ID);
+
+  test('a restore puts the track back', () => {
+    eq(emptied.length, 0, 'cleared first, so this proves a write');
+    eq(restored.points, 7, 'every fix restored');
+    eq(back.length, 7, 'and readable again');
+    eq(back[0][3], t0, 'in time order');
+  });
+
+  // A track for a round the restore did NOT add must not be written: merge
+  // keeps the copy already on the device, and writing anyway would append a
+  // second copy of every point to a track that is already complete.
+  const skipWire = {
+    format: 'golf-tracker-export',
+    formatVersion: 1,
+    app,
+    rounds: [],
+    tracks: { [ID_SKIP]: [[42.03, -93.64, 4, t0, 0]] },
+  };
+  const skipped = await restoreTracks(skipWire, []);
+  const skipStored = await trackSize(ID_SKIP);
+
+  test('a track is not restored for a round that was skipped', () => {
+    eq(skipped.points, 0, 'nothing written');
+    eq(skipStored, 0, 'and nothing landed in the store');
+  });
+
+  // formatVersion 1 files predate tracks and have no `tracks` key at all.
+  const legacy = await restoreTracks(
+    { format: 'golf-tracker-export', formatVersion: 1, app, rounds: [] },
+    []
+  );
+
+  test('an export from before tracks existed restores without complaint', () => {
+    eq(legacy.points, 0, 'nothing to restore');
+    eq(legacy.rounds, 0, 'and nothing claimed');
+  });
+
+  await deleteTrack(ID);
+  await deleteTrack(ID_SKIP);
+  deleteRound(ID);
+  deleteRound(ID_SKIP);
 }
 
 export function getResults() {

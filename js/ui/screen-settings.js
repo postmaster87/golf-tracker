@@ -1,6 +1,6 @@
 import { h, card, field, segmented, toast, confirmSheet } from './dom.js';
 import { THEMES } from '../data/schema.js';
-import { downloadExport, importExport, usageBytes, allRoundIds } from '../data/store.js';
+import { downloadExport, importExport, restoreTracks, usageBytes, allRoundIds } from '../data/store.js';
 import { VEENKER } from '../data/courses.js';
 import { BASELINES, SOURCE, CATEGORY_DEFINITION } from '../analysis/benchmarks.js';
 import * as wakeLock from '../gps/wakelock.js';
@@ -206,9 +206,26 @@ export function settingsScreen(ctx) {
       h('button', {
         class: 'btn primary',
         text: 'EXPORT ALL DATA',
-        onClick: () => {
-          const n = downloadExport(ctx.app);
-          toast(`Exported ${n} round${n === 1 ? '' : 's'}.`);
+        onClick: async (e) => {
+          const btn = e.target;
+          btn.disabled = true;
+          btn.textContent = 'EXPORTING…';
+          try {
+            const { rounds, trackPoints } = await downloadExport(ctx.app);
+            // The point count is reported, not hidden behind a generic success:
+            // an export carrying no track used to look exactly like one that
+            // did, and the track is the most expensive data in the app.
+            toast(
+              trackPoints
+                ? `Exported ${rounds} round${rounds === 1 ? '' : 's'} · ${trackPoints.toLocaleString()} track fixes.`
+                : `Exported ${rounds} round${rounds === 1 ? '' : 's'} — NO track data found.`
+            );
+          } catch (err) {
+            toast(`Export failed: ${err.message}`);
+          } finally {
+            btn.disabled = false;
+            btn.textContent = 'EXPORT ALL DATA';
+          }
         },
       })
     );
@@ -233,7 +250,13 @@ export function settingsScreen(ctx) {
           ctx.app = report.app;
           ctx.setTheme(ctx.app.settings.theme);
           paint();
-          toast(`Restored ${report.added} round${report.added === 1 ? '' : 's'}, skipped ${report.skipped}.`);
+          // Only for rounds this restore actually added — writing a track for a
+          // skipped round would append its points onto one already here.
+          const tr = await restoreTracks(parsed, report.addedIds);
+          toast(
+            `Restored ${report.added} round${report.added === 1 ? '' : 's'}, skipped ${report.skipped}` +
+              (tr.points ? ` · ${tr.points.toLocaleString()} track fixes.` : '.')
+          );
         } catch (err) {
           toast(err.message ?? 'Could not read that file.');
         }
