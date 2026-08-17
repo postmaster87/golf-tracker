@@ -1,6 +1,13 @@
 import { h, card, field, segmented, toast, confirmSheet } from './dom.js';
 import { THEMES } from '../data/schema.js';
-import { downloadExport, importExport, restoreTracks, usageBytes, allRoundIds } from '../data/store.js';
+import {
+  downloadExport,
+  shareExport,
+  importExport,
+  restoreTracks,
+  usageBytes,
+  allRoundIds,
+} from '../data/store.js';
 import { VEENKER } from '../data/courses.js';
 import { BASELINES, SOURCE, CATEGORY_DEFINITION } from '../analysis/benchmarks.js';
 import * as wakeLock from '../gps/wakelock.js';
@@ -205,26 +212,65 @@ export function settingsScreen(ctx) {
     dataCard.appendChild(
       h('button', {
         class: 'btn primary',
-        text: 'EXPORT ALL DATA',
+        text: 'SEND EXPORT…',
         onClick: async (e) => {
           const btn = e.target;
           btn.disabled = true;
-          btn.textContent = 'EXPORTING…';
+          btn.textContent = 'PREPARING…';
           try {
-            const { rounds, trackPoints } = await downloadExport(ctx.app);
-            // The point count is reported, not hidden behind a generic success:
+            const r = await shareExport(ctx.app);
+            // The fix count is reported, not hidden behind a generic success:
             // an export carrying no track used to look exactly like one that
             // did, and the track is the most expensive data in the app.
+            const what = r.trackPoints
+              ? `${r.rounds} round${r.rounds === 1 ? '' : 's'} · ${r.trackPoints.toLocaleString()} track fixes`
+              : `${r.rounds} round${r.rounds === 1 ? '' : 's'} — NO track data found`;
+            if (r.shared) {
+              toast(`Sent: ${what}.`);
+            } else if (r.reason === 'cancelled') {
+              toast('Share cancelled — nothing sent.');
+            } else {
+              // No share sheet on this browser. Fall back rather than dead-end,
+              // and say where the file went — on a phone that is the whole
+              // problem with a download.
+              await downloadExport(ctx.app);
+              toast(`Saved to Downloads: ${what}.`);
+            }
+          } catch (err) {
+            toast(`Export failed: ${err.message}`);
+          } finally {
+            btn.disabled = false;
+            btn.textContent = 'SEND EXPORT…';
+          }
+        },
+      })
+    );
+    dataCard.appendChild(
+      h('p', {
+        class: 'note muted',
+        text: 'SEND opens the share sheet — mail it to yourself or drop it in Drive without hunting through folders. SAVE writes it to this device\'s Downloads.',
+      })
+    );
+    dataCard.appendChild(
+      h('button', {
+        class: 'btn',
+        text: 'SAVE TO DEVICE',
+        onClick: async (e) => {
+          const btn = e.target;
+          btn.disabled = true;
+          btn.textContent = 'SAVING…';
+          try {
+            const { rounds, trackPoints } = await downloadExport(ctx.app);
             toast(
               trackPoints
-                ? `Exported ${rounds} round${rounds === 1 ? '' : 's'} · ${trackPoints.toLocaleString()} track fixes.`
-                : `Exported ${rounds} round${rounds === 1 ? '' : 's'} — NO track data found.`
+                ? `Saved to Downloads · ${rounds} round${rounds === 1 ? '' : 's'} · ${trackPoints.toLocaleString()} track fixes.`
+                : `Saved to Downloads · ${rounds} round${rounds === 1 ? '' : 's'} — NO track data found.`
             );
           } catch (err) {
             toast(`Export failed: ${err.message}`);
           } finally {
             btn.disabled = false;
-            btn.textContent = 'EXPORT ALL DATA';
+            btn.textContent = 'SAVE TO DEVICE';
           }
         },
       })

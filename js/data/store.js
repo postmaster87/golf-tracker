@@ -242,6 +242,40 @@ export async function downloadExport(app) {
 }
 
 /**
+ * Hand the export to the OS share sheet.
+ *
+ * On a phone the download button is close to useless: the file lands in a
+ * Downloads folder the user then has to go find in another app, which is a
+ * poor way to treat the only copy of a round that cannot be re-collected.
+ * `navigator.share` with a file opens Gmail/Drive/Messages directly.
+ *
+ * Returns a result rather than throwing, because "your browser cannot do this"
+ * and "you closed the share sheet" are both normal and need different words.
+ * The caller falls back to the download.
+ */
+export async function shareExport(app) {
+  const payload = await buildExportWithTracks(app);
+  const file = new File([JSON.stringify(payload, null, 2)], exportFilename(), {
+    type: 'application/json',
+  });
+  const counts = { rounds: payload.rounds.length, trackPoints: payload.trackPoints };
+
+  // canShare must be asked about the actual file: support for sharing TEXT
+  // says nothing about support for sharing FILES, and the difference is the
+  // whole feature.
+  if (typeof navigator === 'undefined' || !navigator.canShare?.({ files: [file] })) {
+    return { ...counts, shared: false, reason: 'unsupported' };
+  }
+  try {
+    await navigator.share({ files: [file], title: 'Golf Tracker export' });
+    return { ...counts, shared: true };
+  } catch (err) {
+    // AbortError is the user dismissing the sheet — not a failure to report.
+    return { ...counts, shared: false, reason: err?.name === 'AbortError' ? 'cancelled' : 'failed' };
+  }
+}
+
+/**
  * Restore dense tracks from an export, after `importExport` has added the
  * rounds it is going to add.
  *
