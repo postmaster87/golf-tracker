@@ -105,6 +105,90 @@ and rev 2 had not been played yet. It goes to the course as rev 2.
   candidates, not finding them unsupervised.
 - **Revision stamping**, this file, and git tags.
 
+**Played 2026-08-16, field test 3.** Front nine at Veenker, gold tees, with
+Matt's golf buddy — also called Matt. Nine holes completed, 7,858 track fixes
+over 144 minutes, median GPS accuracy 3.1 m. **The first build that survived a
+whole round.** Scored 40 (+4) after correction. See `docs/field-test-3.md`.
+
+Late additions on the day of the round, before it was played: the tee shot
+named rather than numbered, the green reduced to a cup mark, the putt grid
+reshaped, GPS watch re-arm after a phone lock, the export carrying the dense
+track, and the share sheet.
+
+---
+
+## rev 3 — *not started; backlog below*
+
+Everything here came out of field test 3. Nothing is built. **Do not start
+without asking Matt what he wants first** — this is a list, not a plan, and it
+is in his words, not a prioritisation.
+
+### The on-course annoyance, in his words
+
+> "This is the on course annoyance the lock screen! I mark the cup or shot and
+> then have to wait to put it in my pocket for the lock screen to go active. I
+> would like it to stay on a little longer it times out when I am on the green a
+> lot so I am having unlock/lock it multiple times as I am pacing off and reading
+> my putt. There needs to be a floating screen lock button that I can hit like my
+> phones lock screen which is what I started defaulting to and you could probably
+> tell from the GPS data."
+
+Two failures from one setting. `autoLockSec` defaults to 15 s
+(`js/data/schema.js`), which is simultaneously **too long** when he wants to
+pocket the phone right now, and **too short** while he is working on the green.
+
+**He is right that it shows in the data.** Field test 3's track has 16 gaps over
+20 s, the largest 11 minutes and 7 minutes — the hardware lock suspending the
+page. He defaulted to the phone's lock button because the app's was not to hand.
+
+What he asked for: a **floating** lock control, always reachable, that locks
+instantly the way the hardware button does. A header button is not it — there is
+one at `js/ui/screen-play.js`, and he played nine holes without finding it.
+Also worth revisiting the auto-lock default once a manual lock is always to hand.
+
+### Also asked for
+
+- **Mandatory stats before a round can be saved.** Verbatim: *"Mandatory stats
+  to finish the round. If there is missing data it is best I fill that in before
+  saving the round."* Field test 3 finished with 4 of 40 strokes unattributed —
+  two holes missing a first-putt distance. Filling them in afterwards moved his
+  putting from +0.52 to +0.19, so **the gaps were flattering him**, exactly as
+  section 5 of the handoff predicted.
+- **Putt grid, 1–5 ft.** *"there needs to be 1-5 feet listed… Jumps for 3 to 6."*
+  **Already shipped** in rev 2 on the day of the round — the grid is now every
+  foot to 10. He was describing the build he had played, not the deployed one.
+  Confirm on his phone rather than rebuilding.
+- **Mark shot 1 becomes mark tee shot.** Also **already shipped** in rev 2, same
+  day, after the round. Same caveat.
+
+### Carried from the round, not yet agreed with him
+
+- **OB / stroke-and-distance handling.** He was still thinking. Settled so far:
+  he plays straight stroke and distance, MLR E-5 is out, and re-teeing means
+  pressing MARK TEE SHOT again.
+- **Lie, club and distance move to end-of-hole or end-of-round.** *"If I cant
+  remember do what you need."* Makes the landing mark one tap. Inferred lies must
+  be flagged, not folded in silently.
+- **Penalty cause tagging** — execution vs conditions. His argument: a lost ball
+  in 10-inch rough on a cart-path-only day after his best drive is the course,
+  not his swing. Scoring counts it either way; practice priority should not.
+- **The cup control must not sit next to the shot control.** Hole 8's cup was
+  marked on the tee, 3.2 s after the tee shot, with a clean 1.8 m fix. One
+  thumb-width, and it corrupted the category the app exists to measure.
+- **UNDO is undiscoverable.** It exists, small and dim at the bottom edge. He
+  asked for one to be built.
+- **Backup A** — first-putt distance from the track when none is entered.
+  **Backup B** — the track proposing marks he missed. B is agenda item 2 proper.
+- **The workflow.** Download, email, upload, per round. *"This is stupid."*
+  Firestore sync is `SPEC.md` step 4 and he has not yet chosen a Firebase project.
+
+### Known bug, unfixed
+
+`tick()` does not fire on the play screen at all, so the accuracy chip beside the
+track chip sits frozen on a stale reading. Verified in the simulator: forcing
+accuracy 3 → 9 changed nothing on screen. The track chip sidesteps it with its
+own interval. **Root cause not found.**
+
 Known false positives are reported rather than suppressed — the walk behind the
 hole to read a putt, and sitting in the cart while a partner plays. Suppressing
 them would destroy the labelled examples that make this trainable, which is a
