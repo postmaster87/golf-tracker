@@ -763,17 +763,20 @@ export function playScreen(ctx) {
     };
 
     /*
-     * Feet only, in 3-foot steps — one stride per button.
+     * Feet, dense short and coarse long — because that is how the cost of
+     * being wrong is distributed, not because it is how a green is walked.
      *
-     * Paces are gone as a unit. Matt steps distances off but converts a stride
-     * to 3 feet in his head on the way to the phone, so asking for paces made
-     * him convert back: arithmetic to undo arithmetic he had already done.
-     * Counting 9 strides now lands on 27 without a thought.
+     * These used to be 3-foot strides, one button per pace. Matt does not pace:
+     * "i don't pace putts and lock in". He eyeballs it, which removes the
+     * argument for stride-spacing but not the argument for multiples of three —
+     * "Golf works in multiples of 3" — so 3s survive past 10 feet.
      *
-     * 1 and 2 break the pattern deliberately — a tap-in is not a stride, and
-     * those two are among the most common numbers on the card.
+     * Inside 10 feet it is every foot. That is where the expected-putts curve
+     * is steep (one-putt probability passes 50% around 8 ft), so 4 versus 6
+     * changes the answer. Past 20 feet the curve is nearly flat and 24 versus
+     * 27 is worth a few hundredths, so the spacing opens up.
      */
-    const QUICK = [1, 2, 3, 6, 9, 12, 15, 18, 21, 24, 27, 30, 40, 50, 60];
+    const QUICK = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 15, 18, 21, 24, 27, 30, 36, 45, 60];
 
     sheet(`Hole ${hl.number} — putts`, (done) => {
       const wrap = h('div');
@@ -1082,20 +1085,33 @@ export function playScreen(ctx) {
    * of equally-weighted buttons gives no clue what to press, especially on the
    * green where the flow changes.
    */
+  /**
+   * Marks that are a shot being played from somewhere — i.e. not putts. This is
+   * what the landing-mark numbering counts, so a hole that has had its putts
+   * entered does not suddenly renumber its buttons.
+   */
+  const strokeMarks = (hl) => hl.shots.filter((s) => s.lie !== 'green');
+
   function nextAction(hl) {
     if (hl.manual || isHoleComplete(hl)) return 'next';
-    if (!hl.shots.length) return 'mark';
-    if (hl.shots[hl.shots.length - 1].lie !== 'green') return 'mark';
-    // Ball is on the green. The cup comes before the putts: without it every
-    // distance on the hole is measured to where the ball stopped rather than
-    // to the hole, and the tee shot inherits that error.
-    return hl.cup ? 'putts' : 'cup';
+    // Once the cup is down, the ball is on the green and the only thing left is
+    // the putts. Before that the app cannot know he has reached the green —
+    // there is no longer a mark that says so — so the landing mark stays lit.
+    if (hl.cup) return 'putts';
+    return 'mark';
   }
 
   /**
-   * Says what to do in words, including the bit that was ambiguous: the mark is
-   * taken AT THE BALL, BEFORE the shot. "Mark shot" alone reads equally well as
-   * "record the shot I just hit".
+   * Says what to do in words.
+   *
+   * The ambiguity that cost a whole round: "MARK SHOT 1" reads equally well as
+   * "the spot I am teeing off from" and "where shot 1 finished". Matt, after
+   * playing nine holes on it: "Mark shot 1 is the the spot where I am teeing
+   * off from or where shot one landed? Do you see the confusion this created".
+   *
+   * Fixed by naming rather than explaining. The tee shot gets its own button,
+   * so there is nothing to interpret, and every button after it names the shot
+   * that has already finished — which is the ball he is standing over.
    */
   function nextStepHint(hl) {
     if (hl.manual) return 'Hand-entered hole. Re-enter it from the menu, or move on.';
@@ -1105,14 +1121,10 @@ export function playScreen(ctx) {
         : `Hole ${hl.number} is done. Move to hole ${round.holes[round.currentHoleIndex + 1].number}.`;
     }
     if (editing) return 'Editing: hand-enter this hole, or fix individual shots in the list above.';
-    if (!hl.shots.length) return 'Stand on the tee, then MARK SHOT 1 — before you hit it.';
-    const last = hl.shots[hl.shots.length - 1];
-    if (last.lie === 'green') {
-      return hl.cup
-        ? 'Cup marked. Putt out, then fill in the putts — the first one is measured already.'
-        : 'Open the putts sheet and mark the cup from there when you read the putt.';
-    }
-    return `Walk to your ball, then MARK SHOT ${hl.shots.length + 1} — before you hit it.`;
+    const n = strokeMarks(hl).length;
+    if (!n) return 'On the tee: MARK TEE SHOT before you hit.';
+    if (hl.cup) return 'Cup marked. Putt out, then enter the putts and how long the first one was.';
+    return `At your ball: MARK SHOT ${n} LANDING. On the green instead — MARK CUP behind the hole.`;
   }
 
   function paintActions(hl) {
@@ -1171,10 +1183,13 @@ export function playScreen(ctx) {
         })
       );
     } else {
+      const n = strokeMarks(hl).length;
       footer.appendChild(
         h('button', {
           class: `${pri('mark')} huge`,
-          text: `MARK SHOT ${hl.shots.length + 1}`,
+          // The tee shot is named, not numbered. Every later mark names the shot
+          // that just finished — you are standing on where it landed.
+          text: n === 0 ? 'MARK TEE SHOT' : `MARK SHOT ${n} LANDING`,
           disabled: Boolean(hl.manual),
           onClick: () => beginCapture('shot'),
         })
