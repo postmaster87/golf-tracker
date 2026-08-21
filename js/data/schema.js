@@ -50,11 +50,23 @@ export const LIE_LABELS = {
   green: 'Green',
 };
 
+/**
+ * `strokes` is the DEFAULT, not the only value — the sheet offers 1 or 2. Every
+ * type was hardcoded to +1 through rev 2, which meant the general penalty in
+ * stroke play, which is two strokes, could not be entered at all.
+ *
+ * `strokeAndDistance` drives what the app says to do next, and it is not
+ * cosmetic. Matt plays lost and OB straight: no drop, replay from where the
+ * last shot was played. Telling him to "mark your next shot from the drop" — as
+ * every type did through rev 2 — describes a Model Local Rule E-5 relief he has
+ * explicitly ruled out, and a mark taken at a drop zone that does not exist
+ * puts the next shot in the wrong place.
+ */
 export const PENALTY_TYPES = {
-  water: { label: 'Water', strokes: 1 },
-  ob: { label: 'OB / Lost', strokes: 1 },
-  unplayable: { label: 'Unplayable', strokes: 1 },
-  other: { label: 'Other', strokes: 1 },
+  water: { label: 'Water', strokes: 1, strokeAndDistance: false },
+  ob: { label: 'OB / Lost', strokes: 1, strokeAndDistance: true },
+  unplayable: { label: 'Unplayable', strokes: 1, strokeAndDistance: false },
+  other: { label: 'Other', strokes: 1, strokeAndDistance: false },
 };
 
 export const ROUND_TYPES = ['practice', 'tournament'];
@@ -115,10 +127,28 @@ export function newAppState() {
       puttUnitDefaultedToFeet: true, // fresh installs skip the one-time migration
       paceFeet: 3.0, // Matt's stride, calibrated; used to convert paces to feet
       promptGreenEntry: true, // nudge for putts when leaving a hole without them
-      // Seconds of inactivity before the pocket lock engages; 0 = manual only.
-      // Adjustable mid-round from the round menu, because the right value
-      // depends on how long you linger on the screen between shots.
-      autoLockSec: 15,
+      /**
+       * Seconds of inactivity before the pocket lock engages; 0 = manual only.
+       * Adjustable mid-round from the round menu.
+       *
+       * Was 15 through rev 2, and field test 3 showed one value failing in both
+       * directions at once: too long to pocket the phone straight after a mark
+       * ("I ... have to wait to put it in my pocket for the lock screen to go
+       * active"), and too short while working a green ("it times out when I am
+       * on the green a lot"). Those are not the same setting. The first is now
+       * the floating LOCK tab, which is instant; this is only the safety net for
+       * forgetting to press it, so it is free to be generous.
+       *
+       * Generous is also the honest setting. `noteActivity()` resets this timer
+       * on any pointerdown anywhere in the document — including the phantom
+       * touches a pocket generates — so a phone that is actually being sat on
+       * keeps pushing the timer out and never auto-locks. The timer has always
+       * been a defence against putting the phone down, not against the pocket;
+       * the two-tap overlay is what defends the pocket. Tuning it as though it
+       * were the pocket defence only bought the annoyance without the safety.
+       */
+      autoLockSec: 120,
+      autoLockRaisedForLockTab: true, // fresh installs skip the one-time raise
       // Club per shot. On by default because it is the only way to find out
       // whether the extra tap is worth it; one switch turns it off.
       trackClubs: true,
@@ -371,6 +401,29 @@ export function migrate(payload) {
   if (p.settings && p.settings.puttUnit === 'paces' && !p.settings.puttUnitDefaultedToFeet) {
     p = { ...p, settings: { ...p.settings, puttUnit: 'feet', puttUnitDefaultedToFeet: true } };
   }
+  /*
+   * 2026-08-21: auto-lock raised once the floating LOCK tab existed.
+   *
+   * Same reasoning as the paces migration above — the only install that matters
+   * is the one that already has a value, and Matt's phone is carrying the 15 s
+   * that made him unlock and re-lock repeatedly on every green in field test 3.
+   * A new default alone would never reach it.
+   *
+   * Only the two values that were removed from the scale are touched. 30 and 60
+   * are still offered, so a stored 30 or 60 is a choice and is left alone, and 0
+   * means auto-lock was switched off on purpose — raising that would turn the
+   * lock back on for someone who had turned it off.
+   */
+  if (
+    p.settings &&
+    !p.settings.autoLockRaisedForLockTab &&
+    Number.isFinite(p.settings.autoLockSec) &&
+    p.settings.autoLockSec > 0 &&
+    p.settings.autoLockSec < 30
+  ) {
+    p = { ...p, settings: { ...p.settings, autoLockSec: 120, autoLockRaisedForLockTab: true } };
+  }
+
   /*
    * DELIBERATELY NOT MIGRATED: `revision`.
    *

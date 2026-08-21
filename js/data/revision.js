@@ -23,7 +23,7 @@
  */
 
 /** The revision this build IS. Stamped into every round it records. */
-export const REVISION = 2;
+export const REVISION = 3;
 
 /**
  * What each revision was, and when it was played.
@@ -55,14 +55,31 @@ export const REVISION_HISTORY = [
   },
   {
     rev: 2,
-    commit: null,
-    shipped: null,
+    // The build on the phone at 23:09 on 2026-08-16, when the first mark of
+    // field test 3 was taken. 1fb451a landed at 22:14 that evening; the next
+    // commit is the write-up, made the following morning.
+    commit: '1fb451a',
+    shipped: '2026-08-16',
     title: 'Continuous track',
     summary:
       'Record position continuously instead of logging every shot by hand. ' +
       'Dense track moves to IndexedDB; stop candidates derived from it afterwards. ' +
       'Lasered yardages entered after each hole, as ground truth to check the track against. ' +
-      'Live track indicator, so a failed write is visible during the round rather than after it.',
+      'Live track indicator, so a failed write is visible during the round rather than after it. ' +
+      'Taken to field test 3 — the first build that survived a whole round.',
+  },
+  {
+    rev: 3,
+    commit: null,
+    shipped: null,
+    title: 'Reachable lock, and the track proposing shots',
+    summary:
+      'Everything field test 3 asked for. A floating lock tab that is actually to hand, ' +
+      'and auto-lock raised from 15 s now that locking on purpose is instant. ' +
+      'The cup control cannot be reached from the tee, every mark says what it recorded ' +
+      'and offers UNDO, and a penalty attaches to the shot that earned it. ' +
+      'A round cannot be saved over missing data without saying so. ' +
+      'End-of-hole entry: enter the score, and the track proposes where the shots were played from.',
   },
 ];
 

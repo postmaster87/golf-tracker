@@ -45,6 +45,7 @@ export const TIMING = {
 
 const state = {
   overlay: null,
+  button: null,
   locked: false,
   enabled: false,
   idleMs: 30000,
@@ -97,6 +98,7 @@ export const isLocked = () => state.locked;
 export function enable() {
   state.enabled = true;
   resetIdle();
+  syncButton();
 }
 
 export function disable() {
@@ -104,6 +106,7 @@ export function disable() {
   clearTimeout(state.idleTimer);
   state.idleTimer = null;
   if (state.locked) unlock();
+  syncButton();
 }
 
 /** Any deliberate interaction pushes the auto-lock back out. */
@@ -135,6 +138,8 @@ export function lock() {
   state.locked = true;
   clearTimeout(state.idleTimer);
   buildOverlay();
+  startStatusHeartbeat();
+  syncButton();
   emit();
 }
 
@@ -143,7 +148,9 @@ export function unlock() {
   state.locked = false;
   state.overlay?.remove();
   state.overlay = null;
+  stopStatusHeartbeat();
   resetIdle();
+  syncButton();
   emit();
 }
 
@@ -151,6 +158,35 @@ export function unlock() {
 export function tick() {
   if (!state.locked || !state.overlay) return;
   paintStatus();
+}
+
+/**
+ * The locked screen repaints on its own, not only when a fix arrives.
+ *
+ * Same fault the play screen's accuracy chip had: `tick()` was reached only
+ * through the GPS subscription in app.js, so the moment fixes stopped the
+ * overlay held whatever accuracy it last saw. That is the worst possible place
+ * for it. The locked screen exists so a glance at a pocketed phone answers "is
+ * the GPS still happy?" without unlocking — and a phone that has been sitting
+ * in a pocket long enough to be worth checking is exactly the one whose page
+ * the OS has suspended. It would have answered "±3.1 m, all well" for every one
+ * of field test 3's sixteen gaps.
+ *
+ * Two seconds, matching the play screen, and only while the overlay is up.
+ */
+let statusTimer = null;
+
+function startStatusHeartbeat() {
+  clearInterval(statusTimer);
+  statusTimer = setInterval(() => {
+    if (!state.locked || !state.overlay) return stopStatusHeartbeat();
+    paintStatus();
+  }, 2000);
+}
+
+function stopStatusHeartbeat() {
+  clearInterval(statusTimer);
+  statusTimer = null;
 }
 
 function paintStatus() {
@@ -164,6 +200,78 @@ function paintStatus() {
     acc.textContent = s.accuracy ?? 'GPS —';
     acc.dataset.q = s.quality ?? 'none';
   }
+}
+
+/* ---------------------------------------------------------- floating lock */
+
+/**
+ * THE FLOATING LOCK TAB
+ *
+ * Field test 3: nine holes played without ever finding the app's lock. There
+ * has been a lock control since rev 1 — a small glyph in the play screen
+ * header — and Matt used his phone's hardware button instead the whole round.
+ * That is not a preference, it is a verdict on the control: 16 gaps in the
+ * track, the largest eleven minutes, every one of them the OS suspending the
+ * page because the app's own lock was not to hand.
+ *
+ * So this deliberately imitates the control he *did* reach for. It hugs the
+ * right edge at thumb height, which is where a phone's hardware button
+ * physically is, and it is a labelled tab rather than a glyph because the glyph
+ * is the thing that already failed. It is fixed to the viewport, not to a
+ * screen, so it is in the same place on the play screen, in Settings, and
+ * halfway through a hole jump — "always reachable" is the whole requirement.
+ *
+ * It sits *below* the sheet scrim on purpose. An edge tab overlapping an open
+ * sheet would put a lock target on top of the right-hand end of every
+ * full-width button in that sheet, and mis-locking while entering putts trades
+ * one annoyance for a worse one. Sheets are short-lived; the tab returns the
+ * moment one closes.
+ */
+function syncButton() {
+  const wanted = state.enabled && !state.locked;
+  /*
+   * The tab reserves its strip rather than floating over it.
+   *
+   * Measured on a 375x812 phone, the play screen's footer is 369 px of solid
+   * controls and the body above it fills with shot rows as the hole goes on.
+   * There is no free column, so an overlapping tab necessarily sits on top of
+   * something tappable — and the first thing it landed on was MARK SHOT. Laying
+   * a lock target over the primary action is the identical mistake to the one
+   * that put MARK CUP under MARK TEE SHOT, and it would be a poor trade to fix
+   * that by making it.
+   *
+   * So the class widens the right padding of the scrolling body and the footer
+   * by exactly the strip the tab occupies. Nothing tappable can extend under
+   * it, on any screen, at any hole.
+   */
+  document.body.classList.toggle('has-lock-tab', wanted);
+  if (!wanted) {
+    state.button?.remove();
+    state.button = null;
+    return;
+  }
+  if (state.button?.isConnected) return;
+  state.button = buildButton();
+  document.body.appendChild(state.button);
+}
+
+function buildButton() {
+  const el = document.createElement('button');
+  el.className = 'lock-tab';
+  el.type = 'button';
+  el.setAttribute('aria-label', 'Lock the screen now');
+  el.innerHTML =
+    '<span class="lock-tab-icon">\u{1F512}</span><span class="lock-tab-text">LOCK</span>';
+  // pointerdown, not click: the hardware button he was using takes effect on
+  // press, and the point of this control is that it is instant. Going through
+  // click would also mean the tap first registers as activity and pushes the
+  // idle timer out, which is the opposite of what was asked for.
+  el.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    lock();
+  });
+  return el;
 }
 
 /* --------------------------------------------------------------- overlay */

@@ -1,6 +1,13 @@
 import { h, card, sheet, confirmSheet, segmented, field, toast, frag } from './dom.js';
 import * as pocketLock from './lock.js';
 import { loadRound } from '../data/store.js';
+import { readTrack } from '../data/trackstore.js';
+import {
+  proposeFirstPutt,
+  proposeHoleShots,
+  candidateAccuracyM,
+  candidateQuality,
+} from '../round/track-analysis.js';
 import { SELECTABLE_CLUBS, clubLabel, clubFull } from '../data/clubs.js';
 import { LIES, LIE_LABELS, PENALTY_TYPES } from '../data/schema.js';
 import { getCourse, playOrder, holeYards } from '../data/courses.js';
@@ -27,7 +34,12 @@ import {
   holePutts,
   penaltyStrokes,
   isHoleComplete,
+  isHoleStarted,
+  roundGaps,
   roundTotals,
+  setInferredFirstPutt,
+  holeWindow,
+  addTrackShot,
   learnTee,
   learnCup,
   learnGreen,
@@ -72,6 +84,20 @@ export function playScreen(ctx) {
   let markWarning = null;
   /** Set whenever the hole changes, so the change is always one tap from undo. */
   let holeChange = null;
+  /**
+   * What the last mark recorded, so it is stated on screen and reversible on
+   * the spot.
+   *
+   * This is the fix for two field-test-3 findings at once. UNDO existed all
+   * round and Matt never saw it — "it exists, small and dim at the bottom edge",
+   * and he asked for one to be built — so instead of relying on him finding a
+   * control, the control now comes to him at the only moment it is wanted.
+   *
+   * It is also the guard on the hole-8 error, where the cup was marked on the
+   * tee 3.2 s after the tee shot and nothing on screen said so. The app knew
+   * exactly what it had just written down; it simply never mentioned it.
+   */
+  let lastMark = null;
   /** Set when a cup capture was started from inside the putt sheet. */
   let reopenPuttsAfterCup = false;
 
@@ -126,18 +152,13 @@ export function playScreen(ctx) {
       h('div', { class: 'hud-hole' }, hudMeta),
       editing
         ? h('button', { class: 'icon-btn', text: 'DONE', onClick: () => ctx.go('summary', { roundId: round.id, from: 'history' }) })
-        : frag(
-            // Replaces the habit of hitting the phone's hardware lock: same one
-            // tap, but GPS keeps tracking and the round stays live underneath.
-            h('button', {
-              class: 'icon-btn',
-              text: '🔒',
-              'aria-label': 'Lock screen for pocket',
-              onClick: () => pocketLock.lock(),
-            }),
-            accChip,
-            trackChip
-          )
+        : // The lock glyph that used to sit here is gone. Field test 3 was
+          // played start to finish without it ever being found, so it is
+          // replaced by the floating tab in `lock.js` rather than kept
+          // alongside it — two controls for one action, one of which is known
+          // not to work, is worse than one that does. Losing it also gives the
+          // two chips the width they were being squeezed out of.
+          frag(accChip, trackChip)
     )
   );
 
@@ -216,19 +237,34 @@ export function playScreen(ctx) {
   }
 
   /*
-   * The track chip drives itself rather than riding `tick()`.
+   * BOTH CHIPS RUN ON THIS HEARTBEAT. IT IS NOT A WORKAROUND.
    *
-   * `tick()` is called from the GPS subscription in app.js, and on 2026-08-16 it
-   * was found not to be firing on this screen at all — the accuracy chip beside
-   * this one sits frozen on a stale reading (verified in the simulator: forcing
-   * accuracy 3 → 9 changed nothing on screen). That is a separate bug and is not
-   * fixed here. But this indicator exists precisely to be trusted mid-round, and
-   * an indicator that silently stops updating is worse than no indicator, so it
-   * does not depend on that path. Self-cancels once the screen is gone.
+   * The rev 3 backlog carried this as an unexplained bug: "`tick()` does not
+   * fire on the play screen at all, so the accuracy chip sits frozen on a stale
+   * reading. Root cause not found." It fires. The fault was never in `tick()`.
+   *
+   * `tick()` was only ever *called* from the GPS subscription in app.js, which
+   * runs on the 'fix' event. So the chip repaints when a fix arrives and at no
+   * other time — and when fixes stop arriving, nothing repaints it and it holds
+   * the last number it was given, indefinitely. `gps.current` has already gone
+   * null by then (`staleFixMs`, 4 s) and `tick()` would render "GPS —" if it
+   * were asked. Nothing asks it.
+   *
+   * Which makes the display wrong in exactly the situation it exists for. Field
+   * test 3 had 16 gaps over 20 s, the largest eleven minutes, all of them the
+   * OS suspending the page — and for every one of those minutes the chip was
+   * showing a healthy accuracy from before the gap. The 2026-08-16 simulator
+   * check that "forcing accuracy 3 -> 9 changed nothing" was reading this same
+   * fault from the other side: with the watch already quiet, changing what the
+   * next fix would say changes nothing, because there is no next fix.
+   *
+   * A live indicator cannot be driven only by the event whose absence it is
+   * meant to report. So both chips are painted on a timer now. That is what the
+   * track chip was already doing, for the same reason, one chip early.
    */
-  const trackTimer = setInterval(() => {
-    if (!document.contains(el)) return clearInterval(trackTimer);
-    paintTrackChip();
+  const chipTimer = setInterval(() => {
+    if (!document.contains(el)) return clearInterval(chipTimer);
+    if (!editing) tick();
   }, 2000);
 
   function tick() {
@@ -240,6 +276,22 @@ export function playScreen(ctx) {
       return;
     }
     if (!fix) {
+      /*
+       * "Waiting for the first fix" and "the receiver went quiet four minutes
+       * ago" are the same blank on screen, and they mean opposite things. The
+       * first is normal on the first tee. The second is the page having been
+       * suspended, which is what put 16 gaps in field test 3's track, and it is
+       * worth being told about while there is still time to do something.
+       */
+      const since = ctx.gps.staleSinceMs();
+      if (Number.isFinite(since)) {
+        accChip.dataset.q = 'poor';
+        accChip.replaceChildren(
+          h('small', { text: 'no fix' }),
+          document.createTextNode(since < 60000 ? `${Math.round(since / 1000)}s` : `${Math.round(since / 60000)}m`)
+        );
+        return;
+      }
       accChip.dataset.q = 'none';
       accChip.replaceChildren(h('small', { text: 'GPS' }), document.createTextNode('—'));
       return;
@@ -303,6 +355,17 @@ export function playScreen(ctx) {
       );
     }
 
+    // Says what was just written down, and offers to take it back. Above the
+    // shot list so it is read before the eye reaches the numbers.
+    if (lastMark && !editing) {
+      body.appendChild(
+        banner('ok', lastMark.label, 'UNDO', () => {
+          clearLastMark();
+          doUndo();
+        })
+      );
+    }
+
     if (editing) {
       body.appendChild(
         h('p', {
@@ -339,6 +402,27 @@ export function playScreen(ctx) {
 
     if (capture) paintCapture();
     else paintActions(hl);
+  }
+
+  let lastMarkTimer = null;
+
+  /**
+   * Same 20 s life as the hole-change banner: long enough to walk away from the
+   * phone and look back, short enough that it is never still sitting there
+   * offering to undo something two shots old.
+   */
+  function noteMark(label) {
+    lastMark = { label };
+    clearTimeout(lastMarkTimer);
+    lastMarkTimer = setTimeout(() => {
+      lastMark = null;
+      paint();
+    }, 20000);
+  }
+
+  function clearLastMark() {
+    lastMark = null;
+    clearTimeout(lastMarkTimer);
   }
 
   function banner(kind, text, actionLabel, onAction) {
@@ -692,6 +776,9 @@ export function playScreen(ctx) {
       setCup(hl, reduced);
       const { warning } = learnCup(ctx.app, round, hl.number, hl.cup);
       persist();
+      // Named, not just "marked". On hole 8 the thing that went unnoticed was
+      // *which* mark had been taken, so the banner says the word "cup".
+      noteMark('Cup marked here.');
       if (warning) markWarning = { kind: 'bad', text: warning, action: 'OK' };
       else if (reduced.quality === 'poor') markWarning = poorMarkWarning('cup');
       else markWarning = null;
@@ -717,6 +804,21 @@ export function playScreen(ctx) {
 
     persist();
     markWarning = reduced.quality === 'poor' ? poorMarkWarning('shot') : null;
+    /*
+     * Names the shot that just FINISHED, matching the button that was pressed.
+     *
+     * The stored `seq` is the shot about to be played from this position, so a
+     * mark taken by "MARK SHOT 1 LANDING" is saved as shot 2. Echoing the
+     * stored number back would re-open the exact ambiguity that cost field test
+     * 3 a round — "Mark shot 1 is the spot where I am teeing off from or where
+     * shot one landed?" — with the app now giving two different numbers for one
+     * tap. The button's language wins.
+     */
+    noteMark(
+      chosenLie === 'tee' && shot.seq === 1
+        ? 'Tee shot marked.'
+        : `Shot ${shot.seq - 1} landing marked (${LIE_LABELS[chosenLie] ?? chosenLie}).`
+    );
     paint();
 
     /*
@@ -1124,7 +1226,12 @@ export function playScreen(ctx) {
     const n = strokeMarks(hl).length;
     if (!n) return 'On the tee: MARK TEE SHOT before you hit.';
     if (hl.cup) return 'Cup marked. Putt out, then enter the putts and how long the first one was.';
-    return `At your ball: MARK SHOT ${n} LANDING. On the green instead — MARK CUP behind the hole.`;
+    // The cup half of this only appears once the cup button does. Naming a
+    // control that is not on screen is what sent him looking for it in the
+    // wrong place in the first place.
+    return hl.shots.some((x) => x.lie === 'green')
+      ? `On the green: MARK CUP when you walk behind the hole, then enter the putts.`
+      : `At your ball: MARK SHOT ${n} LANDING.`;
   }
 
   function paintActions(hl) {
@@ -1196,16 +1303,6 @@ export function playScreen(ctx) {
       );
     }
 
-    // Promoted out of the round menu: the cup mark is what makes every distance
-    // on the hole exact rather than approximate, so it belongs in the flow.
-    footer.appendChild(
-      h('button', {
-        class: pri('cup'),
-        text: hl.cup ? 'RE-MARK CUP' : 'MARK CUP',
-        disabled: Boolean(hl.manual) || !hl.shots.length,
-        onClick: () => beginCapture('cup'),
-      })
-    );
     footer.appendChild(
       h('button', {
         class: pri('putts'),
@@ -1215,11 +1312,72 @@ export function playScreen(ctx) {
       })
     );
     footer.appendChild(yardageBtn());
+
+    /*
+     * End-of-hole entry, offered when nothing was marked on this hole.
+     *
+     * That is not a failure state — under rev 2 it is the intended way to play.
+     * The phone stays in the pocket, the track records, and the hole is entered
+     * afterwards. A hole with marks on it already has its positions, so the
+     * button would only invite throwing them away.
+     */
+    if (!strokeMarks(hl).length) {
+      footer.appendChild(
+        h('button', {
+          class: 'btn',
+          text: 'END-OF-HOLE ENTRY ▸',
+          onClick: () => openHoleEntry(hl),
+        })
+      );
+    }
+
+    /*
+     * THE CUP CONTROL, AND WHY IT IS NOT HERE MOST OF THE TIME
+     *
+     * Hole 8 of field test 3: the cup was marked on the tee, 3.2 s after the
+     * tee shot, from the same spot — a clean 1.8 m fix, quality "good". Not a
+     * GPS failure. MARK CUP was rendered directly beneath MARK TEE SHOT, one
+     * thumb-width away, and the second tap landed on the wrong button. That
+     * corrupted every distance on the hole, in the one category the app exists
+     * to measure.
+     *
+     * Moving it further down the stack would make that tap less likely. Not
+     * rendering it at all makes it impossible, so that is what happens: the cup
+     * control appears only once a ball has been marked on the green, which is
+     * the app's evidence that he is standing on it. On the tee there is no cup
+     * button to hit.
+     *
+     * Nothing is lost by this. His routine marks the ball at the coin *before*
+     * walking behind the hole, so the green mark always precedes the cup mark;
+     * the putt sheet that opens on that mark carries its own cup control; and
+     * the round menu keeps an always-available one for the hole that gets
+     * chipped in. Even when it does appear it is below ENTER PUTTS and
+     * YARDAGES, so it is never adjacent to the shot button again.
+     */
+    const onGreen = hl.shots.some((x) => x.lie === 'green');
+    if (onGreen) {
+      footer.appendChild(
+        h('button', {
+          class: pri('cup'),
+          text: hl.cup ? 'RE-MARK CUP' : 'MARK CUP',
+          disabled: Boolean(hl.manual),
+          onClick: () => beginCapture('cup'),
+        })
+      );
+    }
+
     footer.appendChild(
       h(
         'div',
         { class: 'btn-row' },
-        h('button', { class: 'btn sm dim', text: 'PENALTY', disabled: !hl.shots.length, onClick: openPenalty }),
+        h('button', {
+          class: 'btn sm dim',
+          text: 'PENALTY',
+          disabled: !hl.shots.length,
+          // Wrapped, not passed by reference: `openPenalty` now takes a shot
+          // number, and the bare reference would hand it a PointerEvent.
+          onClick: () => openPenalty(),
+        }),
         h('button', { class: 'btn sm dim', text: 'UNDO', onClick: doUndo })
       )
     );
@@ -1231,6 +1389,7 @@ export function playScreen(ctx) {
     if (!token) return toast('Nothing to undo on this hole.');
     persist();
     markWarning = null;
+    clearLastMark();
     paint();
     toast(`Removed ${token.kind === 'cup' ? 'cup mark' : token.kind === 'manual' ? 'hand entry' : 'last shot'}.`, {
       action: 'RESTORE',
@@ -1269,6 +1428,9 @@ export function playScreen(ctx) {
 
     round.currentHoleIndex = index;
     markWarning = null;
+    // The mark belonged to the hole being left. Offering to undo it from the
+    // next tee would undo it on the wrong hole.
+    clearLastMark();
     holeChange = silent ? null : { from: from.number, to: round.holes[index].number };
     clearTimeout(holeChangeTimer);
     if (holeChange) {
@@ -1366,29 +1528,104 @@ export function playScreen(ctx) {
     });
   }
 
-  function openPenalty() {
+  /**
+   * PENALTY, ATTACHED TO THE SHOT THAT EARNED IT
+   *
+   * Hole 7 of field test 3: a 3-hybrid off the tee went in the creek, and the
+   * penalty was recorded against shot 2 — the 3 wood played from the drop zone
+   * — because this sheet attached to whatever shot happened to be last when the
+   * button was pressed. He marked the drop, *then* remembered the penalty.
+   *
+   * That is not a rounding error in the data. It moves a stroke off the tee and
+   * charges it to a fairway wood, which is exactly the line the whole app
+   * exists to measure across: both of his penalty strokes were tee shots, and
+   * they are the entire off-the-tee gap for the round.
+   *
+   * The last shot stays the default, because pressing PENALTY immediately after
+   * the offence is still the common case. It is now a default rather than an
+   * assumption, and the sheet says out loud which shot it is about.
+   *
+   * @param seq  Which shot to attach to. Defaults to the most recent.
+   */
+  function openPenalty(seq = null, strokes = 1) {
     const hl = hole();
-    const shot = hl.shots[hl.shots.length - 1];
+    if (!hl.shots.length) return;
+    const shot = hl.shots.find((x) => x.seq === seq) ?? hl.shots[hl.shots.length - 1];
+
+    const shotLabel = (x) => (x.seq === 1 && x.lie === 'tee' ? 'TEE' : String(x.seq));
+
     sheet('Penalty', (done) =>
       frag(
-        h('p', { class: 'note', text: `Attach to shot ${shot.seq} (${LIE_LABELS[shot.lie]}).` }),
+        // Only worth showing once there is a choice to make. On a one-shot hole
+        // the picker would be a control with a single option.
+        hl.shots.length > 1
+          ? field(
+              'Which shot earned it',
+              segmented(
+                hl.shots.map((x) => ({
+                  value: x.seq,
+                  // The dot marks a shot that already carries a penalty, so a
+                  // second one is never added blind to a shot that has one.
+                  label: `${shotLabel(x)}${x.penalty ? ' •' : ''}`,
+                })),
+                shot.seq,
+                (v) => {
+                  done('shot');
+                  openPenalty(v, strokes);
+                },
+                { columns: Math.min(6, hl.shots.length) }
+              )
+            )
+          : null,
+        // Every type was hardcoded +1 through rev 2, so the two-stroke general
+        // penalty simply could not be recorded.
+        field(
+          'Strokes',
+          segmented(
+            [
+              { value: 1, label: '+1' },
+              { value: 2, label: '+2' },
+            ],
+            strokes,
+            (v) => {
+              done('strokes');
+              openPenalty(shot.seq, v);
+            }
+          )
+        ),
+        h('p', {
+          class: 'note',
+          text:
+            shot.seq === 1 && shot.lie === 'tee'
+              ? `Attaching +${strokes} to the TEE SHOT.`
+              : `Attaching +${strokes} to shot ${shot.seq} (${LIE_LABELS[shot.lie]}).`,
+        }),
         ...Object.entries(PENALTY_TYPES).map(([key, def]) =>
           h('button', {
             class: 'btn',
-            text: `${def.label.toUpperCase()}  +1`,
+            text: `${def.label.toUpperCase()}  +${strokes}`,
             onClick: () => {
-              attachPenalty(shot, { type: key, strokes: 1 });
+              attachPenalty(shot, { type: key, strokes });
               persist();
               paint();
               done(key);
-              toast('Penalty added. Mark your next shot from the drop.');
+              const who = shot.seq === 1 && shot.lie === 'tee' ? 'the tee shot' : `shot ${shot.seq}`;
+              toast(
+                def.strokeAndDistance
+                  ? // No drop for lost or OB — he plays straight stroke and
+                    // distance, so the next shot comes from where the last one
+                    // was played, not from a drop zone.
+                    `${def.label} on ${who}. Stroke and distance — play again from the same spot and mark it.`
+                  : `${def.label} penalty on ${who}. Mark your next shot from the drop.`,
+                { ms: 7000 }
+              );
             },
           })
         ),
         shot.penalty
           ? h('button', {
               class: 'btn danger',
-              text: 'REMOVE PENALTY',
+              text: `REMOVE PENALTY FROM ${shotLabel(shot)}`,
               onClick: () => {
                 shot.penalty = null;
                 persist();
@@ -1574,17 +1811,22 @@ export function playScreen(ctx) {
         // Adjustable here, mid-hole, rather than buried in Settings — if the
         // auto-lock is firing while you are still entering a shot, you need to
         // fix that now, not after the round.
+        //
+        // The scale moved up a gear with the floating LOCK tab. Locking on
+        // purpose is now instant, so the short end of this range no longer buys
+        // anything: 10s and 15s only ever fired while the screen was still
+        // being used. See the note on `autoLockSec` in `schema.js`.
         field(
           'Auto-lock after',
           segmented(
             [
-              { value: 10, label: '10s' },
-              { value: 15, label: '15s' },
               { value: 30, label: '30s' },
               { value: 60, label: '60s' },
+              { value: 120, label: '2m' },
+              { value: 300, label: '5m' },
               { value: 0, label: 'OFF' },
             ],
-            ctx.app.settings.autoLockSec ?? 15,
+            ctx.app.settings.autoLockSec ?? 120,
             (v) => {
               ctx.app.settings.autoLockSec = v;
               pocketLock.configure({ idleMs: v * 1000 });
@@ -1604,6 +1846,14 @@ export function playScreen(ctx) {
           onClick: () => {
             done('cup');
             beginCapture('cup');
+          },
+        }),
+        h('button', {
+          class: 'btn',
+          text: 'End-of-hole entry (from the track)',
+          onClick: () => {
+            done('holeentry');
+            openHoleEntry(hole());
           },
         }),
         h('button', {
@@ -1660,6 +1910,423 @@ export function playScreen(ctx) {
         })
       )
     );
+  }
+
+  /* ------------------------------------------------- end-of-hole entry (2) */
+
+  /**
+   * AGENDA ITEM 2 — END-OF-HOLE ENTRY.
+   *
+   * Matt's order, verbatim: *"lets hone down the tracking and then move to the
+   * after hole entry, and then how we handle a mislog, forgotten phone in the
+   * cart, etc"*. Rev 2 built the ranking and stopped: it produced candidate
+   * stops and nothing ever asked him to confirm one. That confirmation is item
+   * 2, and this is it.
+   *
+   * The shape of the bargain: he supplies the score, because he knows it and
+   * the app does not; the track supplies the positions, because it recorded
+   * them and he cannot. Neither half works alone. Unsupervised detection was
+   * never the plan — "propose and confirm, NOT detect" — and a golfer typing in
+   * coordinates is absurd.
+   *
+   * Two stages rather than one long form, because they ask different questions.
+   * The first is arithmetic he already knows walking off the green. The second
+   * is recognition, and it cannot even be built until the first is answered.
+   */
+  async function openHoleEntry(hl) {
+    const card = await openHoleCard(hl);
+    if (!card) return;
+
+    const fullShots = Math.max(0, card.strokes - card.putts - card.penalties);
+    if (fullShots === 0) {
+      // A hole that was all putts and penalties has nothing for the track to
+      // find. Skip straight to applying it rather than showing an empty list.
+      return applyHoleEntry(hl, card, []);
+    }
+
+    let points = null;
+    try {
+      points = await readTrack(round.id);
+    } catch {
+      points = null;
+    }
+
+    const { fromTs, toTs } = holeWindow(round, hl);
+    const result = proposeHoleShots(points ?? [], { fullShots, fromTs, toTs });
+
+    if (!result.found) {
+      const ok = await confirmSheet(
+        'No track for this hole',
+        points?.length
+          ? 'The track has no stops in this hole’s window — the phone may have been suspended, or the window may be wrong. You can still hand-enter the hole.'
+          : 'There is no dense track recorded for this round, so there is nothing to propose from. You can still hand-enter the hole.',
+        { confirmLabel: 'HAND-ENTER INSTEAD' }
+      );
+      if (ok) openManualEntry();
+      return;
+    }
+
+    const confirmed = await openShotConfirm(hl, card, result);
+    if (!confirmed) return;
+    applyHoleEntry(hl, card, confirmed.rows, confirmed.cup);
+  }
+
+  /** Stage one: the numbers he already knows. */
+  function openHoleCard(hl) {
+    const draft = {
+      strokes: Math.max(holeStrokes(hl) ?? 0, hl.par),
+      putts: holePutts(hl) || 2,
+      penalties: penaltyStrokes(hl),
+      firstPuttFt: null,
+    };
+
+    return sheet(`Hole ${hl.number} — how did it go?`, (done) => {
+      const summary = h('p', { class: 'note' });
+      const paintSummary = () => {
+        const full = draft.strokes - draft.putts - draft.penalties;
+        summary.textContent =
+          full < 0
+            ? 'That is more putts and penalties than strokes.'
+            : `${full} full shot${full === 1 ? '' : 's'} for the track to find.`;
+      };
+
+      const num = (label, key, min, max) =>
+        field(
+          label,
+          h(
+            'div',
+            { class: 'btn-row' },
+            h('button', {
+              class: 'btn',
+              text: '−',
+              rapid: true,
+              onClick: (e) => {
+                draft[key] = Math.max(min, draft[key] - 1);
+                e.target.parentElement.querySelector('.v').textContent = String(draft[key]);
+                paintSummary();
+              },
+            }),
+            h('div', { class: 'stat', style: { textAlign: 'center' } }, h('span', { class: 'v', text: String(draft[key]) })),
+            h('button', {
+              class: 'btn',
+              text: '+',
+              rapid: true,
+              onClick: (e) => {
+                draft[key] = Math.min(max, draft[key] + 1);
+                e.target.parentElement.querySelector('.v').textContent = String(draft[key]);
+                paintSummary();
+              },
+            })
+          )
+        );
+
+      paintSummary();
+
+      // Same grid as the putt sheet: every foot to 10, then multiples of three.
+      // "Golf works in multiples of 3", and inside 10 ft the expected-putts
+      // curve is steep enough that 4 versus 6 changes the answer.
+      const QUICK = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 15, 18, 21, 24, 27, 30, 36, 45, 60];
+      const puttGrid = h('div', { class: 'seg', style: { gridTemplateColumns: 'repeat(5, 1fr)', gridAutoFlow: 'row' } });
+      for (const ft of QUICK) {
+        puttGrid.appendChild(
+          h('button', {
+            class: 'seg-btn',
+            text: String(ft),
+            rapid: true,
+            'aria-pressed': 'false',
+            onClick: () => {
+              draft.firstPuttFt = ft;
+              for (const b of puttGrid.children) b.setAttribute('aria-pressed', String(b.textContent === String(ft)));
+            },
+          })
+        );
+      }
+
+      return frag(
+        h('p', {
+          class: 'note muted',
+          text: 'For a hole played with the phone in your pocket. Enter the score, then confirm where the track says you played from.',
+        }),
+        num('Strokes', 'strokes', 1, 20),
+        num('Putts', 'putts', 0, 10),
+        num('Penalty strokes', 'penalties', 0, 6),
+        summary,
+        // Asked here rather than after, because this is the number that decides
+        // whether the hole produces any putting strokes gained at all — and the
+        // one field test 3 proved gets skipped when it is asked later.
+        draft.putts > 0 ? field('First putt distance (ft)', puttGrid) : null,
+        h('button', {
+          class: 'btn primary',
+          text: 'FIND MY SHOTS ▸',
+          onClick: () => {
+            if (draft.strokes - draft.putts - draft.penalties < 0) {
+              return toast('That is more putts and penalties than strokes.');
+            }
+            done({ ...draft });
+          },
+        })
+      );
+    });
+  }
+
+  /**
+   * Stage two: recognition.
+   *
+   * Everything here is reversible in one tap, because the app is asking him to
+   * vouch for positions he cannot verify by eye. NOT A SHOT pulls in the next
+   * best candidate the ranking held back, which is what makes this a proposal
+   * rather than an assertion — and every rejection is a labelled negative,
+   * which is the point of not suppressing the known false positives in the
+   * first place. "This needs to be trainable."
+   */
+  function openShotConfirm(hl, card, result) {
+    const rows = result.proposed.map((candidate, i) => ({
+      candidate,
+      // The first stop in the window is the tee shot by definition, exactly as
+      // the live capture path treats it. Everything after it is unset, because
+      // a highlighted default reads as already-chosen while still requiring the
+      // tap — the app promising one thing and demanding another.
+      lie: i === 0 ? 'tee' : null,
+      lieInferred: false,
+    }));
+    const pool = [...result.rejected].sort((a, b) => b.score - a.score);
+    /*
+     * The hole position, which is not optional in the way it looks.
+     *
+     * Confirmed shots with no cup produce nothing at all: every distance on the
+     * hole is measured to the cup, so without one the whole hole lands in the
+     * "unattributed" pile — the exact failure this entry path exists to end.
+     * The track's answer is where he stood to pick the ball out.
+     *
+     * Offered rather than assumed, and only when the hole has no real mark. A
+     * marked cup is a measurement and always wins.
+     */
+    const cupOffer = hl.cup ? null : result.holedOut;
+    let useCup = Boolean(cupOffer);
+
+    return sheet(`Hole ${hl.number} — confirm your shots`, (done) => {
+      const list = h('div');
+      const saveBtn = h('button', { class: 'btn primary', text: 'SAVE HOLE' });
+
+      const short = () => card.strokes - card.putts - card.penalties - rows.length;
+
+      const render = () => {
+        list.replaceChildren();
+
+        const missing = short();
+        if (missing > 0) {
+          /*
+           * The count mismatch, which is a diagnosis rather than a failure.
+           *
+           * Stroke and distance is invisible in a track: replaying from the
+           * same spot puts two strokes in one stop, and that is indistinguishable
+           * from the pre-shot reset the segmenter deliberately merges. Matt
+           * plays lost and OB straight, so this is the common cause. The track
+           * cannot recover it and should not guess — he can, in one tap.
+           */
+          list.appendChild(
+            banner(
+              'warn',
+              `${missing} more stroke${missing === 1 ? '' : 's'} than the track found stops. If you played one twice from the same spot — stroke and distance — tap PLAYED TWICE on it.`
+            )
+          );
+        }
+
+        rows.forEach((row, i) => {
+          const c = row.candidate;
+          const bits = [];
+          if (c.departureM != null) bits.push(`ball went ${Math.round(c.departureM)} m`);
+          bits.push(`stood ${Math.round(c.dwellMs / 1000)} s`);
+          if (Number.isFinite(c.arrivalSpeed)) {
+            bits.push(c.arrivalSpeed > 2.5 ? 'arrived by cart' : 'arrived on foot');
+          }
+
+          list.appendChild(
+            h(
+              'div',
+              { class: 'card' },
+              h('h2', { text: i === 0 ? 'Tee shot' : `Shot ${i + 1}` }),
+              h('p', { class: 'note muted', text: bits.join(' · ') }),
+              segmented(
+                LIES.filter((l) => l !== 'green').map((l) => ({ value: l, label: LIE_LABELS[l] })),
+                row.lie,
+                (v) => {
+                  row.lie = v;
+                  row.lieInferred = false;
+                  render();
+                },
+                { columns: 5 }
+              ),
+              h(
+                'div',
+                { class: 'btn-row' },
+                // His own instruction: "If I cant remember do what you need."
+                // `defaultLie` is the codebase's considered suggestion, and it
+                // is flagged rather than folded in silently.
+                h('button', {
+                  class: 'btn sm dim',
+                  text: 'NOT SURE',
+                  onClick: () => {
+                    row.lie = i === 0 ? 'tee' : 'fairway';
+                    row.lieInferred = i !== 0;
+                    render();
+                  },
+                }),
+                missing > 0
+                  ? h('button', {
+                      class: 'btn sm dim',
+                      text: 'PLAYED TWICE',
+                      onClick: () => {
+                        rows.splice(i + 1, 0, { candidate: c, lie: null, lieInferred: false, replayed: true });
+                        render();
+                      },
+                    })
+                  : h('button', {
+                      class: 'btn sm dim',
+                      text: 'NOT A SHOT',
+                      disabled: rows.length <= 1 && !pool.length,
+                      onClick: () => {
+                        rows.splice(i, 1);
+                        const next = pool.shift();
+                        if (next) {
+                          rows.push({ candidate: next, lie: null, lieInferred: false });
+                          rows.sort((a, b) => a.candidate.startTs - b.candidate.startTs);
+                        }
+                        render();
+                      },
+                    })
+              )
+            )
+          );
+        });
+
+        if (cupOffer) {
+          list.appendChild(
+            h(
+              'div',
+              { class: 'card' },
+              h('h2', { text: 'Where the hole was' }),
+              h('p', {
+                class: 'note muted',
+                text: `From where you stood to pick the ball out — ${Math.round(
+                  cupOffer.dwellMs / 1000
+                )} s, give or take ${Math.round(candidateAccuracyM(cupOffer))} m. Without this the hole produces no strokes gained at all.`,
+              }),
+              segmented(
+                [
+                  { value: true, label: 'USE IT' },
+                  { value: false, label: 'LEAVE IT OUT' },
+                ],
+                useCup,
+                (v) => {
+                  useCup = v;
+                  render();
+                }
+              )
+            )
+          );
+        }
+
+        const ready = short() === 0 && rows.every((r) => r.lie);
+        saveBtn.disabled = !ready;
+        saveBtn.textContent = ready
+          ? 'SAVE HOLE'
+          : short() !== 0
+            ? `${Math.abs(short())} shot${Math.abs(short()) === 1 ? '' : 's'} still unaccounted for`
+            : 'PICK A LIE FOR EVERY SHOT';
+      };
+
+      saveBtn.addEventListener('click', () => {
+        if (!saveBtn.disabled) done({ rows: rows.map((r) => ({ ...r })), cup: useCup ? cupOffer : null });
+      });
+
+      render();
+
+      return frag(
+        h('p', {
+          class: 'note muted',
+          text: `The track found ${result.found} stop${result.found === 1 ? '' : 's'} on this hole. These are the ${result.proposed.length} most shot-like, oldest first.`,
+        }),
+        list,
+        saveBtn
+      );
+    });
+  }
+
+  /**
+   * Write the hole.
+   *
+   * Replaces the hole's shots outright rather than merging, because a hole
+   * being entered this way is one the app did not follow — merging a confirmed
+   * set into a partial one would produce a hole neither of them describes. The
+   * snapshot makes that one tap from reversible, which is the standing rule for
+   * anything on this screen that changes a hole.
+   */
+  function applyHoleEntry(hl, card, rows, cupCandidate = null) {
+    const before = JSON.parse(
+      JSON.stringify({ shots: hl.shots, greenEntry: hl.greenEntry, completedAt: hl.completedAt, cup: hl.cup })
+    );
+
+    hl.shots = [];
+    hl.greenEntry = null;
+    for (const row of rows) {
+      addTrackShot(hl, { lie: row.lie, candidate: row.candidate, lieInferred: row.lieInferred });
+    }
+
+    if (cupCandidate && !hl.cup) {
+      const accuracyM = candidateAccuracyM(cupCandidate);
+      setCup(hl, {
+        lat: cupCandidate.lat,
+        lon: cupCandidate.lon,
+        accuracyM,
+        quality: candidateQuality(accuracyM),
+        spreadM: cupCandidate.spreadM,
+        usedCount: cupCandidate.n,
+        samples: [],
+      });
+      hl.cup.method = 'track';
+      /*
+       * Deliberately NOT passed to `learnCup`.
+       *
+       * That accumulator feeds the course model other rounds fall back on, and
+       * a cup recovered from a walking pace is several metres looser than a
+       * burst he stood still for. Teaching the course model from an inferred
+       * position is precisely the silent mixing of measured and inferred data
+       * that design rule 5 forbids — it would launder a guess into a reference.
+       */
+    }
+
+    setGreenEntry(hl, {
+      putts: card.putts,
+      distances: card.firstPuttFt != null ? [card.firstPuttFt] : [],
+      unit: 'feet',
+    });
+
+    persist();
+    clearLastMark();
+    paint();
+
+    const inferred = rows.filter((r) => r.lieInferred).length;
+    toast(
+      `Hole ${hl.number} saved from the track${inferred ? ` — ${inferred} lie${inferred === 1 ? '' : 's'} flagged as a guess` : ''}.`,
+      {
+        ms: 8000,
+        action: 'UNDO',
+        onAction: () => {
+          hl.shots = before.shots;
+          hl.greenEntry = before.greenEntry;
+          hl.completedAt = before.completedAt;
+          hl.cup = before.cup;
+          persist();
+          paint();
+        },
+      }
+    );
+
+    // Penalties are attached to a shot, not to the hole, so the count from
+    // stage one still has to be placed. This is the same sheet that fixes the
+    // hole-7 error, so it now asks which shot rather than assuming the last.
+    if (card.penalties > 0) openPenalty(null, Math.min(2, card.penalties));
   }
 
   function openManualEntry() {
@@ -1757,13 +2424,169 @@ export function playScreen(ctx) {
     });
   }
 
+  /**
+   * THE GAPS GATE
+   *
+   * Stands between a played round and a saved one, because field test 3 proved
+   * the cost of not having it: four unattributed strokes, and a third of a
+   * stroke of flattery sitting in the category he already believed was his
+   * strength. He asked for this himself — *"Mandatory stats to finish the
+   * round"*.
+   *
+   * Every gap is one tap from the sheet that fixes it, and the round is still
+   * here afterwards. That is the part that makes it a gate rather than an
+   * obstacle: being stopped is only useful if being stopped is also being taken
+   * to the fix.
+   *
+   * There is still a way past it. A round where the data is genuinely gone —
+   * he forgot, the phone died, he cannot remember the putt — must still be
+   * savable, or the app teaches him to avoid finishing rounds. The override
+   * states the cost in the terms his own round measured, and it is the
+   * secondary control, not the obvious one.
+   *
+   * @returns true if the round may be saved.
+   */
+  /**
+   * What the dense track can offer for a `firstPutt` gap.
+   *
+   * Backup A. Read once per pass over the gate rather than per gap, because the
+   * track is one IndexedDB read of the whole round and there may be several
+   * gaps in it.
+   *
+   * Every proposal is an offer, never a fill. The distance he stepped off is
+   * better instrumentation than any GPS estimate of a putt, so the hand-entry
+   * route stays the primary button and this sits beside it — with its number,
+   * its uncertainty and how it was arrived at all on screen, so accepting it is
+   * a decision rather than a shrug.
+   */
+  async function trackProposals(gaps) {
+    const wanted = gaps.filter((g) => g.kind === 'firstPutt');
+    if (!wanted.length || editing) return new Map();
+    let points = null;
+    try {
+      points = await readTrack(round.id);
+    } catch {
+      return new Map(); // no dense track on this device; the gate still works
+    }
+    if (!points?.length) return new Map();
+
+    const out = new Map();
+    for (const gap of wanted) {
+      const hl = round.holes.find((x) => x.number === gap.holeNumber);
+      if (!hl) continue;
+      const ball = hl.shots.find((x) => x.lie === 'green')?.mark ?? null;
+      /*
+       * The window opens at the approach landing — the last mark before the
+       * green — and closes when the hole was completed. It deliberately runs
+       * long at the far end: putts are often entered from the next tee, and a
+       * window that stops too early loses the ball retrieval, which is the
+       * fix that locates the cup.
+       */
+      // `mark.ts` is an ISO string (see `newMark`); the track's `ts` is epoch
+      // ms. Comparing the two without parsing yields NaN and an unbounded
+      // window, which would quietly pull in the whole round.
+      const marks = hl.shots
+        .filter((x) => x.mark?.ts)
+        .map((x) => Date.parse(x.mark.ts))
+        .filter(Number.isFinite);
+      const proposal = proposeFirstPutt(points, {
+        ball,
+        cup: hl.cup ?? null,
+        fromTs: marks.length ? Math.min(...marks) : null,
+        toTs: hl.completedAt ? Date.parse(hl.completedAt) : null,
+      });
+      if (proposal) out.set(gap.holeNumber, proposal);
+    }
+    return out;
+  }
+
+  async function clearGaps() {
+    for (;;) {
+      const gaps = roundGaps(round);
+      if (!gaps.length) return true;
+
+      const proposals = await trackProposals(gaps);
+
+      const choice = await sheet('Missing data', (done) =>
+        frag(
+          h('p', {
+            class: 'note',
+            text:
+              gaps.length === 1
+                ? 'One thing is missing. Strokes the app cannot place are dropped from strokes gained, which quietly improves whatever category they belonged to.'
+                : `${gaps.length} things are missing. Strokes the app cannot place are dropped from strokes gained, which quietly improves whatever category they belonged to.`,
+          }),
+          ...gaps.map((gap) => {
+            const p = proposals.get(gap.holeNumber);
+            return frag(
+              h('button', {
+                class: 'btn',
+                text: `${gap.label}  ▸`,
+                onClick: () => done(gap),
+              }),
+              // The estimate is offered under the hand-entry button, never in
+              // place of it, and it always shows its own error bar. A number
+              // presented without one invites being trusted like a paced
+              // distance, which it is not.
+              p
+                ? h('button', {
+                    class: 'btn sm dim',
+                    text: `USE TRACK ESTIMATE · ${Math.round(p.distanceFt)} ft ±${Math.round(p.uncertaintyFt)}`,
+                    onClick: () => done({ ...gap, accept: p }),
+                  })
+                : null,
+              p && p.confidence === 'poor'
+                ? h('p', {
+                    class: 'note muted',
+                    text: `That estimate is weak — ${p.reasons[p.reasons.length - 2] ?? 'the geometry is marginal'}. Pace it off if you can remember the putt.`,
+                  })
+                : null
+            );
+          }),
+          h('button', {
+            class: 'btn sm danger',
+            text: 'SAVE WITH GAPS ANYWAY',
+            onClick: () => done('anyway'),
+          })
+        )
+      );
+
+      if (choice === 'anyway') return true;
+      if (!choice) return false; // dismissed: stay in the round
+
+      const idx = round.holes.findIndex((x) => x.number === choice.holeNumber);
+      if (idx < 0) continue;
+
+      if (choice.accept) {
+        setInferredFirstPutt(round.holes[idx], choice.accept);
+        persist();
+        paint();
+        toast(
+          `Hole ${choice.holeNumber}: first putt set to ${Math.round(choice.accept.distanceFt)} ft from the track — estimated, not paced.`,
+          { ms: 7000 }
+        );
+        continue; // straight back to the gate for whatever else is missing
+      }
+
+      // Silent, so arriving at the hole to fix it does not also offer to undo
+      // the arrival. Both gap kinds are fixed in the putts sheet.
+      goToHole(idx, { silent: true });
+      openGreenEntry(round.holes[idx]);
+      return false;
+    }
+  }
+
   async function finishRound() {
-    const t = roundTotals(round);
-    const remaining = round.holes.length - t.holes;
-    if (remaining > 0) {
+    if (!(await clearGaps())) return;
+
+    // Holes never started are a separate question, and a much softer one:
+    // walking in after nine is a decision, not an omission. `roundGaps` leaves
+    // them alone on purpose, so they are still confirmed here.
+    const untouched = round.holes.filter((x) => !isHoleStarted(x)).length;
+    if (untouched > 0) {
       const ok = await confirmSheet(
         'Finish round?',
-        `${remaining} hole${remaining === 1 ? '' : 's'} ${remaining === 1 ? 'has' : 'have'} no score yet. They will be left blank and excluded from every stat.`,
+        `${untouched} hole${untouched === 1 ? '' : 's'} ${untouched === 1 ? 'was' : 'were'} never started. They will be left blank and excluded from every stat.`,
         { confirmLabel: 'FINISH' }
       );
       if (!ok) return;

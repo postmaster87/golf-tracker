@@ -11,6 +11,9 @@ import { distanceM, toYards, toFeet, feetToM } from '../util/geo.js';
 import { newRound, newHole, newShot, newMark } from '../data/schema.js';
 import { PUTTER } from '../data/clubs.js';
 import { playOrder, holeYards } from '../data/courses.js';
+// One direction only: track-analysis knows nothing about rounds, so this cannot
+// close a cycle.
+import { candidateAccuracyM, candidateQuality } from './track-analysis.js';
 
 /* ------------------------------------------------------------ construction */
 
@@ -397,6 +400,41 @@ export function setGreenEntry(hole, { putts, distances = [], unit = 'paces', pac
   return hole.greenEntry;
 }
 
+/**
+ * Accept a track-derived first-putt distance.
+ *
+ * Kept separate from `setShotDistance` so the provenance cannot be lost by
+ * accident. Design rule 5: measured and inferred data are never silently mixed,
+ * and a putt distance is the single most load-bearing number in the round —
+ * strokes gained putting is extremely sensitive to it, and field test 3 showed
+ * that getting it wrong in the *absent* direction moved his putting by a third
+ * of a stroke over nine holes.
+ *
+ * So the value goes in, and `distanceEntry.inferred` goes in beside it, along
+ * with the uncertainty the proposal came with. Anything reading this back can
+ * tell a paced 8 ft from a track-estimated 8 ft, which are not the same
+ * measurement and must never average together as though they were.
+ */
+export function setInferredFirstPutt(hole, proposal) {
+  const putt = hole.shots.find((s) => s.lie === 'green');
+  if (!putt || !proposal) return null;
+  setShotDistanceFt(putt, proposal.distanceFt);
+  putt.distanceEntry = {
+    value: proposal.distanceFt,
+    unit: 'feet',
+    paceFeet: null,
+    inferred: 'track',
+    uncertaintyFt: proposal.uncertaintyFt,
+    confidence: proposal.confidence,
+    acceptedAt: new Date().toISOString(),
+  };
+  return putt;
+}
+
+/** True when this hole's first putt distance was estimated, not stepped off. */
+export const firstPuttIsInferred = (hole) =>
+  Boolean(hole.shots.find((s) => s.lie === 'green')?.distanceEntry?.inferred);
+
 /** Distance to the hole before each putt, in feet. Nulls where not recorded. */
 export function puttDistancesFt(hole) {
   if (hole.manual) return hole.manual.firstPuttFt != null ? [hole.manual.firstPuttFt] : [];
@@ -467,6 +505,160 @@ export function scramble(hole) {
   const strokes = holeStrokes(hole);
   if (strokes == null) return null;
   return strokes <= hole.par;
+}
+
+/**
+ * The stretch of track that belongs to one hole.
+ *
+ * Agenda item 2 has to work on a hole where **nothing was marked at all** —
+ * that is the whole point of it, the phone stayed in the pocket — so the window
+ * cannot be derived from this hole's own marks. It is bounded by the holes
+ * either side instead: the previous completed hole's `completedAt` opens it,
+ * and the next completed hole's first mark, or now, closes it.
+ *
+ * Deliberately generous at both ends. Too wide only offers a few extra
+ * candidates, which the ranking pushes down and Matt rejects in a tap; too
+ * narrow silently omits a real shot, which he then has to notice is missing.
+ * Those costs are not symmetric.
+ */
+export function holeWindow(round, hole, { now = Date.now() } = {}) {
+  const order = round.holes;
+  const i = order.indexOf(hole);
+  const parse = (iso) => (iso ? Date.parse(iso) : NaN);
+
+  let fromTs = parse(round.startedAt);
+  for (let j = i - 1; j >= 0; j--) {
+    const t = parse(order[j].completedAt);
+    if (Number.isFinite(t)) {
+      fromTs = t;
+      break;
+    }
+  }
+
+  // This hole's own marks tighten the window when there are any — a marked tee
+  // shot is a much better lower bound than the previous green.
+  const marks = hole.shots
+    .filter((s) => s.mark?.ts)
+    .map((s) => Date.parse(s.mark.ts))
+    .filter(Number.isFinite);
+  if (marks.length) fromTs = Math.min(fromTs, ...marks);
+
+  let toTs = now;
+  const own = parse(hole.completedAt);
+  if (Number.isFinite(own)) toTs = own;
+  for (let j = i + 1; j < order.length; j++) {
+    const t = parse(order[j].completedAt);
+    if (Number.isFinite(t)) {
+      toTs = Math.min(toTs, t);
+      break;
+    }
+  }
+
+  return { fromTs: Number.isFinite(fromTs) ? fromTs : null, toTs: Number.isFinite(toTs) ? toTs : null };
+}
+
+/**
+ * Turn a confirmed stop candidate into a real shot on the hole.
+ *
+ * The candidate is reshaped into the same `reduced` object a GPS burst
+ * produces, so it flows through `addShot` and every distance, lie and strokes
+ * gained calculation downstream treats it identically — except for its
+ * provenance, which is `source: 'track'` on the shot and `method: 'track'` on
+ * the mark, and never gets to look like a burst he stood still for.
+ *
+ * `lieInferred` records that the lie was the app's guess rather than his
+ * answer. Design rule 5 again, and his own instruction on the point: *"If I
+ * cant remember do what you need"* — with the standing caveat that inferred
+ * lies must be flagged, not folded in silently.
+ */
+export function addTrackShot(hole, { lie, candidate, club = null, lieInferred = false }) {
+  const accuracyM = candidateAccuracyM(candidate);
+  const shot = addShot(hole, {
+    lie,
+    source: 'track',
+    club,
+    reduced: {
+      lat: candidate.lat,
+      lon: candidate.lon,
+      accuracyM,
+      quality: candidateQuality(accuracyM),
+      spreadM: candidate.spreadM,
+      usedCount: candidate.n,
+      samples: [],
+    },
+  });
+  if (shot.mark) {
+    shot.mark.method = 'track';
+    // Keep the evidence with the shot. A confirmed candidate is a labelled
+    // example, and "this needs to be trainable" is a stated requirement — the
+    // features that earned the proposal have to survive the confirmation.
+    shot.mark.trackStop = {
+      startTs: candidate.startTs,
+      endTs: candidate.endTs,
+      dwellMs: candidate.dwellMs,
+      departureM: candidate.departureM,
+      arrivalSpeed: candidate.arrivalSpeed,
+      score: candidate.score,
+    };
+  }
+  if (lieInferred) shot.lieInferred = true;
+  return shot;
+}
+
+/** True when any shot on this hole came from the track rather than a mark. */
+export const holeHasTrackShots = (hole) => hole.shots.some((s) => s.source === 'track');
+
+/**
+ * WHAT IS MISSING FROM A ROUND, AS A LIST OF THINGS TO GO AND FIX
+ *
+ * Matt, after field test 3: *"Mandatory stats to finish the round. If there is
+ * missing data it is best I fill that in before saving the round."*
+ *
+ * He is not asking for tidiness. That round finished with 4 of 40 strokes
+ * unattributed — two holes with no first-putt distance — and filling them in
+ * afterwards moved his putting from +0.52 to +0.19. Every gap that closed took
+ * something off his best category and nothing was ever added, because a stroke
+ * the app cannot see is a stroke it cannot charge him for. Missing data does
+ * not average out. It flatters.
+ *
+ * Two kinds are reported, and the distinction matters:
+ *
+ *   `incomplete` — a hole with shots on it but no putts entered. He played it;
+ *                  the app just never got told how it ended.
+ *   `firstPutt`  — a completed hole whose first putt has no distance, by pace,
+ *                  by hand, or recoverable from a ball mark and a cup mark.
+ *                  This is the one that actually happened, twice.
+ *
+ * Holes never started are deliberately NOT reported. Walking in after nine of
+ * an eighteen is a choice, not an omission, and a gate that argues with it
+ * would be trained away within a round.
+ */
+export function roundGaps(round) {
+  const gaps = [];
+  for (const hole of round?.holes ?? []) {
+    if (!isHoleStarted(hole)) continue;
+
+    if (!isHoleComplete(hole)) {
+      gaps.push({
+        holeNumber: hole.number,
+        kind: 'incomplete',
+        label: `Hole ${hole.number}: no putts entered`,
+      });
+      continue;
+    }
+
+    // firstPuttM already tries the paced value, the hand-entered value, and
+    // the ball-mark-to-cup geometry. Null here means there is genuinely no way
+    // to know, and those putts drop out of the analysis entirely.
+    if ((holePutts(hole) ?? 0) > 0 && firstPuttM(hole) == null) {
+      gaps.push({
+        holeNumber: hole.number,
+        kind: 'firstPutt',
+        label: `Hole ${hole.number}: first putt distance missing`,
+      });
+    }
+  }
+  return gaps;
 }
 
 export function roundTotals(round) {

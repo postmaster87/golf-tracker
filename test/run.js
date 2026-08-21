@@ -14,6 +14,8 @@ import { VEENKER, playOrder, holeYards, newCustomCourse } from '../js/data/cours
 import {
   createRound,
   addShot,
+  addTrackShot,
+  holeWindow,
   setCup,
   undoLast,
   restoreUndo,
@@ -27,6 +29,7 @@ import {
   setShotDistance,
   setGreenEntry,
   puttDistancesFt,
+  penaltyStrokes,
   holePosition,
   isHoleComplete,
   learnGreen,
@@ -46,14 +49,21 @@ import {
   detectStartingNine,
   fmtDistance,
 } from '../js/round/round.js';
-import { newAppState, THEMES, migrate, summarizeRound } from '../js/data/schema.js';
+import { newAppState, THEMES, migrate, summarizeRound, PENALTY_TYPES } from '../js/data/schema.js';
 import {
   REVISION,
   REVISION_HISTORY,
   revisionInfo,
   roundRevisionLabel,
 } from '../js/data/revision.js';
-import { segmentTrack, stopCandidates, proposeStops } from '../js/round/track-analysis.js';
+import {
+  segmentTrack,
+  stopCandidates,
+  proposeStops,
+  proposeFirstPutt,
+  proposeHoleShots,
+  candidateAccuracyM,
+} from '../js/round/track-analysis.js';
 import {
   createTrackWriter,
   readTrack,
@@ -75,6 +85,7 @@ import {
   DEFAULT_SHORT_GAME_YARDS,
 } from '../js/analysis/strokes-gained.js';
 import * as pocketLock from '../js/ui/lock.js';
+import { playScreen } from '../js/ui/screen-play.js';
 import { CLUBS, SELECTABLE_CLUBS, clubOrder } from '../js/data/clubs.js';
 import {
   mean as tMean,
@@ -2411,6 +2422,435 @@ export async function runExportTrackTests() {
   await deleteTrack(ID_SKIP);
   deleteRound(ID);
   deleteRound(ID_SKIP);
+}
+
+
+/* ------------------------------------------ agenda item 2: end-of-hole entry */
+
+group('end-of-hole entry (agenda item 2)');
+
+/**
+ * A par 4 played with the phone in a pocket, at 1 Hz.
+ *
+ * Cart to the tee, stand over the drive, cart to the ball, stand over the
+ * approach, then the green. Includes the two false positives the module
+ * deliberately refuses to suppress — the walk behind the hole and a pause in
+ * the cart while a partner plays — because the ranking has to push them below
+ * real shots without anything filtering them out first.
+ */
+function pocketHole({ startTs = 1_700_000_000_000, withCartPause = true } = {}) {
+  const pts = [];
+  let ts = startTs;
+  const jitter = [0.6, -0.5, 0.3, -0.7, 0.4, 0.2, -0.4, 0.5];
+  let j = 0;
+  const push = (pt) => {
+    const k = jitter[j++ % jitter.length];
+    const p = offsetM(pt, k, jitter[(j + 3) % jitter.length]);
+    pts.push({ lat: p.lat, lon: p.lon, acc: 3.4, ts, speed: 0 });
+    ts += 1000;
+  };
+  const drive = (fromN, toN, mps) => {
+    const steps = Math.max(1, Math.round(Math.abs(toN - fromN) / mps));
+    for (let i = 1; i <= steps; i++) {
+      const p = offsetM(TEE, fromN + ((toN - fromN) * i) / steps, 0);
+      pts.push({ lat: p.lat, lon: p.lon, acc: 3.4, ts, speed: mps });
+      ts += 1000;
+    }
+  };
+
+  const at = (n) => offsetM(TEE, n, 0);
+
+  drive(-120, 0, 6); // cart up to the tee
+  for (let i = 0; i < 14; i++) push(at(0)); // the drive
+  drive(0, 236, 6);
+  if (withCartPause) {
+    // Sitting in the cart while the other Matt plays. A real stop, not a shot.
+    for (let i = 0; i < 20; i++) push(at(236));
+    drive(236, 250, 3);
+  }
+  for (let i = 0; i < 13; i++) push(at(250)); // the approach
+  drive(250, 366, 6);
+  for (let i = 0; i < 12; i++) push(at(366)); // ball on the green
+  drive(366, 388, 1.3); // walk to the hole
+  for (let i = 0; i < 45; i++) push(at(388)); // read, putt out, retrieve
+  drive(388, 500, 5); // away to the next tee
+
+  return { points: pts, startTs, endTs: ts, at };
+}
+
+const pocket = pocketHole();
+
+test('a pocketed par 4 proposes exactly the number of full shots asked for', () => {
+  const r = proposeHoleShots(pocket.points, { fullShots: 2, fromTs: pocket.startTs, toTs: pocket.endTs });
+  eq(r.proposed.length, 2, 'proposed count');
+  eq(r.shortBy, 0, 'nothing missing');
+  assert(r.found > 2, `expected more stops than shots, found ${r.found}`);
+});
+
+test('the proposals come back oldest first, not best first', () => {
+  const r = proposeHoleShots(pocket.points, { fullShots: 3, fromTs: pocket.startTs, toTs: pocket.endTs });
+  for (let i = 1; i < r.proposed.length; i++) {
+    assert(r.proposed[i].startTs >= r.proposed[i - 1].startTs, 'out of time order');
+  }
+});
+
+test('the tee shot and the approach outrank sitting in the cart', () => {
+  const r = proposeHoleShots(pocket.points, { fullShots: 2, fromTs: pocket.startTs, toTs: pocket.endTs });
+  const tee = r.proposed[0];
+  near(distanceM(tee, pocket.at(0)), 0, 8, 'first proposal is the tee');
+  // The cart pause is 236 m out; the approach is at 250 m. Both are real stops
+  // and only one is a shot.
+  near(distanceM(r.proposed[1], pocket.at(250)), 0, 12, 'second proposal is the approach');
+});
+
+test('rejected stops are returned, not discarded', () => {
+  // They are the labelled negatives. "This needs to be trainable" is a stated
+  // requirement, and a candidate that is thrown away teaches nothing.
+  const r = proposeHoleShots(pocket.points, { fullShots: 2, fromTs: pocket.startTs, toTs: pocket.endTs });
+  eq(r.proposed.length + r.rejected.length, r.found, 'every stop is accounted for');
+  assert(r.rejected.length > 0, 'expected at least one rejected stop');
+});
+
+test('a score with more strokes than stops reports how many are missing', () => {
+  // Stroke and distance: two strokes from one spot produce one stop, and the
+  // track cannot tell that from a pre-shot reset. The count is the only
+  // signal, and the UI asks him which one he played twice.
+  const r = proposeHoleShots(pocket.points, { fullShots: 9, fromTs: pocket.startTs, toTs: pocket.endTs });
+  eq(r.shortBy, 9 - r.eligible, 'shortBy');
+  assert(r.shortBy > 0, 'expected a shortfall');
+  eq(r.proposed.length, r.eligible, 'proposes everything it can');
+});
+
+test('the stop he holed out at is never offered as a full shot', () => {
+  // A hole ends at the cup, so the last stop in the window is the green. The
+  // raw ranking likes it — leaving for the next tee is a long departure — and
+  // on this fixture it outranked the approach until it was excluded.
+  const r = proposeHoleShots(pocket.points, { fullShots: 2, fromTs: pocket.startTs, toTs: pocket.endTs });
+  const last = [...r.proposed, ...r.rejected].sort((a, b) => b.startTs - a.startTs)[0];
+  assert(!r.proposed.includes(last), 'the final stop was proposed as a full shot');
+  assert(r.eligible < r.found, 'nothing was held back');
+});
+
+test('a window with no track at all proposes nothing rather than guessing', () => {
+  const r = proposeHoleShots([], { fullShots: 4, fromTs: pocket.startTs, toTs: pocket.endTs });
+  eq(r.found, 0, 'no stops');
+  eq(r.proposed.length, 0, 'nothing proposed');
+  eq(r.shortBy, 4, 'all four unaccounted for');
+  eq(r.eligible, 0, 'nothing eligible either');
+});
+
+test('the cup is taken from the retrieval, not from wherever the window ends', () => {
+  // The window runs to now for a hole that is not yet complete, so entering the
+  // card at the next tee would otherwise put the cup on the next tee. Anchoring
+  // on where the ball finished survives that.
+  const late = pocketHole();
+  // He walks off and stands 300 m away for a while before entering the card.
+  let t = late.endTs;
+  for (let i = 0; i < 40; i++) {
+    const p = offsetM(TEE, 900, 0);
+    late.points.push({ lat: p.lat, lon: p.lon, acc: 3.4, ts: t, speed: 0 });
+    t += 1000;
+  }
+  const r = proposeHoleShots(late.points, { fullShots: 2, fromTs: late.startTs, toTs: t });
+  assert(r.holedOut, 'expected a cup candidate');
+  near(distanceM(r.holedOut, late.at(388)), 0, 25, 'cup is on the green, not where he wandered off to');
+});
+
+test('green stops come back rather than manufacture a shortfall', () => {
+  // Geometry cannot separate a 60 ft putt from a 20 yard chip. Preferring
+  // green-area stops out is right until it would invent a missing shot, and
+  // the count has to keep meaning stroke and distance.
+  const r = proposeHoleShots(pocket.points, { fullShots: 4, fromTs: pocket.startTs, toTs: pocket.endTs });
+  eq(r.usedGreenStops, true, 'expected the filter to relax');
+  eq(r.shortBy, 0, 'and no shortfall to be invented');
+});
+
+test('candidate accuracy reflects the centroid, not the width of the cluster', () => {
+  const r = proposeHoleShots(pocket.points, { fullShots: 2, fromTs: pocket.startTs, toTs: pocket.endTs });
+  const acc = candidateAccuracyM(r.proposed[0]);
+  assert(acc > 0, 'accuracy must be positive');
+  assert(acc <= r.proposed[0].spreadM, `accuracy ${acc} should not exceed spread ${r.proposed[0].spreadM}`);
+});
+
+test('a confirmed candidate becomes a shot that still says it came from the track', () => {
+  const { round, hole } = { round: par4Round(), hole: null } && (() => {
+    const rd = par4Round();
+    return { round: rd, hole: rd.holes[0] };
+  })();
+  const r = proposeHoleShots(pocket.points, { fullShots: 2, fromTs: pocket.startTs, toTs: pocket.endTs });
+  const shot = addTrackShot(hole, { lie: 'tee', candidate: r.proposed[0] });
+  eq(shot.source, 'track', 'shot provenance');
+  eq(shot.mark.method, 'track', 'mark provenance');
+  assert(shot.mark.trackStop, 'the evidence that earned the proposal is kept with the shot');
+  eq(round.holes[0].shots.length, 1, 'and it is on the hole');
+});
+
+test('an inferred lie is flagged rather than folded in silently', () => {
+  const rd = par4Round();
+  const r = proposeHoleShots(pocket.points, { fullShots: 2, fromTs: pocket.startTs, toTs: pocket.endTs });
+  const guessed = addTrackShot(rd.holes[0], { lie: 'fairway', candidate: r.proposed[1], lieInferred: true });
+  const known = addTrackShot(rd.holes[0], { lie: 'rough', candidate: r.proposed[0] });
+  eq(guessed.lieInferred, true, 'the guess is marked');
+  eq(known.lieInferred, undefined, 'an answered lie carries no flag');
+});
+
+test('the hole window opens at the previous hole and closes at this one', () => {
+  const rd = par4Round();
+  rd.startedAt = new Date(pocket.startTs - 600000).toISOString();
+  rd.holes[0].completedAt = new Date(pocket.startTs).toISOString();
+  rd.holes[1].completedAt = new Date(pocket.endTs).toISOString();
+  const w = holeWindow(rd, rd.holes[1]);
+  eq(w.fromTs, pocket.startTs, 'opens at the previous green');
+  eq(w.toTs, pocket.endTs, 'closes when this hole was completed');
+});
+
+test('an unplayed hole with no neighbours still gets a usable window', () => {
+  // The phone-in-pocket case on the very first hole: nothing has completed yet,
+  // so the round start has to carry the lower bound.
+  const rd = par4Round();
+  rd.startedAt = new Date(pocket.startTs).toISOString();
+  const w = holeWindow(rd, rd.holes[0], { now: pocket.endTs });
+  eq(w.fromTs, pocket.startTs, 'opens at the round start');
+  eq(w.toTs, pocket.endTs, 'closes at now');
+});
+
+test('stroke and distance is two strokes at one place, and the count says so', () => {
+  // The whole recovery path in one assertion: he took 6 with 2 putts and a
+  // penalty, so 3 full shots, but only ever stood in 2 places.
+  const strokes = 6;
+  const putts = 2;
+  const penalties = 1;
+  const r = proposeHoleShots(pocket.points, {
+    fullShots: strokes - putts - penalties,
+    fromTs: pocket.startTs,
+    toTs: pocket.endTs,
+  });
+  eq(r.fullShots, 3, 'three full shots');
+  // The fixture has more than three stops, so nothing is short here — the
+  // point is that fullShots is computed from the card, not from the track.
+  assert(r.found >= 3, 'the track has enough stops to cover them');
+});
+
+test('OB and lost are stroke and distance; nothing else is', () => {
+  // Drives what the app tells him to do next. Matt plays it straight, so there
+  // is no drop for these and "mark your next shot from the drop" is wrong.
+  eq(PENALTY_TYPES.ob.strokeAndDistance, true, 'OB / lost');
+  eq(PENALTY_TYPES.water.strokeAndDistance, false, 'water');
+  eq(PENALTY_TYPES.unplayable.strokeAndDistance, false, 'unplayable');
+});
+
+test('a two stroke penalty can be recorded at all', () => {
+  // The general penalty in stroke play is two strokes. Every type was
+  // hardcoded +1 through rev 2, so it could not be entered.
+  const rd = par4Round();
+  const hole = rd.holes[0];
+  addShot(hole, { lie: 'tee', reduced: fakeReduced(TEE) });
+  attachPenalty(hole.shots[0], { type: 'other', strokes: 2 });
+  eq(penaltyStrokes(hole), 2, 'two strokes counted');
+});
+
+/* ------------------------------------------------- first putt from the track */
+
+group('first putt recovered from the track');
+
+/**
+ * A green visit, at 1 Hz, in the order Matt actually plays one.
+ *
+ * Stand at the ball, walk to the hole, stand there long enough to read, putt
+ * and pick the ball out, then leave for the next tee. The walk is included at
+ * a real walking pace on purpose: at 1.3 m/s a stay-point radius of 7 m closes
+ * a cluster every ten seconds or so, so the walk generates its own stops. Any
+ * method that just takes "the last stop" picks one of those up instead of the
+ * cup, which is exactly what this fixture is here to catch.
+ */
+function greenVisit({ puttM = 24, dwellAtBallS = 14, dwellAtHoleS = 55, startTs = 1_700_000_000_000 } = {}) {
+  const ball = offsetM(TEE, 370, 0);
+  const hole = offsetM(TEE, 370 + puttM, 0);
+  const pts = [];
+  let ts = startTs;
+
+  // Deterministic scatter, so a run never passes or fails by luck.
+  const jitter = [0.7, -0.4, 0.2, -0.8, 0.5, 0.1, -0.3, 0.6];
+  let j = 0;
+  const push = (pt) => {
+    const k = jitter[j++ % jitter.length];
+    const p = offsetM(pt, k, jitter[(j + 3) % jitter.length]);
+    pts.push({ lat: p.lat, lon: p.lon, acc: 3.2, ts });
+    ts += 1000;
+  };
+
+  for (let i = 0; i < dwellAtBallS; i++) push(ball);
+  // The walk, one fix per second at about 1.3 m/s.
+  const steps = Math.max(1, Math.round(puttM / 1.3));
+  for (let i = 1; i <= steps; i++) push(offsetM(TEE, 370 + (puttM * i) / steps, 0));
+  for (let i = 0; i < dwellAtHoleS; i++) push(hole);
+  // Away to the next tee.
+  for (let i = 1; i <= 60; i++) push(offsetM(TEE, 370 + puttM + i * 2.4, 0));
+
+  return { points: pts, ball, hole, startTs, endTs: ts };
+}
+
+const visit = greenVisit();
+const fromBall = proposeFirstPutt(visit.points, {
+  ball: { ...visit.ball, accuracyM: 2.4 },
+  cup: null,
+  fromTs: visit.startTs,
+  toTs: visit.endTs,
+});
+
+test('recovers the cup from the track when only the ball was marked', () => {
+  assert(fromBall, 'expected a proposal');
+  // 24 m is 78.7 ft. Allow the scatter and the cluster centroid to move it.
+  near(fromBall.distanceFt, 78.7, 12, 'first putt distance');
+});
+
+test('the recovered cup is the place he stood, not a pause in the walk', () => {
+  assert(fromBall, 'expected a proposal');
+  near(distanceM(fromBall.cup, visit.hole), 0, 6, 'recovered cup is at the hole');
+});
+
+test('the proposal says which end was measured and which was inferred', () => {
+  eq(fromBall.ball.source, 'mark', 'the ball was marked');
+  eq(fromBall.cup.source, 'track', 'the cup came from the track');
+});
+
+test('a long putt with one marked end is offered with real confidence', () => {
+  assert(
+    fromBall.confidence === 'good' || fromBall.confidence === 'fair',
+    `expected good or fair, got ${fromBall.confidence} (±${fromBall.uncertaintyFt} ft)`
+  );
+});
+
+test('nothing is proposed when both ends were actually marked', () => {
+  // The measured distance already exists. A track guess must never displace it.
+  const both = proposeFirstPutt(visit.points, {
+    ball: { ...visit.ball, accuracyM: 2.4 },
+    cup: { ...visit.hole, accuracyM: 2.1 },
+    fromTs: visit.startTs,
+    toTs: visit.endTs,
+  });
+  eq(both, null, 'proposed over a pair of real marks');
+});
+
+test('the mirror case recovers the ball when only the cup was marked', () => {
+  const fromCup = proposeFirstPutt(visit.points, {
+    ball: null,
+    cup: { ...visit.hole, accuracyM: 2.1 },
+    fromTs: visit.startTs,
+    toTs: visit.endTs,
+  });
+  assert(fromCup, 'expected a proposal');
+  eq(fromCup.ball.source, 'track', 'the ball came from the track');
+  near(fromCup.distanceFt, 78.7, 14, 'first putt distance from the cup end');
+});
+
+test('a short putt is downgraded however tight the geometry looks', () => {
+  // The expected-putts curve is steep inside 10 ft, and GPS cannot separate a
+  // tap-in from a ten-footer. Reporting this as trustworthy would be worse
+  // than reporting nothing.
+  const tap = greenVisit({ puttM: 2.5, dwellAtHoleS: 40 });
+  const p = proposeFirstPutt(tap.points, {
+    ball: { ...tap.ball, accuracyM: 2.0 },
+    cup: null,
+    fromTs: tap.startTs,
+    toTs: tap.endTs,
+  });
+  if (p) eq(p.confidence, 'poor', `a ${p.distanceFt} ft estimate was not downgraded`);
+});
+
+test('nothing is proposed when the window holds no track at all', () => {
+  eq(proposeFirstPutt([], { ball: { ...visit.ball, accuracyM: 2 } }), null, 'empty track');
+});
+
+test('a stop far beyond putting range is never taken as the cup', () => {
+  // Only the walk to the next tee falls inside this window, so there is no
+  // honest answer and the right move is to decline rather than to invent one.
+  const late = proposeFirstPutt(visit.points, {
+    ball: { ...offsetM(TEE, 0, 0), accuracyM: 2.4 },
+    cup: null,
+    fromTs: visit.startTs,
+    toTs: visit.endTs,
+  });
+  eq(late, null, 'accepted a stop that is nowhere near the ball');
+});
+
+/**
+ * LIVE INDICATORS ON THE PLAY SCREEN
+ *
+ * Regression cover for the rev 3 bug that shipped as "root cause not found":
+ * the accuracy chip sat frozen on a stale reading all through field test 3's
+ * gaps. `tick()` was fine. It was simply never called except from the GPS
+ * 'fix' event, so the one thing the chip exists to report — fixes stopping —
+ * was the one thing that could not make it repaint.
+ *
+ * The test therefore never emits an event. It ages the only fix past
+ * `staleFixMs` and waits, which is precisely the situation that used to leave a
+ * healthy-looking accuracy on screen for eleven minutes at a time.
+ *
+ * Async because the heartbeat is a real 2 s timer, and following the shape the
+ * shell tests already use: do the waiting first, assert synchronously after.
+ */
+export async function runLiveIndicatorTests() {
+  group('live indicators');
+
+  const app = newAppState();
+  const round = par4Round();
+  const gps = new GpsService();
+  gps.last = { lat: TEE.lat, lon: TEE.lon, acc: 3.2, ts: Date.now() };
+
+  const screen = playScreen({
+    app,
+    round,
+    gps,
+    params: {},
+    go() {},
+    persistRound() {},
+    persistApp() {},
+    startGps() {},
+    stopGps() {},
+    trackStats: () => ({ written: 120, inBuffer: 0, failures: 0 }),
+  });
+
+  // Must be in the document: the heartbeat cancels itself once the screen is
+  // gone, which is also what keeps it from outliving the round.
+  document.body.appendChild(screen.el);
+  const chipText = () => screen.el.querySelector('.acc-chip')?.textContent ?? '';
+
+  const whileLive = chipText();
+
+  // The receiver goes quiet. No 'fix', no 'error', no repaint requested by
+  // anyone — exactly what a suspended page looks like from in here.
+  gps.last = { ...gps.last, ts: Date.now() - 60000 };
+  await new Promise((r) => setTimeout(r, 2600));
+  const afterQuiet = chipText();
+
+  screen.el.remove();
+  // One more beat: a detached screen must stop painting rather than keep a
+  // timer alive for every round ever opened in this tab.
+  await new Promise((r) => setTimeout(r, 2400));
+  const afterRemoval = chipText();
+
+  test('the accuracy chip shows the live reading while fixes are arriving', () => {
+    assert(/3\.2/.test(whileLive), `expected the live accuracy, got ${JSON.stringify(whileLive)}`);
+  });
+
+  test('the accuracy chip stops showing a stale reading once fixes stop', () => {
+    assert(
+      !/3\.2/.test(afterQuiet),
+      `the chip held a stale reading with no fixes arriving: ${JSON.stringify(afterQuiet)}`
+    );
+  });
+
+  test('and says how long it has been without one, rather than going blank', () => {
+    assert(
+      /no fix/i.test(afterQuiet) && /\d/.test(afterQuiet),
+      `expected an age, got ${JSON.stringify(afterQuiet)}`
+    );
+  });
+
+  test('the heartbeat cancels itself when the screen is detached', () => {
+    eq(afterRemoval, afterQuiet, 'a removed screen kept repainting');
+  });
 }
 
 export function getResults() {

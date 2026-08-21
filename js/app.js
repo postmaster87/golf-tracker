@@ -148,7 +148,7 @@ function stopGps() {
  * without unlocking.
  */
 pocketLock.configure({
-  idleMs: (ctx.app.settings.autoLockSec ?? 15) * 1000,
+  idleMs: (ctx.app.settings.autoLockSec ?? 120) * 1000,
   /*
    * Only an in-flight GPS burst blocks the auto-lock.
    *

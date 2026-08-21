@@ -669,6 +669,12 @@ input[type='text'] {
   border-color: var(--bad);
 }
 
+/* A mark landing correctly is the expected outcome, so it gets the calm colour.
+   The default amber is for banners that want something done about them. */
+.banner[data-kind='ok'] {
+  border-color: var(--good);
+}
+
 .banner .btn {
   width: auto;
   min-height: 44px;
@@ -706,6 +712,79 @@ input[type='text'] {
 
 .sheet .btn {
   margin-bottom: 8px;
+}
+
+/* ---------------------------------------------------------------- lock tab */
+
+/*
+ * Sized and placed to be hit without looking at it. `top: 58%` puts it just
+ * below the vertical middle, which is roughly where a phone's side button falls
+ * under the thumb of the hand already holding it — the control this replaces.
+ *
+ * z-index 40 is below the sheet scrim (50) deliberately; see the note in
+ * `js/ui/lock.js`. It is above everything in the round UI, which includes the
+ * footer, so it is never covered by the action stack.
+ */
+:root {
+  /* Tab width plus the dead zone beside it. Consumed by the padding rules
+     below, so the strip is reserved in exactly one place. */
+  --lock-tab-w: 54px;
+  --lock-tab-gutter: 62px;
+}
+
+/* Nothing tappable may extend under the tab. Applied while `has-lock-tab` is
+   set, which is only while a round is live and unlocked. */
+body.has-lock-tab .body,
+body.has-lock-tab .footer {
+  padding-right: calc(12px + var(--lock-tab-gutter));
+}
+
+.lock-tab {
+  position: fixed;
+  right: 0;
+  top: 58%;
+  transform: translateY(-50%);
+  z-index: 40;
+  width: var(--lock-tab-w);
+  min-height: 96px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 10px 8px 10px 6px;
+  border: 2px solid var(--line);
+  border-right: 0;
+  border-radius: 16px 0 0 16px;
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: -4px 0 16px rgba(0, 0, 0, 0.22);
+  /* The tab must never be what a scroll gesture grabs. */
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.lock-tab:active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+  transform: translateY(-50%) translateX(2px);
+}
+
+.lock-tab-icon {
+  font-size: 22px;
+  line-height: 1;
+}
+
+/* Vertical, so a 62px tab can carry a real word instead of the bare glyph that
+   went unnoticed for nine holes. */
+.lock-tab-text {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
 }
 
 /* -------------------------------------------------------------- lock screen */

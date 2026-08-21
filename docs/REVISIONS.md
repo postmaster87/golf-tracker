@@ -21,8 +21,8 @@ should be a filter, not an act of memory.
 | Every round record | `round.revision`, stamped at creation, never rewritten. |
 | Round index (`gt:app`) | Carried in the summary, so History can filter without loading rounds. |
 | Export JSON | `exportedByRevision` on the file; each round keeps its own. |
-| Home screen | Footer line: `rev 2 — Continuous track · not yet played`. |
-| Round summary | Data-quality card: `Recorded by rev 2 — Continuous track.` |
+| Home screen | Footer line: `rev 3 — Reachable lock… · not yet played`. |
+| Round summary | Data-quality card: `Recorded by rev 3 — Reachable lock…` |
 | Git | Tag `rev0`, `rev1`, … on the commit that was played. |
 
 `APP_VERSION` in `schema.js` and `version` in `package.json` both read `1.0.0`
@@ -73,7 +73,7 @@ correct."* The export from that round is embargoed pending Matt's say-so.
 Consequence: logging every shot *during* play is the thing that failed, not the
 GPS. That is what rev 2 exists to replace.
 
-## rev 2 — Continuous track *(current, not yet played)*
+## rev 2 — Continuous track
 
 Record position continuously and recover the shots afterwards, instead of
 logging each one on the course.
@@ -117,11 +117,186 @@ track, and the share sheet.
 
 ---
 
-## rev 3 — *not started; backlog below*
+## rev 3 — Reachable lock, and the track proposing shots *(current, not yet played)*
 
-Everything here came out of field test 3. Nothing is built. **Do not start
-without asking Matt what he wants first** — this is a list, not a plan, and it
-is in his words, not a prioritisation.
+Everything here came out of field test 3. Matt picked the order on 2026-08-21:
+all of the interaction fixes first, then the GPS work.
+
+### Built so far
+
+- **A floating LOCK tab** (`js/ui/lock.js`). Fixed to the right edge at thumb
+  height, present on every screen while a round is live, locking on
+  `pointerdown` rather than click so it is as immediate as the hardware button
+  it replaces. The rev 1 header glyph is **removed** rather than kept alongside
+  it — nine holes were played without anyone finding it, and two controls for
+  one action, one of which is known not to work, is worse than one that does.
+  The tab reserves its own strip through `body.has-lock-tab` instead of floating
+  over the action stack; the first version overlapped MARK SHOT, which would
+  have been the same mistake as the cup button in a new place.
+- **Auto-lock raised, 15 s to 2 minutes**, with the scale moved to
+  30 s / 60 s / 2 m / 5 m / OFF and a one-time migration for installs carrying
+  the old value. One setting was failing in both directions at once; the manual
+  tab is now the instant path, so this is only the safety net for forgetting it.
+- **The cup control is gated on being on the green.** It renders only once a
+  ball has been marked with lie `green`, and then below ENTER PUTTS and
+  YARDAGES. On the tee there is no cup button to mis-tap, which is what hole 8
+  actually needed. The putt sheet's own cup control and the round-menu entry are
+  both untouched, so nothing is lost for a hole that gets chipped in.
+- **Every mark is stated on screen, with UNDO attached** — "Tee shot marked.",
+  "Cup marked here." — for 20 s. This is the answer to UNDO being
+  undiscoverable: rather than hoping he finds a control, the control arrives at
+  the only moment it is wanted. It doubles as the guard on a mis-tapped mark.
+- **Penalties attach to a chosen shot.** The last shot stays the default, but
+  the sheet now names the shot it is about and offers a picker, with a dot
+  against shots that already carry one. Hole 7 put a tee-shot penalty on a
+  fairway wood because the old sheet took whatever was last.
+- **A gaps gate before a round can be saved** (`roundGaps` in
+  `js/round/round.js`). Reports started-but-unfinished holes and completed holes
+  with no first-putt distance; every gap is one tap from the sheet that fixes
+  it. Holes never started are deliberately not reported — walking in after nine
+  is a decision, not an omission — and there is an explicit override, because a
+  round whose data is genuinely gone must still be savable.
+- **Backup A: first-putt distance proposed from the dense track**
+  (`proposeFirstPutt` in `js/round/track-analysis.js`), offered inside the gaps
+  gate. Accepting it stores `distanceEntry.inferred = 'track'` with the
+  uncertainty and confidence beside it, so an estimated 8 ft can never be
+  mistaken for a paced 8 ft. Read the header on that function before trusting
+  the output: `schema.js` is right that GPS cannot measure putting, and this
+  exists only because the alternative is deleting those strokes entirely, which
+  field test 3 measured at a third of a stroke of flattery.
+
+### Agenda item 2 — end-of-hole entry — BUILT
+
+His order, verbatim: *"lets hone down the tracking and then move to the after
+hole entry, and then how we handle a mislog, forgotten phone in the cart,
+etc"*. Rev 2 built the ranking and stopped there. Nothing ever asked him to
+confirm a candidate, and that confirmation was the whole of item 2.
+
+**The bargain.** He supplies the score, because he knows it and the app does
+not. The track supplies the positions, because it recorded them and he cannot.
+Neither half works alone, and unsupervised detection was never the plan.
+
+**The flow.** `END-OF-HOLE ENTRY` appears in the footer on any hole with no
+marks — which under rev 2 is not a failure state, it is the intended way to
+play — and in the round menu always.
+
+1. *How did it go?* Strokes, putts, penalty strokes, first-putt distance. It
+   says live how many full shots that leaves for the track to find.
+2. *Confirm your shots.* The proposals in time order, each with the evidence
+   that earned it — how far the ball went, how long he stood, whether he
+   arrived by cart — and a lie. `NOT A SHOT` drops one and pulls in the next
+   best candidate the ranking held back. `NOT SURE` takes `defaultLie` and
+   flags the shot `lieInferred`, which is his own instruction (*"If I cant
+   remember do what you need"*) with the standing caveat that a guess is
+   flagged, never folded in silently.
+
+**Three rules about which stops can be shots**, all structural rather than
+suppression — the module still surfaces its known false positives, and every
+rejected candidate is returned as a labelled negative:
+
+- **The last stop is never a full shot.** A hole ends at the cup. The raw
+  ranking loved that stop, because leaving for the next tee is a long departure
+  and a long departure is the most shot-like feature there is; on a pocketed
+  par 4 it outranked the approach.
+- **Stops within putting range of the hole are demoted** — the ball at rest on
+  the green scores like a shot and is not one. Adaptive: if excluding them
+  would manufacture a shortfall they come back, because geometry cannot
+  separate a 60 ft putt from a 20 yard chip, and the count has to keep meaning
+  what it means.
+- **The cup is anchored on where the ball finished**, not on wherever the
+  window ends. The window runs to *now* for an incomplete hole, so entering the
+  card at the next tee would otherwise put the cup on the next tee.
+
+**The count is the diagnostic.** More stops than swings is ordinary. Fewer is
+stroke and distance: replaying from the same spot puts two strokes in one stop
+and is indistinguishable from the pre-shot reset the segmenter deliberately
+merges. The track cannot recover that and does not try — the sheet says how
+many are missing and offers `PLAYED TWICE` on each stop, which is the recovery
+named in `docs/rev2-changes.md`.
+
+**The cup had to come with it.** Confirmed shot positions alone produce
+*nothing*: every distance on a hole is measured to the cup, so a hole entered
+this way with no cup put all of its strokes straight back in the unattributed
+pile — the exact failure this path exists to end. `proposeHoleShots` returns
+the retrieval stop as cup evidence and stage 2 offers it, showing its
+uncertainty. Verified end to end: a pocketed par 4 that scored 2 unattributed
+strokes without it scores **zero** with it, giving off-the-tee, approach and
+putting figures from a hole where the phone never came out.
+
+A track cup is deliberately **not** fed to `learnCup`. That accumulator is the
+course model other rounds fall back on, and laundering a ±6 m inference into a
+reference is the silent mixing design rule 5 forbids.
+
+**Penalties folded in**, as `docs/rev2-changes.md` said they must:
+
+- Two-stroke penalties can be entered at all. Every type was hardcoded `+1`,
+  so the general penalty in stroke play was unrecordable.
+- `OB / Lost` is now flagged `strokeAndDistance`, and the app says *"play again
+  from the same spot"* instead of *"mark your next shot from the drop"*. There
+  is no drop — he plays it straight, and MLR E-5 is out.
+- The shot picker built earlier this session means a penalty entered after the
+  hole no longer lands on a putt.
+
+### The known bug: root cause found, fixed
+
+The backlog carried this as "`tick()` does not fire on the play screen at all …
+root cause not found." It fires. The fault was never in `tick()`.
+
+`tick()` was only ever *called* from the GPS subscription in `app.js`, which
+runs on the `fix` event. So the accuracy chip repainted when a fix arrived and
+at no other time — and when fixes stopped, nothing repainted it and it held its
+last reading indefinitely. `gps.current` has already gone null by then
+(`staleFixMs`, 4 s) and `tick()` renders "GPS —" if asked. Nothing asked it.
+
+Which makes the display wrong in precisely the situation it exists for. For all
+sixteen of field test 3's gaps — the largest eleven minutes — the chip was
+showing a healthy accuracy from before the gap. The 2026-08-16 simulator check
+that "forcing accuracy 3 → 9 changed nothing" was the same fault seen from the
+other side: with the watch already quiet, changing what the next fix would say
+changes nothing, because there is no next fix.
+
+**A live indicator cannot be driven only by the event whose absence it is meant
+to report.** Both chips now paint on a 2 s heartbeat, which is what the track
+chip was already doing for the same reason, one chip early. The chip also
+distinguishes "waiting for the first fix" from "no fix for 4 m", which were the
+same blank before and mean opposite things.
+
+**The locked screen had the identical bug** and is fixed the same way. It was
+the worse of the two: that screen exists so a glance at a pocketed phone answers
+"is the GPS still happy?" without unlocking, and a phone pocketed long enough to
+be worth checking is exactly the one whose page has been suspended.
+
+### Found while working, not yet acted on
+
+**The auto-lock timer cannot defend the pocket, and never could.**
+`noteActivity()` resets the idle timer on any `pointerdown` anywhere in the
+document — including the phantom touches a pocket generates. A phone actually
+being sat on keeps pushing the timer out and never auto-locks. The two-tap
+overlay is the real pocket defence; this timer only ever protected against
+putting the phone down. Raising the default to 2 minutes is safe for that
+reason, but the timer should probably not be described as a pocket guard.
+Deciding what, if anything, to do about it is Matt's call.
+
+### Still open from the backlog
+
+Not started: **agenda item 3** — mislogs and the forgotten phone in the cart,
+which is next in his order now that item 2 is built. Also penalty *cause*
+tagging (execution versus conditions), club moving to end-of-hole, and the
+Firestore sync that would end the download-email-upload workflow.
+
+Stroke-and-distance handling and the lie moving to end-of-hole both landed as
+part of item 2 above.
+
+**Already shipped in rev 2, skipped by Matt's instruction on 2026-08-21:** the
+1–5 ft putt grid and MARK TEE SHOT naming. He was describing the build he had
+played, not the deployed one.
+
+---
+
+## The original field-test-3 backlog, in his words
+
+Kept verbatim. This is the list the work above was drawn from, and it is not a
+prioritisation.
 
 ### The on-course annoyance, in his words
 
@@ -182,12 +357,16 @@ Also worth revisiting the auto-lock default once a manual lock is always to hand
 - **The workflow.** Download, email, upload, per round. *"This is stupid."*
   Firestore sync is `SPEC.md` step 4 and he has not yet chosen a Firebase project.
 
-### Known bug, unfixed
+### Known bug, unfixed *(since diagnosed — see “The known bug” above)*
 
 `tick()` does not fire on the play screen at all, so the accuracy chip beside the
 track chip sits frozen on a stale reading. Verified in the simulator: forcing
 accuracy 3 → 9 changed nothing on screen. The track chip sidesteps it with its
 own interval. **Root cause not found.**
+
+> Kept as written. The diagnosis in it is wrong in an instructive way: `tick()`
+> does fire, and the simulator check was reading the symptom from the other
+> side. Both are explained above.
 
 Known false positives are reported rather than suppressed — the walk behind the
 hole to read a putt, and sitting in the cart while a partner plays. Suppressing

@@ -328,3 +328,391 @@ export function proposeStops(points, { fromTs, toTs, count, ...opts } = {}) {
     .slice(0, count)
     .sort((a, b) => a.startTs - b.startTs);
 }
+
+/* ------------------------------------------------------ first putt recovery */
+
+/**
+ * Green-scale segmentation defaults.
+ *
+ * The shot-scale `stopRadiusM` of 12 m is useless here: a green is roughly 25 m
+ * across, so a 12 m radius swallows the ball, the read from behind the hole and
+ * the cup into a single stop. 7 m is the smallest radius that still survives
+ * the scatter of a stationary receiver, and it is knowingly close to that noise
+ * floor — which is why everything below reports its uncertainty rather than
+ * just a number.
+ */
+export const GREEN_DEFAULTS = {
+  stopRadiusM: 7,
+  minDwellMs: 4000,
+  maxAccuracyM: 12,
+  /** Beyond this from the other anchor, a stop is not on this green. */
+  maxPuttM: 40,
+};
+
+const M_TO_FT = 3.280839895;
+
+/**
+ * PROPOSE A FIRST-PUTT DISTANCE FROM THE TRACK.
+ *
+ * Backup A in the rev 3 backlog: supply a first-putt distance when none was
+ * entered, so those strokes are not dropped from strokes gained entirely.
+ *
+ * READ THIS BEFORE TRUSTING THE OUTPUT
+ *
+ * `schema.js` already states the case against doing this at all, and it is
+ * right: "a ±2 m fix is ±6.5 ft, which is the entire useful range of a putt —
+ * GPS simply cannot measure putting, and strokes gained putting is extremely
+ * sensitive to the first-putt distance." Nothing here repeals that. A paced
+ * distance is better instrumentation and stays the primary path.
+ *
+ * What makes this worth having anyway is the alternative. An unrecorded first
+ * putt does not degrade the number — it deletes those strokes from the round,
+ * and field test 3 measured what that costs: putting read +0.52 with four
+ * strokes unattributed and +0.19 once they were filled in. Every gap that
+ * closed took something off his best category. A rough distance lands in
+ * roughly the right band of the expected-putts curve; no distance at all lands
+ * nowhere, and flatters him.
+ *
+ * Two things make this better than the raw ±3 m suggests, and one much worse:
+ *
+ *   BETTER  Both anchors come from one receiver minutes apart on one green, so
+ *           most of the error is common-mode — same satellites, same multipath
+ *           — and cancels in the difference. This is why field test 3 recovered
+ *           hole 8's cup to within 1.5 ft of the ball mark.
+ *   BETTER  Every anchor is a cluster centroid, not a single fix.
+ *   WORSE   The expected-putts curve is steep inside 10 ft. At 25 ft an error
+ *           of 8 ft barely moves the answer; at 5 ft it changes it completely.
+ *           So `confidence` is downgraded on short estimates however tight the
+ *           geometry looks.
+ *
+ * Propose and confirm, never detect and fill. The return value is an argument
+ * with its evidence attached, for Matt to accept or overrule — the same
+ * position the rest of this module takes, and design rule 5's requirement that
+ * measured and inferred data are never silently mixed.
+ *
+ * @param points  Dense track for the round (stored arrays or expanded fixes).
+ * @param ball    The marked ball position on the green, or null.
+ * @param cup     The marked cup position, or null.
+ * @param fromTs  Start of the green window — the ball mark, or the approach.
+ * @param toTs    End of the window — when the hole was completed.
+ * @returns null, or a proposal with `distanceFt`, `uncertaintyFt`,
+ *          `confidence`, both anchors with their `source`, and `reasons`.
+ */
+export function proposeFirstPutt(
+  points,
+  { ball = null, cup = null, fromTs = null, toTs = null, ...opts } = {}
+) {
+  const cfg = { ...DEFAULTS, ...GREEN_DEFAULTS, ...opts };
+
+  // Nothing to infer: `firstPuttM` already computes this from two real marks,
+  // and a track guess must never override a measurement.
+  if (ball && cup) return null;
+
+  const window = toFixes(points).filter(
+    (f) => (fromTs == null || f.ts >= fromTs) && (toTs == null || f.ts <= toTs)
+  );
+  if (window.length < 4) return null;
+
+  const stops = segmentTrack(window, cfg).filter((s) => s.kind === 'stop');
+  if (!stops.length) return null;
+
+  const reasons = [];
+  const near = (a, b) => distanceM(a, b) <= cfg.maxPuttM;
+  const asAnchor = (stop) => ({
+    lat: stop.lat,
+    lon: stop.lon,
+    source: 'track',
+    spreadM: stop.spreadM,
+    dwellMs: stop.dwellMs,
+  });
+
+  let ballAt = ball
+    ? { lat: ball.lat, lon: ball.lon, source: 'mark', spreadM: ball.accuracyM ?? null }
+    : null;
+  let cupAt = cup ? { lat: cup.lat, lon: cup.lon, source: 'mark', spreadM: cup.accuracyM ?? null } : null;
+
+  if (ballAt && !cupAt) {
+    /*
+     * The cup is where he stood to pick the ball out, which is the LAST stop on
+     * this green — his routine walks behind the hole to read the putt first, so
+     * an earlier in-range stop is the read, not the cup. Restricting to stops
+     * within a putt's reach of the ball is what keeps the next tee out of it
+     * when the window runs long, which it does whenever the putts are entered
+     * after walking off.
+     */
+    const away = stops.filter((s) => near(ballAt, s) && distanceM(ballAt, s) > cfg.stopRadiusM);
+    if (!away.length) return null;
+    // Longest dwell, not simply the latest. Walking 25 m across a green at
+    // 1.3 m/s produces clusters that clear `minDwellMs` on their own — the
+    // radius closes a cluster roughly every 10 s of walking — so "the last
+    // stop" can easily be an artifact of the walk itself. Time spent standing
+    // is the discriminator that survives: reading, putting out and picking the
+    // ball out of the cup all happen in one place, and none of the walking
+    // artifacts come close. Latest wins a tie, since retrieval is last.
+    const cupStop = away.reduce((best, s) =>
+      s.dwellMs > best.dwellMs || (s.dwellMs === best.dwellMs && s.endTs > best.endTs) ? s : best
+    );
+    cupAt = asAnchor(cupStop);
+    reasons.push(
+      away.length > 1
+        ? `cup taken as the longest of ${away.length} stops away from the ball (${Math.round(cupStop.dwellMs / 1000)} s)`
+        : `cup taken as the only stop away from the ball (${Math.round(cupStop.dwellMs / 1000)} s)`
+    );
+  } else if (cupAt && !ballAt) {
+    // Mirror image: he arrives at his ball before he reaches the hole, so the
+    // ball is the FIRST in-range stop.
+    const away = stops.filter((s) => near(cupAt, s) && distanceM(cupAt, s) > cfg.stopRadiusM);
+    if (!away.length) return null;
+    // Earliest rather than longest here: he reaches his own ball before he
+    // reaches the hole, and the ball is the one place on the green he is
+    // guaranteed to stand before putting.
+    ballAt = asAnchor(away[0]);
+    reasons.push(`ball taken as the first stop away from the cup (${away.length} candidate(s))`);
+  } else {
+    // Neither marked. The window's first and last stops, and only if they are
+    // close enough together to be one green.
+    if (stops.length < 2) return null;
+    const first = stops[0];
+    const last = stops[stops.length - 1];
+    if (!near(first, last)) return null;
+    ballAt = asAnchor(first);
+    cupAt = asAnchor(last);
+    reasons.push('neither the ball nor the cup was marked — both ends came from the track');
+  }
+
+  const metres = distanceM(ballAt, cupAt);
+  if (!Number.isFinite(metres) || metres > cfg.maxPuttM) return null;
+
+  const distanceFt = Number((metres * M_TO_FT).toFixed(1));
+
+  /*
+   * HOW WRONG THIS COULD BE
+   *
+   * Not the cluster's spread. `spreadM` is the largest distance any fix sat
+   * from the centroid, which describes how wide the cluster is, not how well
+   * its centre is known — and the centre is the only thing being used. Standing
+   * still for a minute inside a 7 m stay-point radius routinely yields a 6-7 m
+   * spread while the centroid is good to a metre or two, so quoting the spread
+   * would reject perfectly usable proposals.
+   *
+   * Nor is it spread / sqrt(n). That is the textbook standard error and it is
+   * wrong in the other direction, because it assumes independent samples. GPS
+   * error is dominated by satellite geometry and multipath, both of which drift
+   * over tens of seconds — consecutive 1 Hz fixes are strongly correlated, and
+   * averaging 55 of them does not buy a factor of 7.4.
+   *
+   * So the effective sample count is the dwell divided by a 10 s correlation
+   * time, not the fix count. A minute of standing still counts as about six
+   * independent looks. That is the conservative reading of a noisy literature,
+   * and it is the number the confidence tiers are calibrated against.
+   *
+   * A marked anchor contributes its burst accuracy directly — that reduction
+   * has already done this arithmetic.
+   */
+  const CORRELATION_MS = 10000;
+  const sigma = (a) => {
+    if (a.source === 'mark') return Number.isFinite(a.spreadM) ? a.spreadM : cfg.stopRadiusM;
+    const spread = Number.isFinite(a.spreadM) ? a.spreadM : cfg.stopRadiusM;
+    const looks = Math.max(1, (a.dwellMs ?? 0) / CORRELATION_MS);
+    return spread / Math.sqrt(looks);
+  };
+  const uncertaintyFt = Number((Math.hypot(sigma(ballAt), sigma(cupAt)) * M_TO_FT).toFixed(1));
+
+  const inferredEnds = [ballAt, cupAt].filter((a) => a.source === 'track').length;
+
+  let confidence;
+  if (distanceFt < 10) {
+    // Steep part of the expected-putts curve. Whatever the geometry says, an
+    // estimate this short cannot carry the weight strokes gained puts on it.
+    confidence = 'poor';
+    reasons.push(`${distanceFt} ft is inside the range where GPS cannot separate a tap-in from a 10-footer`);
+  } else if (inferredEnds === 1 && uncertaintyFt <= 8) {
+    confidence = 'good';
+  } else if (uncertaintyFt <= 15) {
+    confidence = 'fair';
+  } else {
+    confidence = 'poor';
+  }
+
+  reasons.push(`${distanceFt} ft ±${uncertaintyFt} ft from ${stops.length} stop(s) in the window`);
+
+  return { distanceFt, uncertaintyFt, confidence, ball: ballAt, cup: cupAt, reasons };
+}
+
+/* --------------------------------------------------- end-of-hole candidates */
+
+/**
+ * How well a stop candidate's centre is actually known, in metres.
+ *
+ * Same reasoning as `proposeFirstPutt`: `spreadM` is how wide the cluster is,
+ * not how well its centre is known, and dividing by sqrt(n) would assume
+ * independent samples that GPS does not provide. Effective looks are the dwell
+ * over a 10 s correlation time.
+ *
+ * Exported because a confirmed candidate becomes a real shot mark, and that
+ * mark has to carry an honest accuracy — it is what every distance on the hole
+ * is then computed from.
+ */
+export function candidateAccuracyM(candidate, opts = {}) {
+  const cfg = { ...DEFAULTS, ...opts };
+  const spread = Number.isFinite(candidate?.spreadM) ? candidate.spreadM : cfg.stopRadiusM;
+  const looks = Math.max(1, (candidate?.dwellMs ?? 0) / 10000);
+  return Number((spread / Math.sqrt(looks)).toFixed(2));
+}
+
+/** The same three bands `reduceBurst` uses, so a track mark reads consistently. */
+export function candidateQuality(accuracyM, { goodAccM = 4, maxAccuracyM = 8 } = {}) {
+  if (accuracyM <= goodAccM) return 'good';
+  if (accuracyM <= maxAccuracyM) return 'degraded';
+  return 'poor';
+}
+
+/**
+ * AGENDA ITEM 2 — what the track thinks happened on one hole.
+ *
+ * Matt's order, verbatim: *"lets hone down the tracking and then move to the
+ * after hole entry, and then how we handle a mislog, forgotten phone in the
+ * cart, etc"*. This is the after-hole entry half. Rev 2 built the ranking and
+ * stopped there — nothing ever asked him to confirm a candidate — and that
+ * confirmation is the whole of item 2.
+ *
+ * He supplies the score, because he knows it and the app does not. `fullShots`
+ * is strokes minus putts minus penalty strokes: the number of times he actually
+ * swung at the ball somewhere other than the green. The track's job is only to
+ * say WHERE those swings happened, which is the easy half of a problem that is
+ * hopeless unsupervised.
+ *
+ * THE COUNT IS THE DIAGNOSTIC, NOT AN ERROR
+ *
+ * `found` versus `fullShots` is the most useful number this returns:
+ *
+ *   found === fullShots   the ordinary case; confirm them and move on.
+ *   found  >  fullShots   more stops than swings — the cart pause, the walk
+ *                         behind the hole, waiting on a partner. The ranking
+ *                         already sorts these below real shots, so the top
+ *                         `fullShots` are proposed and the rest are returned as
+ *                         `rejected` rather than thrown away, because they are
+ *                         the labelled negatives that make this trainable.
+ *   found  <  fullShots   two strokes happened in one place. Almost always
+ *                         stroke and distance — Matt plays it straight, so a
+ *                         lost ball or OB means replaying from the same spot,
+ *                         which produces one stop where two strokes happened
+ *                         and is indistinguishable from his pre-shot reset (the
+ *                         segmenter deliberately merges those). The track
+ *                         cannot recover this and should not try. `shortBy`
+ *                         says how many are missing so the UI can ask which
+ *                         stop he played twice, which is the recovery named in
+ *                         `docs/rev2-changes.md`.
+ *
+ * @param points     Dense track for the round.
+ * @param fullShots  Swings that were not putts and not penalties.
+ * @param fromTs     Start of the hole's window, epoch ms.
+ * @param toTs       End of the hole's window, epoch ms.
+ * @returns `{ proposed, rejected, found, fullShots, shortBy, windowMs }`.
+ *          `proposed` is in time order — a shot list out of sequence is
+ *          unreadable however well ranked.
+ */
+export function proposeHoleShots(points, { fullShots, fromTs = null, toTs = null, ...opts } = {}) {
+  const want = Math.max(0, Math.floor(fullShots ?? 0));
+  const all = stopCandidates(points, opts).filter(
+    (c) => (fromTs == null || c.endTs >= fromTs) && (toTs == null || c.startTs <= toTs)
+  );
+
+  /*
+   * THE LAST STOP IN THE WINDOW IS NEVER A FULL SHOT.
+   *
+   * A hole ends at the cup. Whatever he is standing at when the window closes
+   * is the green — picking the ball out, or already walking — and the strokes
+   * played from there are putts, which he has counted separately on the card.
+   * It is not a stop he played a full shot from.
+   *
+   * Worth stating because the raw ranking likes that stop very much: leaving
+   * for the next tee is a long departure, and a long departure is the single
+   * most shot-like feature there is. On a par 4 played from the pocket it
+   * routinely outranked the approach. This is not the suppression the module
+   * header rules out — nothing is being hidden on a guess about what it might
+   * be. It is a fact about the shape of a hole, applied only to the full-shot
+   * question, and the stop is still returned in `rejected` with its reason.
+   */
+  const holedOut = all[all.length - 1] ?? null;
+  if (holedOut) {
+    holedOut.reasons = [...(holedOut.reasons ?? []), 'last stop on the hole — this is the green, not a full shot'];
+  }
+  const beforeLast = all.slice(0, Math.max(0, all.length - 1));
+
+  /*
+   * Green work is preferred out, but never at the cost of a shortfall.
+   *
+   * The stop where the ball came to rest on the green scores like a shot and is
+   * not one: the departure it gets credit for is the putt, and he drove to the
+   * green so it "arrived by cart" as well. On the pocketed par 4 it outranked
+   * the real approach. Stops within putting range of the hole are therefore
+   * demoted out of the full-shot pool.
+   *
+   * Adaptive, because geometry alone cannot separate a 60 ft putt from a 20
+   * yard chip — both sit about the same distance from the cup, and one is a
+   * full shot. So this only applies while enough candidates remain to cover the
+   * score. If excluding them would manufacture a shortfall, they come back, and
+   * the count keeps meaning what it means: too few stops for the strokes played
+   * is evidence about stroke and distance, not an artifact of this filter.
+   */
+  const greenish = holedOut
+    ? beforeLast.filter((c) => distanceM(holedOut, c) <= GREEN_DEFAULTS.maxPuttM)
+    : [];
+  const offGreen = beforeLast.filter((c) => !greenish.includes(c));
+  const eligible = offGreen.length >= want ? offGreen : beforeLast;
+  for (const c of greenish) {
+    c.reasons = [...(c.reasons ?? []), 'within putting range of the hole'];
+  }
+
+  const byScore = [...eligible].sort((a, b) => b.score - a.score);
+  const proposed = byScore.slice(0, want).sort((a, b) => a.startTs - b.startTs);
+  const chosen = new Set(proposed);
+
+  /*
+   * Refine the cup once the shots are known.
+   *
+   * "The last stop in the window" is only the cup if the window closes on the
+   * green. It often does not: the window runs to `now` for a hole that is not
+   * yet complete, so entering the card at the next tee — or two holes later —
+   * puts the last stop somewhere he was never putting.
+   *
+   * The ball's resting place is a far better anchor, and it is knowable: it is
+   * the first stop AFTER the last shot he played, which is where that shot
+   * finished. The cup is then the last stop still within putting range of it,
+   * which is the retrieval. Everything past that is him leaving.
+   */
+  const lastShot = proposed[proposed.length - 1] ?? null;
+  const after = lastShot ? all.filter((c) => c.startTs > lastShot.startTs) : [];
+  const ballAtRest = after[0] ?? null;
+  let cup = holedOut;
+  if (ballAtRest) {
+    const nearBall = after.filter((c) => distanceM(ballAtRest, c) <= GREEN_DEFAULTS.maxPuttM);
+    cup = nearBall[nearBall.length - 1] ?? ballAtRest;
+  }
+  if (cup && cup !== holedOut) {
+    cup.reasons = [...(cup.reasons ?? []), 'last stop within putting range of where the ball finished'];
+  }
+
+  return {
+    proposed,
+    rejected: all.filter((c) => !chosen.has(c)),
+    /*
+     * Where he holed out, which is the best evidence the track has for where
+     * the cup is — he stands at it to pick the ball out. Returned rather than
+     * merely excluded because a hole with shot positions and no hole position
+     * still produces nothing: every distance, and therefore every strokes
+     * gained figure, is measured to the cup. This is the same recovery field
+     * test 3 did by hand for hole 8, where the retrieval fix read 158.2 yd from
+     * the tee against a lasered 158.
+     */
+    holedOut: cup,
+    found: all.length,
+    eligible: eligible.length,
+    /** True when green-area stops had to be let back in to cover the score. */
+    usedGreenStops: eligible === beforeLast && greenish.length > 0,
+    fullShots: want,
+    shortBy: Math.max(0, want - eligible.length),
+    windowMs: fromTs != null && toTs != null ? toTs - fromTs : null,
+  };
+}
