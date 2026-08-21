@@ -17,8 +17,10 @@ import { candidateAccuracyM, candidateQuality } from './track-analysis.js';
 
 /* ------------------------------------------------------------ construction */
 
-export function createRound({ course, teeSet, startingNine, type, holeCount = 18 }) {
-  const ordered = playOrder(course, startingNine, holeCount);
+export function createRound({ course, teeSet, startingNine, type, holeCount = 18, startHole = null }) {
+  // `startHole` is the shotgun start: the sequence is rotated to begin there,
+  // so hole order, NEXT HOLE and FINISH ROUND all follow what is being played.
+  const ordered = playOrder(course, startingNine, holeCount, startHole);
   const holes = ordered.map((h, i) =>
     newHole({
       number: h.number,

@@ -1,5 +1,5 @@
-import { h, card, field, segmented, toast } from './dom.js';
-import { allCourses, getCourse, newCustomCourse } from '../data/courses.js';
+import { h, card, field, segmented, toast, frag } from './dom.js';
+import { allCourses, getCourse, newCustomCourse, playOrder } from '../data/courses.js';
 import { createRound } from '../round/round.js';
 import { saveRound, upsertRoundSummary } from '../data/store.js';
 
@@ -13,6 +13,9 @@ export function setupScreen(ctx) {
     startingNine: s.startingNine,
     type: s.roundType,
     holeCount: 18,
+    // Null means "the first hole of whatever is being played". Never persisted:
+    // a shotgun start is a property of one round, not a preference.
+    startHole: null,
     view: ctx.params.pickCourse ? 'course' : 'main',
   };
 
@@ -101,6 +104,58 @@ export function setupScreen(ctx) {
               draft.startingNine = v;
               paint();
             }
+          )
+        )
+      );
+    }
+
+    /*
+     * STARTING HOLE — the shotgun start.
+     *
+     * Every group tees off at once on a different hole and plays the course
+     * round to where they began. It is how a four-man best ball gets 18 groups
+     * off a nine in one go, and it was the normal case for field test 4.
+     *
+     * A grid of the holes actually in play, one tap, defaulting to the first.
+     * It is deliberately not hidden behind an advanced screen: getting this
+     * wrong is not cosmetic — the round would be dealt in the wrong order and
+     * every hole's par, yardage and track window would belong to a hole he was
+     * not standing on.
+     */
+    const inPlay = playOrder(course, draft.startingNine, Math.min(draft.holeCount, course.holes.length));
+    if (inPlay.length > 1) {
+      const holeGrid = segmented(
+        inPlay.map((x) => ({ value: x.number, label: String(x.number) })),
+        draft.startHole ?? inPlay[0].number,
+        (v) => {
+          draft.startHole = v;
+          paint();
+        },
+        { columns: Math.min(6, inPlay.length) }
+      );
+
+      const start = draft.startHole ?? inPlay[0].number;
+      const rotated = playOrder(
+        course,
+        draft.startingNine,
+        Math.min(draft.holeCount, course.holes.length),
+        start
+      );
+      main.appendChild(
+        field(
+          'Starting hole',
+          frag(
+            holeGrid,
+            // Spelled out, because a rotated order is the one thing here that
+            // cannot be checked at a glance once the round is running.
+            h('p', {
+              class: 'note muted',
+              style: { margin: '8px 2px 0' },
+              text:
+                start === inPlay[0].number
+                  ? 'Normal start — plays in order from the first hole.'
+                  : `Shotgun start on ${start}. Plays ${rotated.map((x) => x.number).join(', ')}.`,
+            })
           )
         )
       );
@@ -312,6 +367,7 @@ export function setupScreen(ctx) {
       startingNine: draft.startingNine,
       type: draft.type,
       holeCount: Math.min(draft.holeCount, course.holes.length),
+      startHole: draft.startHole,
     });
 
     ctx.round = round;

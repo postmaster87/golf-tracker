@@ -264,6 +264,20 @@ because Veenker was the only course in the build:
   opening straight onto a course did not, and starting like that records a tee
   the course lacks while `holeYards` quietly falls back to another one.
 
+**Shotgun start.** Field test 4 is a shotgun, so the starting hole is now a
+setup control: a grid of the holes in play, one tap, and a line spelling out the
+resulting sequence (*"Shotgun start on 6. Plays 6, 7, 8, 9, 1, 2, 3, 4, 5"*).
+
+It **rotates the holes array** rather than just moving `currentHoleIndex`. That
+is the load-bearing part: the round's own sense of next hole and last hole then
+follows the order actually being played, so finishing on the ninth green played
+finishes the round. Moving the index alone would leave the round believing it
+ended at hole 9 and strand the wrap-around.
+
+The starting-nine detector is guarded off for both cases it cannot answer — a
+course with one nine has no other nine to have started on, and a shotgun start
+tees off near neither nine's opening hole, so its verdict would be noise.
+
 **Four rounds, not one.** Thirty-six holes is recorded as four nine-hole rounds
 rather than one long one: hole numbers are the key used to find a hole
 throughout the app, so looping a nine would put two hole 1s in one round. Each

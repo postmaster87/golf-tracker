@@ -2500,6 +2500,85 @@ test('Veenker still alternates its nines', () => {
   eq(playOrder(VEENKER, 'front', 9).length, 9, 'nine at an eighteen-hole course');
 });
 
+/* ---------------------------------------------------------- shotgun starts */
+
+group('shotgun start');
+
+test('the nine is rotated to begin on the hole the group was sent to', () => {
+  const order = playOrder(RADCLIFFE, 'front', 9, 6).map((x) => x.number);
+  eq(order.join(','), '6,7,8,9,1,2,3,4,5', 'plays round to where it began');
+});
+
+test('starting on the first hole is the ordinary order, not a rotation', () => {
+  eq(playOrder(RADCLIFFE, 'front', 9, 1).map((x) => x.number).join(','), '1,2,3,4,5,6,7,8,9');
+  eq(playOrder(RADCLIFFE, 'front', 9, null).map((x) => x.number).join(','), '1,2,3,4,5,6,7,8,9');
+});
+
+test('a start hole that is not in play leaves the order alone', () => {
+  // Asking for hole 14 of a nine-hole course is not a reason to deal the round
+  // in some other order; it is a reason to ignore the request.
+  eq(playOrder(RADCLIFFE, 'front', 9, 14).map((x) => x.number).join(','), '1,2,3,4,5,6,7,8,9');
+});
+
+test('the round itself is dealt in shotgun order, pars and yardages with it', () => {
+  const round = createRound({
+    course: RADCLIFFE,
+    teeSet: 'white',
+    startingNine: 'front',
+    type: 'tournament',
+    holeCount: 9,
+    startHole: 7,
+  });
+  eq(round.holes.map((x) => x.number).join(','), '7,8,9,1,2,3,4,5,6', 'hole order');
+  // The par 3 seventh leads, and hole 1's par 5 sits fourth. If these travelled
+  // separately from the numbers, every hole would show the wrong card.
+  eq(round.holes[0].par, 3, 'first hole is the 7th, a par 3');
+  eq(round.holes[0].yards, 226, 'and its yardage');
+  eq(round.holes[3].par, 5, 'fourth played is hole 1, a par 5');
+  eq(round.holes[3].yards, 520, 'and its yardage');
+  eq(round.coursePar, 36, 'par is the whole nine however it is ordered');
+});
+
+test('play order is renumbered to the sequence actually played', () => {
+  const round = createRound({
+    course: RADCLIFFE,
+    teeSet: 'white',
+    startingNine: 'front',
+    type: 'tournament',
+    holeCount: 9,
+    startHole: 4,
+  });
+  eq(round.holes.map((x) => x.playOrder).join(','), '0,1,2,3,4,5,6,7,8', 'playOrder follows the deal');
+  eq(round.currentHoleIndex, 0, 'and the round opens on the hole teed off');
+});
+
+test('finishing the ninth played hole finishes the round', () => {
+  // The reason the array is rotated rather than the index merely moved: last
+  // hole has to mean the last one played, not hole 9.
+  const round = createRound({
+    course: RADCLIFFE,
+    teeSet: 'white',
+    startingNine: 'front',
+    type: 'tournament',
+    holeCount: 9,
+    startHole: 6,
+  });
+  eq(round.holes.length, 9, 'nine holes');
+  eq(round.holes[round.holes.length - 1].number, 5, 'the round ends on hole 5');
+});
+
+test('an eighteen-hole shotgun rotates within the nine that is being played', () => {
+  const order = playOrder(VEENKER, 'back', 9, 13).map((x) => x.number);
+  eq(order.join(','), '13,14,15,16,17,18,10,11,12', 'back nine, sent to 13');
+});
+
+test('Veenker unrotated is untouched', () => {
+  eq(playOrder(VEENKER, 'front', 18)[0].number, 1, 'front start');
+  eq(playOrder(VEENKER, 'back', 18)[0].number, 10, 'back start');
+  eq(playOrder(VEENKER, 'back', 18).map((x) => x.number).join(','),
+     '10,11,12,13,14,15,16,17,18,1,2,3,4,5,6,7,8,9', 'full back-first order');
+});
+
 /* ------------------------------------------ agenda item 2: end-of-hole entry */
 
 group('end-of-hole entry (agenda item 2)');

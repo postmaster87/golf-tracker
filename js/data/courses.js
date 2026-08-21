@@ -116,10 +116,19 @@ export function newCustomCourse(name, holeCount = 18) {
 }
 
 /**
- * Play order for a round. Veenker alternates which nine goes off first, so a
- * back start plays 10..18 then 1..9. Nine-hole rounds stop after the first nine.
+ * Play order for a round.
+ *
+ * Veenker alternates which nine goes off first, so a back start plays 10..18
+ * then 1..9. Nine-hole rounds stop after the first nine.
+ *
+ * `startHole` rotates that sequence, which is what a **shotgun start** is: every
+ * group tees off at once on a different hole and plays the course round to
+ * where they began. Rotating the array rather than merely jumping to a hole
+ * matters — the round's own sense of "next hole" and "last hole" then follows
+ * the order actually being played, so finishing on the ninth green is finishing
+ * the round, whichever hole the ninth green happens to belong to.
  */
-export function playOrder(course, startingNine, holeCount = 18) {
+export function playOrder(course, startingNine, holeCount = 18, startHole = null) {
   const n = course.holes.length;
   /*
    * A course with one nine has no back nine to start on.
@@ -130,12 +139,25 @@ export function playOrder(course, startingNine, holeCount = 18) {
    * 5-9 then 1-4 with nothing on screen saying so. The caller cannot be relied
    * on to know that; the course knows.
    */
-  if (n < 18) return course.holes.slice(0, Math.min(holeCount, n));
-  const nine = Math.floor(n / 2);
-  const front = course.holes.slice(0, nine);
-  const back = course.holes.slice(nine);
-  const ordered = startingNine === 'back' ? [...back, ...front] : [...front, ...back];
-  return ordered.slice(0, Math.min(holeCount, n));
+  let ordered;
+  if (n < 18) {
+    ordered = course.holes.slice(0, Math.min(holeCount, n));
+  } else {
+    const nine = Math.floor(n / 2);
+    const front = course.holes.slice(0, nine);
+    const back = course.holes.slice(nine);
+    ordered = (startingNine === 'back' ? [...back, ...front] : [...front, ...back]).slice(
+      0,
+      Math.min(holeCount, n)
+    );
+  }
+
+  if (startHole == null) return ordered;
+  const i = ordered.findIndex((x) => x.number === startHole);
+  // Not in the set being played, or already first: leave the order alone rather
+  // than rotate by a hole that is not there.
+  if (i <= 0) return ordered;
+  return [...ordered.slice(i), ...ordered.slice(0, i)];
 }
 
 /** Yardage for a hole from the tee set in play, falling back to any tee set. */

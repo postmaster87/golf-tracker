@@ -1129,6 +1129,23 @@ export function playScreen(ctx) {
   function checkStartingNine(shot) {
     const course = getCourse(ctx.app, round.courseId);
     if (!course) return;
+    /*
+     * Only ask this where the question exists.
+     *
+     * A course with one nine has no other nine to have started on, and the
+     * check would compare the first hole's tee against the fifth's and offer to
+     * "switch nines" on the strength of it.
+     *
+     * A shotgun start breaks it the same way for a different reason: the round
+     * begins wherever the group was sent, so the first tee mark is near neither
+     * nine's opening hole and the verdict is meaningless. `holes[0]` is the
+     * hole actually teed off, so a rotated order says so plainly.
+     */
+    if (course.holes.length < 18) return;
+    const nine = Math.floor(course.holes.length / 2);
+    const opensNine = [course.holes[0]?.number, course.holes[nine]?.number];
+    if (!opensNine.includes(round.holes[0]?.number)) return;
+
     const verdict = detectStartingNine(ctx.app, course, round.teeSet, shot.mark);
     if (!verdict || verdict.nine === round.startingNine) return;
 
