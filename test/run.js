@@ -10,7 +10,7 @@ import { GEO_FIXTURES } from './fixtures.js';
 import { distanceM, bearingDeg, radiiAt, toYards, toFeet, feetToM, weightedCentroid } from '../js/util/geo.js';
 import { median, mad } from '../js/util/stats.js';
 import { reduceBurst, GpsService } from '../js/gps/gps.js';
-import { VEENKER, playOrder, holeYards, newCustomCourse } from '../js/data/courses.js';
+import { VEENKER, RADCLIFFE, playOrder, holeYards, newCustomCourse } from '../js/data/courses.js';
 import {
   createRound,
   addShot,
@@ -2424,6 +2424,81 @@ export async function runExportTrackTests() {
   deleteRound(ID_SKIP);
 }
 
+
+/* ------------------------------------------------------ radcliffe (9 hole) */
+
+group('Radcliffe Friendly Fairways');
+
+test('the scorecard reconciles against the published totals', () => {
+  // The only real check available on course data: the per-hole numbers came
+  // from a scorecard site, the totals came from the course itself, and they
+  // have to agree. Veenker is held to the same bar.
+  eq(
+    RADCLIFFE.holes.reduce((a, x) => a + x.par, 0),
+    36,
+    'par'
+  );
+  eq(
+    RADCLIFFE.holes.reduce((a, x) => a + x.yards.white, 0),
+    RADCLIFFE.teeSets.white.yards,
+    'white yardage'
+  );
+  eq(
+    RADCLIFFE.holes.reduce((a, x) => a + x.yards.red, 0),
+    RADCLIFFE.teeSets.red.yards,
+    'red yardage'
+  );
+});
+
+test('it has the two par-3s and two par-5s the course says it has', () => {
+  const count = (p) => RADCLIFFE.holes.filter((x) => x.par === p).length;
+  eq(count(3), 2, 'par 3s');
+  eq(count(5), 2, 'par 5s');
+  eq(RADCLIFFE.holes.length, 9, 'holes');
+});
+
+test('stroke indices are absent rather than invented', () => {
+  // Not published anywhere found. A plausible-looking index would be a lie in
+  // the one file whose header forbids exactly that.
+  assert(
+    RADCLIFFE.holes.every((x) => x.hcp == null),
+    'a stroke index was guessed'
+  );
+});
+
+test('a nine-hole course ignores a remembered back-nine start', () => {
+  // `startingNine` persists across rounds, so arriving here after a back-nine
+  // round at Veenker would otherwise deal 5-9 then 1-4 silently.
+  const front = playOrder(RADCLIFFE, 'front', 18).map((x) => x.number);
+  const back = playOrder(RADCLIFFE, 'back', 18).map((x) => x.number);
+  eq(front.join(','), '1,2,3,4,5,6,7,8,9', 'front start');
+  eq(back.join(','), '1,2,3,4,5,6,7,8,9', 'back start must not reorder a single nine');
+});
+
+test('an 18-hole request on a nine-hole course produces nine holes', () => {
+  // Four separate nine-hole rounds is how 36 holes is recorded here, and the
+  // hole-count control is hidden for this course, so 18 is what a stale
+  // setting would carry in.
+  const round = createRound({
+    course: RADCLIFFE,
+    teeSet: 'white',
+    startingNine: 'front',
+    type: 'practice',
+    holeCount: 18,
+  });
+  eq(round.holes.length, 9, 'holes dealt');
+  eq(round.coursePar, 36, 'round par');
+  eq(round.holes[0].par, 5, 'hole 1 is the par 5');
+  eq(round.holes[0].yards, 520, 'hole 1 white yardage');
+});
+
+test('Veenker still alternates its nines', () => {
+  // The guard above is scoped by hole count, so the eighteen-hole behaviour it
+  // sits in front of has to be untouched.
+  eq(playOrder(VEENKER, 'back', 18)[0].number, 10, 'back start still starts at 10');
+  eq(playOrder(VEENKER, 'front', 18)[0].number, 1, 'front start still starts at 1');
+  eq(playOrder(VEENKER, 'front', 9).length, 9, 'nine at an eighteen-hole course');
+});
 
 /* ------------------------------------------ agenda item 2: end-of-hole entry */
 

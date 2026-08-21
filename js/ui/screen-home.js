@@ -40,21 +40,45 @@ export function homeScreen(ctx) {
 
   // ---- start ----------------------------------------------------------
   const s = ctx.app.settings;
-  const veenker = getCourse(ctx.app, 'veenker');
+  /*
+   * The shortcut follows the course last played, not Veenker.
+   *
+   * It was hardcoded from rev 0, when Veenker was the only course there was.
+   * With a second one in the build that is now actively wrong: the setting says
+   * Radcliffe and the button still says — and still starts — Veenker, which on
+   * a day of four rounds there is four wrong rounds.
+   */
+  const course = getCourse(ctx.app, s.courseId) ?? getCourse(ctx.app, 'veenker');
+  // The remembered tee may not exist on this course. Setup falls back to the
+  // course's first tee, so say that rather than naming a tee it does not have.
+  const teeKey = course.teeSets[s.teeSet] ? s.teeSet : Object.keys(course.teeSets)[0];
+  const lastUsed = [
+    // Meaningless on a course with one nine, where there is nothing to alternate.
+    course.holes.length >= 18 ? NINE_LABEL[s.startingNine] : null,
+    `${course.teeSets[teeKey]?.label ?? teeKey} tees`,
+    s.roundType,
+  ].filter(Boolean);
+
   body.appendChild(
     card(
       'Start a round',
       h('button', {
         class: 'btn primary huge',
-        text: 'START VEENKER',
-        onClick: () => ctx.go('setup', { courseId: 'veenker' }),
+        text: `START ${(course.shortName ?? course.name).toUpperCase()}`,
+        onClick: () => ctx.go('setup', { courseId: course.id }),
       }),
       h('p', {
         class: 'note muted',
         style: { margin: '10px 2px 0' },
-        text: `Last used: ${NINE_LABEL[s.startingNine]} · ${
-          veenker.teeSets[s.teeSet]?.label ?? s.teeSet
-        } tees · ${s.roundType}`,
+        text: `Last used: ${lastUsed.join(' · ')}`,
+      }),
+      // A second course exists now, so the way to the other one belongs here
+      // rather than only behind "Other course" further down.
+      h('button', {
+        class: 'btn sm dim',
+        style: { marginTop: '10px' },
+        text: 'CHANGE COURSE',
+        onClick: () => ctx.go('setup', { pickCourse: true }),
       })
     )
   );

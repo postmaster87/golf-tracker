@@ -237,6 +237,39 @@ reference is the silent mixing design rule 5 forbids.
 - The shot picker built earlier this session means a penalty entered after the
   hole no longer lands on a putt.
 
+### Radcliffe Friendly Fairways, for field test 4
+
+On branch `field-test-4-radcliffe`. Two four-man best-ball tournaments on
+2026-08-22, 8:00 and 13:30, both on Radcliffe's nine — **four nine-hole rounds
+of tracking data**. Best ball, so strokes gained is not the point; the GPS
+track is.
+
+Per-hole pars and yardages from the GolfLink scorecard, checked 2026-08-21, and
+they reconcile exactly against the totals the course publishes itself: par 36
+with two par-3s and two par-5s, white 3,125, red 2,745. Stroke indices are not
+published anywhere found and are therefore null, not invented — irrelevant to
+best ball in any case. Rating and slope likewise absent.
+
+Three things the second course broke, all of which had been correct only
+because Veenker was the only course in the build:
+
+- **The home shortcut was hardcoded to Veenker** — button text, course id and
+  tee lookup. The setting said Radcliffe and the button still started Veenker,
+  which on a day of four rounds there is four wrong rounds.
+- **`playOrder` reordered a single nine.** `startingNine` persists, so arriving
+  at a nine-hole course after a back-nine round at Veenker dealt the holes
+  5-9 then 1-4 with nothing on screen saying so. Guarded in the course module,
+  since the caller cannot be expected to know.
+- **A remembered tee that the course does not have.** The picker normalised it;
+  opening straight onto a course did not, and starting like that records a tee
+  the course lacks while `holeYards` quietly falls back to another one.
+
+**Four rounds, not one.** Thirty-six holes is recorded as four nine-hole rounds
+rather than one long one: hole numbers are the key used to find a hole
+throughout the app, so looping a nine would put two hole 1s in one round. Each
+loop also gets its own dense track, which is the better shape for the thing
+being tested.
+
 ### The known bug: root cause found, fixed
 
 The backlog carried this as "`tick()` does not fire on the play screen at all …

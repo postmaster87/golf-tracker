@@ -14,6 +14,8 @@ export const VEENKER = {
   id: 'veenker',
   builtin: true,
   name: 'Veenker Memorial',
+  /** For the home shortcut, where the full name will not fit on one line. */
+  shortName: 'Veenker',
   location: 'Ames, IA',
   par: 72,
   source: 'Iowa PGA / BlueGolf detailed scorecard, verified 2026-07-25',
@@ -45,7 +47,47 @@ export const VEENKER = {
   ],
 };
 
-export const BUILTIN_COURSES = { veenker: VEENKER };
+/**
+ * Radcliffe Friendly Fairways — nine holes, par 36.
+ *
+ * Per-hole pars and yardages from the GolfLink scorecard, checked 2026-08-21.
+ * They reconcile exactly against the course's own published totals: the pars
+ * sum to 36 with two par-3s and two par-5s, white sums to 3,125 and red to
+ * 2,745, all three of which rffgolf.com states independently. That is the same
+ * bar Veenker was held to.
+ *
+ * Stroke indices are NOT published anywhere found, so they are null rather than
+ * invented — they show as "not set" and are irrelevant to a best-ball round
+ * anyway. Rating and slope are likewise absent: GolfLink reports 0.00/0, and a
+ * search result that appeared to give them could not be resolved into which
+ * number was which.
+ */
+export const RADCLIFFE = {
+  id: 'radcliffe',
+  builtin: true,
+  name: 'Radcliffe Friendly Fairways',
+  shortName: 'Radcliffe',
+  location: 'Radcliffe, IA',
+  par: 36,
+  source: 'GolfLink scorecard, checked 2026-08-21; totals cross-checked against rffgolf.com',
+  teeSets: {
+    white: { label: 'White', yards: 3125, rating: null, slope: null },
+    red: { label: 'Red', yards: 2745, rating: null, slope: null },
+  },
+  holes: [
+    { number: 1, par: 5, hcp: null, yards: { white: 520, red: 469 } },
+    { number: 2, par: 3, hcp: null, yards: { white: 160, red: 145 } },
+    { number: 3, par: 5, hcp: null, yards: { white: 486, red: 355 } },
+    { number: 4, par: 4, hcp: null, yards: { white: 352, red: 337 } },
+    { number: 5, par: 4, hcp: null, yards: { white: 326, red: 301 } },
+    { number: 6, par: 4, hcp: null, yards: { white: 350, red: 336 } },
+    { number: 7, par: 3, hcp: null, yards: { white: 226, red: 211 } },
+    { number: 8, par: 4, hcp: null, yards: { white: 308, red: 293 } },
+    { number: 9, par: 4, hcp: null, yards: { white: 397, red: 298 } },
+  ],
+};
+
+export const BUILTIN_COURSES = { veenker: VEENKER, radcliffe: RADCLIFFE };
 
 export function getCourse(app, courseId) {
   return BUILTIN_COURSES[courseId] ?? app.courses?.[courseId] ?? null;
@@ -79,6 +121,16 @@ export function newCustomCourse(name, holeCount = 18) {
  */
 export function playOrder(course, startingNine, holeCount = 18) {
   const n = course.holes.length;
+  /*
+   * A course with one nine has no back nine to start on.
+   *
+   * Guarded here rather than in the setup screen, which already hides the
+   * control: `startingNine` is a persisted setting, so arriving at a nine-hole
+   * course after a back-nine round at Veenker would otherwise deal the holes
+   * 5-9 then 1-4 with nothing on screen saying so. The caller cannot be relied
+   * on to know that; the course knows.
+   */
+  if (n < 18) return course.holes.slice(0, Math.min(holeCount, n));
   const nine = Math.floor(n / 2);
   const front = course.holes.slice(0, nine);
   const back = course.holes.slice(nine);

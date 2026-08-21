@@ -16,6 +16,22 @@ export function setupScreen(ctx) {
     view: ctx.params.pickCourse ? 'course' : 'main',
   };
 
+  /*
+   * The remembered tee may not exist on the remembered course.
+   *
+   * The picker already fixes this when a course is chosen through it, but the
+   * screen can also open straight onto a course — from settings, or from a
+   * saved `courseId` — and then nothing would be selected while `draft.teeSet`
+   * still held the old value. Starting like that records a round played from a
+   * tee the course does not have, and `holeYards` quietly falls back to another
+   * one, so the yardages and the label would disagree.
+   */
+  {
+    const c0 = getCourse(ctx.app, draft.courseId);
+    const keys = c0 ? Object.keys(c0.teeSets) : [];
+    if (keys.length && !keys.includes(draft.teeSet)) draft.teeSet = keys[0];
+  }
+
   const el = h('div', { class: 'screen' });
   const body = h('div', { class: 'body' });
   const footer = h('div', { class: 'footer' });
@@ -127,22 +143,27 @@ export function setupScreen(ctx) {
       )
     );
 
-    main.appendChild(
-      field(
-        'Holes',
-        segmented(
-          [
-            { value: 18, label: '18' },
-            { value: 9, label: '9' },
-          ],
-          draft.holeCount,
-          (v) => {
-            draft.holeCount = v;
-            paint();
-          }
+    // Only where there is a choice to make. On a nine-hole course "18" and "9"
+    // both come out as nine — `start` clamps to the course — so offering both
+    // is a control that cannot change anything.
+    if (course.holes.length >= 18) {
+      main.appendChild(
+        field(
+          'Holes',
+          segmented(
+            [
+              { value: 18, label: '18' },
+              { value: 9, label: '9' },
+            ],
+            draft.holeCount,
+            (v) => {
+              draft.holeCount = v;
+              paint();
+            }
+          )
         )
-      )
-    );
+      );
+    }
 
     body.appendChild(main);
 
