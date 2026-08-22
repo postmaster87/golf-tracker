@@ -23,7 +23,7 @@
  */
 
 /** The revision this build IS. Stamped into every round it records. */
-export const REVISION = 3;
+export const REVISION = 4;
 
 /**
  * What each revision was, and when it was played.
@@ -70,7 +70,25 @@ export const REVISION_HISTORY = [
   },
   {
     rev: 3,
-    commit: null,
+    commit: 'f21ca9c',
+    /**
+     * NEVER PLAYED. Superseded by rev 4 before it reached a course.
+     *
+     * `shipped: null` normally means "the working revision". Here it means the
+     * opposite — this build is finished and was passed over, because field test
+     * 4 needed a course rev 3 did not have. No round will ever carry
+     * `revision: 3`, and that is not a gap in the data.
+     *
+     * Kept in the ledger rather than folded into rev 4, because the rule is
+     * that a number is never reused and never shared by two builds. Recording
+     * a number that was skipped is cheaper than the ambiguity of reusing it.
+     *
+     * Note this is a departure from the stated rule — bump when a build is
+     * about to be played — which rev 2 followed when it gained yardage entry
+     * and the track chip on the morning of field test 3 without being bumped.
+     * Matt chose the new number on 2026-08-21.
+     */
+    superseded: true,
     shipped: null,
     title: 'Reachable lock, and the track proposing shots',
     summary:
@@ -79,7 +97,20 @@ export const REVISION_HISTORY = [
       'The cup control cannot be reached from the tee, every mark says what it recorded ' +
       'and offers UNDO, and a penalty attaches to the shot that earned it. ' +
       'A round cannot be saved over missing data without saying so. ' +
-      'End-of-hole entry: enter the score, and the track proposes where the shots were played from.',
+      'End-of-hole entry: enter the score, and the track proposes where the shots were played from. ' +
+      'Never played — superseded by rev 4 before it went to a course.',
+  },
+  {
+    rev: 4,
+    commit: null,
+    shipped: null,
+    title: 'Radcliffe, and the shotgun start',
+    summary:
+      'Everything in rev 3, plus the second course. Radcliffe Friendly Fairways, ' +
+      'nine holes, par 36 — and the three places that were only ever right because ' +
+      'Veenker was the only course in the build. The starting hole is a setup control, ' +
+      'so a shotgun start deals the round in the order it is actually played. ' +
+      'Built for field test 4: two four-man best-ball tournaments on one nine.',
   },
 ];
 
@@ -101,7 +132,12 @@ export function revisionLabel(rev = REVISION) {
  * know he is not on the build he played last time.
  */
 export function isWorkingRevision(rev = REVISION) {
-  return revisionInfo(rev)?.shipped == null;
+  const info = revisionInfo(rev);
+  // A superseded build has `shipped: null` too, but it is finished and passed
+  // over rather than pending. Calling it "not yet played" in the UI would
+  // invite playing it.
+  if (!info || info.superseded) return false;
+  return info.shipped == null;
 }
 
 /**

@@ -21,8 +21,8 @@ should be a filter, not an act of memory.
 | Every round record | `round.revision`, stamped at creation, never rewritten. |
 | Round index (`gt:app`) | Carried in the summary, so History can filter without loading rounds. |
 | Export JSON | `exportedByRevision` on the file; each round keeps its own. |
-| Home screen | Footer line: `rev 3 — Reachable lock… · not yet played`. |
-| Round summary | Data-quality card: `Recorded by rev 3 — Reachable lock…` |
+| Home screen | Footer line: `rev 4 — Radcliffe, and the shotgun start · not yet played`. |
+| Round summary | Data-quality card: `Recorded by rev 4 — Radcliffe, and the shotgun start.` |
 | Git | Tag `rev0`, `rev1`, … on the commit that was played. |
 
 `APP_VERSION` in `schema.js` and `version` in `package.json` both read `1.0.0`
@@ -117,7 +117,36 @@ track, and the share sheet.
 
 ---
 
-## rev 3 — Reachable lock, and the track proposing shots *(current, not yet played)*
+## rev 3 — Reachable lock, and the track proposing shots *(never played)*
+
+`f21ca9c` · **superseded by rev 4 before it reached a course**
+
+Everything field test 3 asked for, and the bug it could not explain. All of it
+is in rev 4; nothing was lost. What this entry records is that **no round will
+ever carry `revision: 3`**, and that this is not a gap in the data.
+
+Why it exists as a number at all: a number is never reused and never shared by
+two builds, so recording one that was skipped is cheaper than the ambiguity of
+reusing it. The build is tagged `rev3` and remains recoverable.
+
+**This is a departure from the rule above.** The rule is to bump when a build is
+about to be played, and rev 2 followed it — gaining yardage entry and the track
+chip on the morning of field test 3 without being bumped. By that rule the
+Radcliffe build would still be rev 3. Matt chose the new number on 2026-08-21;
+it is recorded here rather than quietly rationalised.
+
+The detail of what rev 3 contains is in the rev 4 section below, because rev 4
+is the build that carries it.
+
+---
+
+## rev 4 — Radcliffe, and the shotgun start *(current, not yet played)*
+
+Everything in rev 3, plus the second course. **Built for field test 4**: two
+four-man best-ball tournaments at Radcliffe on 2026-08-22, 8:00 and 13:30, four
+nine-hole rounds. Best ball, so strokes gained is not the point — the GPS track
+is.
+
 
 Everything here came out of field test 3. Matt picked the order on 2026-08-21:
 all of the interaction fixes first, then the GPS work.
@@ -239,7 +268,8 @@ reference is the silent mixing design rule 5 forbids.
 
 ### Radcliffe Friendly Fairways, for field test 4
 
-On branch `field-test-4-radcliffe`. Two four-man best-ball tournaments on
+Merged to `main` for rev 4; the branch `field-test-4-radcliffe` remains as the
+record of the work. Two four-man best-ball tournaments on
 2026-08-22, 8:00 and 13:30, both on Radcliffe's nine — **four nine-hole rounds
 of tracking data**. Best ball, so strokes gained is not the point; the GPS
 track is.
