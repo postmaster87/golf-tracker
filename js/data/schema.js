@@ -69,7 +69,28 @@ export const PENALTY_TYPES = {
   other: { label: 'Other', strokes: 1, strokeAndDistance: false },
 };
 
-export const ROUND_TYPES = ['practice', 'tournament'];
+/**
+ * `scramble` is not a third competitive format to analyse — it is a quarantine.
+ *
+ * In a scramble every player hits, the group picks one ball, and everyone plays
+ * the next shot from there. So the swings are real and the walking track is
+ * real, but the ball is not his, the score is the team's, and no sequence of
+ * positions describes a hole he personally played. Strokes gained computed over
+ * that is not noisy, it is meaningless.
+ *
+ * Field test 4 is two scrambles, entered deliberately: Matt's instruction was
+ * "do not log anything from tomorrow for Strokes gained analysis". Marking the
+ * round at creation makes that a property of the data rather than something
+ * anyone has to remember afterwards — which is the whole argument for the
+ * revision stamp in `revision.js`, applied to format instead of build.
+ */
+export const ROUND_TYPES = ['practice', 'tournament', 'scramble'];
+
+/** Formats whose shot data must never reach strokes gained or trends. */
+export const UNSCORED_TYPES = new Set(['scramble']);
+
+/** True when this round's shot-level data must not be analysed. */
+export const isUnscored = (round) => UNSCORED_TYPES.has(round?.type);
 export const TEE_SETS = ['blue', 'gold', 'white', 'red'];
 /** Light palettes first, then dark, so the picker reads in a sensible order. */
 export const THEMES = [

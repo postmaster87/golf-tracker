@@ -19,6 +19,7 @@
 import { roundStrokesGained, CATEGORIES, CATEGORY_LABELS } from './strokes-gained.js';
 import { accumulatedHolePosition } from '../round/round.js';
 import { loadRound } from '../data/store.js';
+import { isUnscored } from '../data/schema.js';
 import { DEFAULT_BASELINE } from './benchmarks.js';
 import { clubOrder } from '../data/clubs.js';
 
@@ -37,6 +38,15 @@ export function buildSeries(app, { type = 'all', courseId = 'all', baseline = DE
 
   for (const summary of app.rounds) {
     if (summary.status !== 'completed') continue;
+    /*
+     * Scrambles never enter a series, under any filter.
+     *
+     * Not even when explicitly asked for by type: the exclusion is about the
+     * data being meaningless rather than about the user's current selection,
+     * and a filter that can be switched off is exactly the "act of memory" the
+     * round stamp exists to replace.
+     */
+    if (isUnscored(summary)) continue;
     if (type !== 'all' && summary.type !== type) continue;
     if (courseId !== 'all' && summary.courseId !== courseId) continue;
 

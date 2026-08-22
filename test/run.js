@@ -49,7 +49,15 @@ import {
   detectStartingNine,
   fmtDistance,
 } from '../js/round/round.js';
-import { newAppState, THEMES, migrate, summarizeRound, PENALTY_TYPES } from '../js/data/schema.js';
+import {
+  newAppState,
+  THEMES,
+  migrate,
+  summarizeRound,
+  PENALTY_TYPES,
+  ROUND_TYPES,
+  isUnscored,
+} from '../js/data/schema.js';
 import {
   REVISION,
   REVISION_HISTORY,
@@ -96,6 +104,7 @@ import {
   weightedPriority,
   hypothesisVerdict,
   categorySeries,
+  buildSeries,
 } from '../js/analysis/trends.js';
 import {
   buildExport,
@@ -108,6 +117,7 @@ import {
   loadRound,
   allRoundIds,
   deleteRound,
+  upsertRoundSummary,
 } from '../js/data/store.js';
 
 /* ------------------------------------------------------- storage safety net */
@@ -2498,6 +2508,103 @@ test('Veenker still alternates its nines', () => {
   eq(playOrder(VEENKER, 'back', 18)[0].number, 10, 'back start still starts at 10');
   eq(playOrder(VEENKER, 'front', 18)[0].number, 1, 'front start still starts at 1');
   eq(playOrder(VEENKER, 'front', 9).length, 9, 'nine at an eighteen-hole course');
+});
+
+/* --------------------------------------------------- scramble is quarantined */
+
+group('scramble rounds are not analysed');
+
+test('scramble is a round type', () => {
+  eq(ROUND_TYPES.includes('scramble'), true, 'selectable at setup');
+});
+
+test('only a scramble is unscored', () => {
+  eq(isUnscored({ type: 'scramble' }), true, 'scramble');
+  eq(isUnscored({ type: 'tournament' }), false, 'tournament');
+  eq(isUnscored({ type: 'practice' }), false, 'practice');
+  eq(isUnscored(null), false, 'no round at all');
+  eq(isUnscored({}), false, 'a round with no type');
+});
+
+test('the round carries its format, and the index carries it too', () => {
+  // History and trends both read the summary rather than loading every round,
+  // so the flag has to survive summarisation or the exclusion never fires.
+  const round = createRound({
+    course: RADCLIFFE,
+    teeSet: 'white',
+    startingNine: 'front',
+    type: 'scramble',
+    holeCount: 9,
+    startHole: 3,
+  });
+  eq(round.type, 'scramble', 'on the round');
+  eq(summarizeRound(round).type, 'scramble', 'on the summary');
+  eq(isUnscored(summarizeRound(round)), true, 'and the summary reads as unscored');
+});
+
+test('a scramble never enters a trend series, under any filter', () => {
+  // The exclusion is about the data being meaningless, not about the current
+  // selection — a filter that can be switched off is the act of memory the
+  // round stamp exists to replace.
+  const app = newAppState();
+  const scramble = createRound({
+    course: RADCLIFFE,
+    teeSet: 'white',
+    startingNine: 'front',
+    type: 'scramble',
+    holeCount: 9,
+  });
+  // Give it a full, perfectly attributable hole, so nothing else could be
+  // filtering it out.
+  for (const hole of scramble.holes) {
+    addShot(hole, { lie: 'tee', reduced: fakeReduced(TEE) });
+    addShot(hole, { lie: 'green', reduced: fakeReduced(offsetM(TEE, 300, 0)) });
+    setCup(hole, fakeReduced(offsetM(TEE, 305, 0)));
+    setGreenEntry(hole, { putts: 2, distances: [12, 2], unit: 'feet' });
+  }
+  scramble.status = 'completed';
+  scramble.completedAt = new Date().toISOString();
+  saveRound(scramble);
+  upsertRoundSummary(app, scramble);
+
+  for (const type of ['all', 'scramble', 'tournament', 'practice']) {
+    const series = buildSeries(app, { type, minHoles: 1 });
+    eq(
+      series.some((x) => x.id === scramble.id),
+      false,
+      `scramble leaked into the "${type}" series`
+    );
+  }
+});
+
+test('a tournament round on the same data is still analysed', () => {
+  // The guard above must be doing its job because of the format, not because
+  // the fixture is unanalysable.
+  const app = newAppState();
+  const scored = createRound({
+    course: RADCLIFFE,
+    teeSet: 'white',
+    startingNine: 'front',
+    type: 'tournament',
+    holeCount: 9,
+  });
+  for (const hole of scored.holes) {
+    addShot(hole, { lie: 'tee', reduced: fakeReduced(TEE) });
+    addShot(hole, { lie: 'green', reduced: fakeReduced(offsetM(TEE, 300, 0)) });
+    setCup(hole, fakeReduced(offsetM(TEE, 305, 0)));
+    setGreenEntry(hole, { putts: 2, distances: [12, 2], unit: 'feet' });
+  }
+  scored.status = 'completed';
+  scored.completedAt = new Date().toISOString();
+  saveRound(scored);
+  upsertRoundSummary(app, scored);
+
+  const series = buildSeries(app, { type: 'all', minHoles: 1 });
+  eq(
+    series.some((x) => x.id === scored.id),
+    true,
+    'an ordinary round should still be counted'
+  );
 });
 
 /* ---------------------------------------------------------- shotgun starts */

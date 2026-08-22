@@ -294,6 +294,34 @@ because Veenker was the only course in the build:
   opening straight onto a course did not, and starting like that records a tee
   the course lacks while `holeYards` quietly falls back to another one.
 
+**Scramble, not best ball.** Corrected on 2026-08-21, and it changes what the
+data means. In a scramble everyone hits, the group picks one ball and all four
+play the next shot from there — so the swings and the walking track are real,
+but the ball is not his, the score is the team's, and no sequence of positions
+describes a hole he personally played.
+
+His instruction: *"do not log anything from tomorrow for Strokes gained
+analysis"*, and *"whether you can figure out when I am hitting actual shots"* is
+the second thing under test alongside the track itself.
+
+So `scramble` is a round type, and it is a **quarantine rather than a third
+format to analyse**. Chosen at setup, carried on the round and into the round
+index, and from there:
+
+- `buildSeries` drops it under **every** filter, including an explicit request
+  for `type: 'scramble'`. The exclusion is about the data being meaningless, not
+  about the current selection, and a filter that can be switched off is the act
+  of memory the round stamp exists to replace.
+- The summary renders **no** strokes gained, putting or driving cards at all —
+  not the numbers with a caveat attached. A number on screen outlives its
+  warning. What is left is the scorecard as entered and the track, which is the
+  part worth reading.
+- The play screen says so on every hole, because four rounds in one day is
+  exactly when you stop remembering which round is which.
+
+The round still records in full and still exports, track included. Nothing is
+thrown away — it is just never analysed.
+
 **Shotgun start.** Field test 4 is a shotgun, so the starting hole is now a
 setup control: a grid of the holes in play, one tap, and a line spelling out the
 resulting sequence (*"Shotgun start on 6. Plays 6, 7, 8, 9, 1, 2, 3, 4, 5"*).

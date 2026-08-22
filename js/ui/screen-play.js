@@ -9,7 +9,7 @@ import {
   candidateQuality,
 } from '../round/track-analysis.js';
 import { SELECTABLE_CLUBS, clubLabel, clubFull } from '../data/clubs.js';
-import { LIES, LIE_LABELS, PENALTY_TYPES } from '../data/schema.js';
+import { LIES, LIE_LABELS, PENALTY_TYPES, isUnscored } from '../data/schema.js';
 import { getCourse, playOrder, holeYards } from '../data/courses.js';
 import { distanceM, toFeet } from '../util/geo.js';
 import {
@@ -362,6 +362,17 @@ export function playScreen(ctx) {
         banner('ok', lastMark.label, 'UNDO', () => {
           clearLastMark();
           doUndo();
+        })
+      );
+    }
+
+    // Stated on every hole, not just at setup. Four rounds of it in one day is
+    // exactly the situation where you stop remembering which round is which.
+    if (isUnscored(round)) {
+      body.appendChild(
+        h('p', {
+          class: 'note muted',
+          text: 'Scramble — position tracking only. The track is recording; nothing here reaches strokes gained.',
         })
       );
     }

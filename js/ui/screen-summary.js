@@ -10,6 +10,7 @@ import { BASELINES } from '../analysis/benchmarks.js';
 import { loadRound, downloadExport } from '../data/store.js';
 import { readTrack } from '../data/trackstore.js';
 import { roundRevisionLabel } from '../data/revision.js';
+import { isUnscored } from '../data/schema.js';
 import { stopCandidates } from '../round/track-analysis.js';
 import { toYards } from '../util/geo.js';
 import { median } from '../util/stats.js';
@@ -123,9 +124,25 @@ export function summaryScreen(ctx) {
     );
   }
 
-  body.appendChild(strokesGainedCard(round, ctx));
-  body.appendChild(puttingCard(t));
-  body.appendChild(driveCard(round, ctx.app));
+  /*
+   * A scramble shows no analysis at all, rather than analysis with a caveat.
+   *
+   * Every card below the first three reads shot data: strokes gained, putting
+   * and driving all assume the ball being followed is his and the sequence of
+   * positions is a hole he played. In a scramble neither holds. Rendering them
+   * with a warning attached would still put the numbers on screen, and a number
+   * on screen gets remembered long after the warning does.
+   *
+   * What is left is the part that IS the test: the scorecard as entered, and
+   * the track and its stop candidates.
+   */
+  if (isUnscored(round)) {
+    body.appendChild(scrambleNotice());
+  } else {
+    body.appendChild(strokesGainedCard(round, ctx));
+    body.appendChild(puttingCard(t));
+    body.appendChild(driveCard(round, ctx.app));
+  }
   body.appendChild(scorecard(round));
   body.appendChild(dataQuality(round, t));
 
@@ -160,6 +177,21 @@ function puttsPerGir(round) {
  * category number without its denominator and its exclusions is exactly the
  * kind of confident-looking figure that would send practice the wrong way.
  */
+/** Why there is no analysis here, and what to look at instead. */
+function scrambleNotice() {
+  return card(
+    'Scramble — position tracking only',
+    h('p', {
+      class: 'note',
+      text: 'Everyone in the group hits, the team plays one ball, and the next shot goes from there. The swings and the walking track are real; the ball is not yours and the score is the team’s.',
+    }),
+    h('p', {
+      class: 'note muted',
+      text: 'So no strokes gained, putting or driving numbers are produced for this round, and it never enters trends or practice priority. The track below is the part worth reading.',
+    })
+  );
+}
+
 function strokesGainedCard(round, ctx) {
   const baseline = ctx.app.settings.sgBaseline ?? 'scratch';
   const sg = roundStrokesGained(round, {

@@ -184,16 +184,30 @@ export function setupScreen(ctx) {
     main.appendChild(
       field(
         'Round type',
-        segmented(
-          [
-            { value: 'practice', label: 'PRACTICE' },
-            { value: 'tournament', label: 'TOURNAMENT' },
-          ],
-          draft.type,
-          (v) => {
-            draft.type = v;
-            paint();
-          }
+        frag(
+          segmented(
+            [
+              { value: 'practice', label: 'PRACTICE' },
+              { value: 'tournament', label: 'TOURNAMENT' },
+              { value: 'scramble', label: 'SCRAMBLE' },
+            ],
+            draft.type,
+            (v) => {
+              draft.type = v;
+              paint();
+            },
+            { columns: 3 }
+          ),
+          // Said out loud at the moment of choosing, because the consequence is
+          // invisible afterwards: the round records normally and simply never
+          // reaches the analysis.
+          draft.type === 'scramble'
+            ? h('p', {
+                class: 'note muted',
+                style: { margin: '8px 2px 0' },
+                text: 'Position tracking only. The GPS track records in full, but the ball is not yours and the score is the team’s, so this round is kept out of strokes gained and trends.',
+              })
+            : null
         )
       )
     );
