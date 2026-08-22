@@ -2510,6 +2510,64 @@ test('Veenker still alternates its nines', () => {
   eq(playOrder(VEENKER, 'front', 9).length, 9, 'nine at an eighteen-hole course');
 });
 
+/* ------------------------------------------------------- auto-lock default */
+
+group('auto-lock normalises to 30');
+
+/** Migrate a settings object and hand back what auto-lock ended up as. */
+function migratedAutoLock(settings) {
+  const out = migrate({ schemaVersion: 1, settings });
+  return out.settings.autoLockSec;
+}
+
+test('a fresh install is 30 and skips the normalisation', () => {
+  const app = newAppState();
+  eq(app.settings.autoLockSec, 30, 'default');
+  eq(app.settings.autoLockDefault30, true, 'flagged, so migrate leaves it alone');
+});
+
+test('the rev 1 and rev 2 defaults are brought forward', () => {
+  // The only install that matters is the one that already has a value; a new
+  // default alone never reaches it.
+  eq(migratedAutoLock({ autoLockSec: 15 }), 30, 'rev 2 default');
+  eq(migratedAutoLock({ autoLockSec: 10 }), 30, 'the old short option');
+});
+
+test('a 120 written by the earlier migration is brought back down', () => {
+  // Written this morning on my reasoning rather than his. The flag from that
+  // migration is what marks it as the app's value and not a hand-picked one.
+  eq(
+    migratedAutoLock({ autoLockSec: 120, autoLockRaisedForLockTab: true }),
+    30,
+    'the value the previous migration wrote'
+  );
+});
+
+test('a hand-picked 120 is left alone', () => {
+  // 2m is on the scale, so without the earlier migration's marker a stored 120
+  // is a choice and normalising it would overrule the user.
+  eq(migratedAutoLock({ autoLockSec: 120 }), 120, 'no marker, so it was chosen');
+});
+
+test('other chosen values are left alone', () => {
+  eq(migratedAutoLock({ autoLockSec: 60 }), 60, '60s is on the scale');
+  eq(migratedAutoLock({ autoLockSec: 300 }), 300, '5m is on the scale');
+});
+
+test('auto-lock switched off stays off', () => {
+  // 0 means manual only. Normalising it would turn the lock back on for someone
+  // who deliberately turned it off.
+  eq(migratedAutoLock({ autoLockSec: 0 }), 0, 'OFF');
+});
+
+test('the normalisation runs once, not on every load', () => {
+  const once = migrate({ schemaVersion: 1, settings: { autoLockSec: 15 } });
+  eq(once.settings.autoLockDefault30, true, 'flagged after the first pass');
+  // Now the user picks 60. A second load must not drag it back to 30.
+  once.settings.autoLockSec = 60;
+  eq(migrate(once).settings.autoLockSec, 60, 'a later choice survives');
+});
+
 /* --------------------------------------------------- scramble is quarantined */
 
 group('scramble rounds are not analysed');

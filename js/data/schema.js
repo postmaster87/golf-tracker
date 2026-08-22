@@ -152,24 +152,33 @@ export function newAppState() {
        * Seconds of inactivity before the pocket lock engages; 0 = manual only.
        * Adjustable mid-round from the round menu.
        *
+       * **30 — Matt's choice, 2026-08-21, for field test 4.**
+       *
        * Was 15 through rev 2, and field test 3 showed one value failing in both
        * directions at once: too long to pocket the phone straight after a mark
        * ("I ... have to wait to put it in my pocket for the lock screen to go
        * active"), and too short while working a green ("it times out when I am
-       * on the green a lot"). Those are not the same setting. The first is now
-       * the floating LOCK tab, which is instant; this is only the safety net for
-       * forgetting to press it, so it is free to be generous.
+       * on the green a lot"). Those are not the same setting, and the first of
+       * them is now the floating LOCK tab, which is instant. This is only the
+       * safety net for forgetting to press it.
        *
-       * Generous is also the honest setting. `noteActivity()` resets this timer
-       * on any pointerdown anywhere in the document — including the phantom
-       * touches a pocket generates — so a phone that is actually being sat on
-       * keeps pushing the timer out and never auto-locks. The timer has always
-       * been a defence against putting the phone down, not against the pocket;
-       * the two-tap overlay is what defends the pocket. Tuning it as though it
-       * were the pocket defence only bought the annoyance without the safety.
+       * It was briefly 120 on my reasoning that a safety net can afford to be
+       * generous. Matt asked for 30 instead and it is the better number for
+       * what is actually being tested: a scramble leaves him idle for long
+       * stretches while three other people hit, and locking early during those
+       * costs nothing — GPS and the wake lock are untouched by the overlay, and
+       * unlocking is two taps — while getting the phone into a pocket sooner is
+       * the entire point of the exercise.
+       *
+       * What it is NOT is a defence of the pocket. `noteActivity()` resets this
+       * timer on any pointerdown anywhere in the document, including the
+       * phantom touches a pocket generates, so a phone being sat on keeps
+       * pushing it out and never auto-locks. The two-tap overlay is what
+       * defends the pocket; this only ever guarded against putting the phone
+       * down.
        */
-      autoLockSec: 120,
-      autoLockRaisedForLockTab: true, // fresh installs skip the one-time raise
+      autoLockSec: 30,
+      autoLockDefault30: true, // fresh installs skip the one-time normalisation
       // Club per shot. On by default because it is the only way to find out
       // whether the extra tap is worth it; one switch turns it off.
       trackClubs: true,
@@ -423,26 +432,32 @@ export function migrate(payload) {
     p = { ...p, settings: { ...p.settings, puttUnit: 'feet', puttUnitDefaultedToFeet: true } };
   }
   /*
-   * 2026-08-21: auto-lock raised once the floating LOCK tab existed.
+   * 2026-08-21: auto-lock normalised to 30, the value Matt asked for.
    *
    * Same reasoning as the paces migration above — the only install that matters
-   * is the one that already has a value, and Matt's phone is carrying the 15 s
-   * that made him unlock and re-lock repeatedly on every green in field test 3.
-   * A new default alone would never reach it.
+   * is the one that already has a value, and a new default alone never reaches
+   * it. There are two such values here and both were written by this app rather
+   * than chosen:
    *
-   * Only the two values that were removed from the scale are touched. 30 and 60
-   * are still offered, so a stored 30 or 60 is a choice and is left alone, and 0
-   * means auto-lock was switched off on purpose — raising that would turn the
-   * lock back on for someone who had turned it off.
+   *   < 30   the rev 1 / rev 2 defaults (10 and 15), which are no longer on the
+   *          scale at all.
+   *   120    written by the migration this one replaces, which ran earlier
+   *          today on my reasoning rather than his. `autoLockRaisedForLockTab`
+   *          is the marker that it was the migration and not a hand-picked 120.
+   *
+   * Anything else is left alone. A stored 60 is a choice, and 0 means auto-lock
+   * was switched off on purpose — normalising that would turn the lock back on
+   * for someone who had turned it off.
    */
   if (
     p.settings &&
-    !p.settings.autoLockRaisedForLockTab &&
+    !p.settings.autoLockDefault30 &&
     Number.isFinite(p.settings.autoLockSec) &&
     p.settings.autoLockSec > 0 &&
-    p.settings.autoLockSec < 30
+    (p.settings.autoLockSec < 30 ||
+      (p.settings.autoLockSec === 120 && p.settings.autoLockRaisedForLockTab))
   ) {
-    p = { ...p, settings: { ...p.settings, autoLockSec: 120, autoLockRaisedForLockTab: true } };
+    p = { ...p, settings: { ...p.settings, autoLockSec: 30, autoLockDefault30: true } };
   }
 
   /*

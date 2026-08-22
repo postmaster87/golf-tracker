@@ -1840,10 +1840,10 @@ export function playScreen(ctx) {
         // auto-lock is firing while you are still entering a shot, you need to
         // fix that now, not after the round.
         //
-        // The scale moved up a gear with the floating LOCK tab. Locking on
-        // purpose is now instant, so the short end of this range no longer buys
-        // anything: 10s and 15s only ever fired while the screen was still
-        // being used. See the note on `autoLockSec` in `schema.js`.
+        // The scale starts at 30 rather than 10. With the floating LOCK tab
+        // doing the deliberate locking, anything under half a minute only ever
+        // fired while the screen was still being used. 30 is the default —
+        // Matt's choice. See the note on `autoLockSec` in `schema.js`.
         field(
           'Auto-lock after',
           segmented(
@@ -1854,7 +1854,7 @@ export function playScreen(ctx) {
               { value: 300, label: '5m' },
               { value: 0, label: 'OFF' },
             ],
-            ctx.app.settings.autoLockSec ?? 120,
+            ctx.app.settings.autoLockSec ?? 30,
             (v) => {
               ctx.app.settings.autoLockSec = v;
               pocketLock.configure({ idleMs: v * 1000 });
