@@ -424,6 +424,26 @@ A described cup is stored `method: 'paces'` with the entry kept beside it, and i
 deliberately **not** fed to `learnCup` — a construction is not evidence about
 where a cup has historically been cut.
 
+### The tee belongs to the course, not to the golfer
+
+`settings.teeSet` was one global value, which is fine with one course and wrong
+the moment there are two. After a Radcliffe round it holds `white` — and Veenker
+*also* has a white tee, so the existing mismatch guard sees nothing wrong and the
+next Veenker round quietly goes off 5,323 yards instead of the 6,029 he plays.
+Wrong yardage on every hole, and the round records a tee he was never on.
+
+`teeByCourse` keeps it per course, seeded by migration from the round index,
+which already records `courseId` and `teeSet` per round. So the answer for an
+existing install is sitting in its own history: whatever he last actually played
+there. Verified against his phone's state — switching from Radcliffe to Veenker
+now restores Gold 6029 rather than carrying White across.
+
+**A scramble is also no longer remembered as the next round's default.** Same
+argument as the shotgun starting hole: it describes one round, not a preference.
+The cost of it sticking is silent and expensive — a scramble is quarantined from
+strokes gained, so carrying it into an ordinary round means playing your own ball
+all day and finding out much later that none of it reached the analysis.
+
 ### The known bug: root cause found, fixed
 
 The backlog carried this as "`tick()` does not fire on the play screen at all …

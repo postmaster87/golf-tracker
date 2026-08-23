@@ -9,15 +9,27 @@ export function setupScreen(ctx) {
   const s = ctx.app.settings;
   const draft = {
     courseId: ctx.params.courseId ?? s.courseId ?? 'veenker',
-    teeSet: s.teeSet,
+    teeSet: undefined, // resolved per course just below
     startingNine: s.startingNine,
-    type: s.roundType,
+    /*
+     * A scramble is never remembered as the next round's default.
+     *
+     * Same argument as the shotgun starting hole: it is a property of one
+     * round, not a preference. And the cost of it sticking is silent and
+     * expensive — a scramble is quarantined from strokes gained, so carrying it
+     * into an ordinary round means playing your own ball all day and finding
+     * out weeks later that none of it reached the analysis.
+     */
+    type: s.roundType === 'scramble' ? 'practice' : s.roundType,
     holeCount: 18,
     // Null means "the first hole of whatever is being played". Never persisted:
     // a shotgun start is a property of one round, not a preference.
     startHole: null,
     view: ctx.params.pickCourse ? 'course' : 'main',
   };
+
+  /** Which tee he plays at this course: per-course first, then the old global. */
+  const teeFor = (courseId) => s.teeByCourse?.[courseId] ?? s.teeSet;
 
   /*
    * The remembered tee may not exist on the remembered course.
@@ -30,6 +42,7 @@ export function setupScreen(ctx) {
    * one, so the yardages and the label would disagree.
    */
   {
+    draft.teeSet = teeFor(draft.courseId);
     const c0 = getCourse(ctx.app, draft.courseId);
     const keys = c0 ? Object.keys(c0.teeSets) : [];
     if (keys.length && !keys.includes(draft.teeSet)) draft.teeSet = keys[0];
@@ -258,6 +271,9 @@ export function setupScreen(ctx) {
             class: 'list-row',
             onClick: () => {
               draft.courseId = c.id;
+              // Switching course restores the tee he plays THERE, rather than
+              // carrying over whatever the last course used.
+              draft.teeSet = teeFor(c.id);
               const keys = Object.keys(c.teeSets);
               if (!keys.includes(draft.teeSet)) draft.teeSet = keys[0];
               draft.view = 'main';
@@ -386,11 +402,14 @@ export function setupScreen(ctx) {
 
     ctx.round = round;
     ctx.app.activeRoundId = round.id;
+    ctx.app.settings.teeByCourse ??= {};
+    ctx.app.settings.teeByCourse[course.id] = draft.teeSet;
     Object.assign(ctx.app.settings, {
       courseId: course.id,
       teeSet: draft.teeSet,
       startingNine: draft.startingNine,
-      roundType: draft.type,
+      // Deliberately not remembered as 'scramble'; see the draft above.
+      roundType: draft.type === 'scramble' ? 'practice' : draft.type,
     });
     saveRound(round);
     upsertRoundSummary(ctx.app, round);

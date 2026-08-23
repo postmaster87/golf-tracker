@@ -51,7 +51,8 @@ export function homeScreen(ctx) {
   const course = getCourse(ctx.app, s.courseId) ?? getCourse(ctx.app, 'veenker');
   // The remembered tee may not exist on this course. Setup falls back to the
   // course's first tee, so say that rather than naming a tee it does not have.
-  const teeKey = course.teeSets[s.teeSet] ? s.teeSet : Object.keys(course.teeSets)[0];
+  const remembered = s.teeByCourse?.[course.id] ?? s.teeSet;
+  const teeKey = course.teeSets[remembered] ? remembered : Object.keys(course.teeSets)[0];
   const lastUsed = [
     // Meaningless on a course with one nine, where there is nothing to alternate.
     course.holes.length >= 18 ? NINE_LABEL[s.startingNine] : null,

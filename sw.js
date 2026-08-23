@@ -15,11 +15,11 @@
  * the network is indistinguishable from being offline, so treat it as offline.
  */
 
-// v14: the cup, described in paces. Bumped because the offline fallback is a whole module set, and an
+// v15: per-course tees. Bumped because the offline fallback is a whole module set, and an
 // un-bumped cache would keep serving the previous set to a phone that loses
 // signal mid-round — internally consistent, but the wrong build on a field-test
 // day, and on this one it would be a build with no Radcliffe in it.
-const CACHE = 'gt-shell-v14';
+const CACHE = 'gt-shell-v15';
 const NET_TIMEOUT_MS = 2500;
 const SHELL = [
   './',

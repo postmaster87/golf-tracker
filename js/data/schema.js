@@ -126,6 +126,20 @@ export function newAppState() {
     settings: {
       theme: 'fairway',
       teeSet: 'gold', // Matt plays gold for league/friends, blue solo
+      /**
+       * Which tee he plays AT EACH COURSE, keyed by course id.
+       *
+       * `teeSet` above is a single global value, and that breaks the moment
+       * there is more than one course. After a Radcliffe round it holds
+       * 'white'; Veenker also has a white tee, so nothing flags the mismatch
+       * and the next Veenker round quietly goes off 5,323 yards instead of the
+       * 6,029 he actually plays — wrong yardage on every hole, and the round
+       * records a tee he was not on.
+       *
+       * A tee is a property of a course, not of a golfer. `teeSet` is kept as
+       * the fallback for a course never played before.
+       */
+      teeByCourse: {},
       startingNine: 'front',
       roundType: 'practice',
       courseId: 'veenker',
@@ -458,6 +472,30 @@ export function migrate(payload) {
       (p.settings.autoLockSec === 120 && p.settings.autoLockRaisedForLockTab))
   ) {
     p = { ...p, settings: { ...p.settings, autoLockSec: 30, autoLockDefault30: true } };
+  }
+
+  /*
+   * 2026-08-23: seed the per-course tee from rounds already played.
+   *
+   * Without this the feature only starts working after the next round at each
+   * course — and the install that matters is the one already carrying 'white'
+   * from Radcliffe with a Veenker round about to be started. The round index
+   * already records `courseId` and `teeSet` per round, so the answer is sitting
+   * there: whatever he last actually played at that course.
+   */
+  if (p.settings && !p.settings.teeByCourse && Array.isArray(p.rounds)) {
+    const byCourse = {};
+    const newest = {};
+    for (const r of p.rounds) {
+      if (!r?.courseId || !r?.teeSet) continue;
+      const t = Date.parse(r.startedAt ?? '');
+      if (!Number.isFinite(t)) continue;
+      if (newest[r.courseId] == null || t > newest[r.courseId]) {
+        newest[r.courseId] = t;
+        byCourse[r.courseId] = r.teeSet;
+      }
+    }
+    p = { ...p, settings: { ...p.settings, teeByCourse: byCourse } };
   }
 
   /*

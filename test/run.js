@@ -2553,6 +2553,47 @@ test('a marked tee is not flagged as inferred', () => {
 
 /* ------------------------------------------------ the cup, described in paces */
 
+group('the tee is remembered per course');
+
+test('a fresh install has no per-course tees yet', () => {
+  const app = newAppState();
+  eq(Object.keys(app.settings.teeByCourse).length, 0, 'nothing played yet');
+  eq(app.settings.teeSet, 'gold', 'the global fallback still exists');
+});
+
+test('the migration seeds it from what he last played at each course', () => {
+  // The install that matters is the one carrying "white" from Radcliffe with a
+  // Veenker round about to start. Veenker HAS a white tee, so nothing else
+  // catches it and the round would quietly go off 5,323 yards.
+  const payload = {
+    schemaVersion: 1,
+    settings: { teeSet: 'white' },
+    rounds: [
+      { id: 'a', courseId: 'veenker', teeSet: 'blue', startedAt: '2026-07-27T12:00:00.000Z' },
+      { id: 'b', courseId: 'veenker', teeSet: 'gold', startedAt: '2026-08-16T21:26:35.153Z' },
+      { id: 'c', courseId: 'radcliffe', teeSet: 'white', startedAt: '2026-08-22T13:19:07.695Z' },
+    ],
+  };
+  const out = migrate(payload);
+  eq(out.settings.teeByCourse.veenker, 'gold', 'the most recent Veenker round, not the oldest');
+  eq(out.settings.teeByCourse.radcliffe, 'white', 'and Radcliffe keeps white');
+});
+
+test('the seeding runs once and does not fight a later choice', () => {
+  const once = migrate({ schemaVersion: 1, settings: { teeSet: 'white' }, rounds: [
+    { id: 'a', courseId: 'veenker', teeSet: 'gold', startedAt: '2026-08-16T21:26:35.153Z' },
+  ] });
+  once.settings.teeByCourse.veenker = 'blue';
+  eq(migrate(once).settings.teeByCourse.veenker, 'blue', 'a later choice survives');
+});
+
+test('a course never played falls back to the global tee', () => {
+  const out = migrate({ schemaVersion: 1, settings: { teeSet: 'gold' }, rounds: [] });
+  eq(out.settings.teeByCourse.radcliffe, undefined, 'nothing known about it');
+  eq(out.settings.teeSet, 'gold', 'so the old global answers');
+});
+
+
 group('a pin sheet locates the cup');
 
 /**
