@@ -37,7 +37,7 @@
  * this trainable, which is a stated requirement and not a nice-to-have.
  */
 
-import { distanceM, weightedCentroid } from '../util/geo.js';
+import { distanceM, weightedCentroid, enuOffset, offsetPoint, bearingDeg } from '../util/geo.js';
 import { expandFix } from '../data/trackstore.js';
 
 /**
@@ -714,5 +714,172 @@ export function proposeHoleShots(points, { fullShots, fromTs = null, toTs = null
     fullShots: want,
     shortBy: Math.max(0, want - eligible.length),
     windowMs: fromTs != null && toTs != null ? toTs - fromTs : null,
+  };
+}
+
+/* ------------------------------------------------------- pin, from paces */
+
+/**
+ * WHERE THE CUP WAS, FROM A PIN-SHEET DESCRIPTION.
+ *
+ * Matt's ask after field test 4: mark the hole done without marking the cup,
+ * and instead *"enter a rough number of paces the cup was located on the green
+ * like a tournament pin sheet does. Then you can compare the tracked data and
+ * know fairly certainly from my entered data where the cup was."*
+ *
+ * That is the right instinct, because the two sources fail independently. The
+ * track knows the green's shape and where he walked but not which spot was the
+ * hole; he knows the pin position but not where it is on Earth. Neither is much
+ * on its own and together they pin it down.
+ *
+ * THE FRAME. A pin sheet is read along the line of play — so many paces on from
+ * the front edge, so many left or right of centre. That line is recoverable:
+ * it is the bearing from wherever the approach was played to the green. Every
+ * measurement below happens in that frame, which is why the description
+ * transfers without him needing to think about compass directions.
+ *
+ * WHAT IS AND IS NOT KNOWN. The front edge is estimated from where he actually
+ * walked, which is a floor, not the true edge — if he came on from the side,
+ * "the front of the walk" is short of the front of the green. Centre across the
+ * line is far steadier, because his path crosses it whatever route he takes, so
+ * the lateral term is the more trustworthy of the two. Both are reported inside
+ * `uncertaintyM` rather than smoothed over.
+ *
+ * The cross-check is the point. `fromTrack` is where he stood to pick the ball
+ * out, which is an independent estimate of the same thing, and `agreementM` is
+ * how far apart the two answers are. Close together means the cup is known well
+ * — better than either source alone. Far apart means something is wrong and the
+ * app should say so instead of averaging two contradictory numbers into a
+ * confident-looking one.
+ *
+ * @param points     Dense track for the round.
+ * @param approach   Where the approach was played from; sets the line of play.
+ * @param anchor     A point known to be ON this green — the ball mark, or the
+ *                   retrieval stop. Only used to select the green's fixes.
+ * @param onPaces    Paces from the front edge, along the line of play.
+ * @param sidePaces  Paces from centre. Positive is right, negative is left.
+ * @param paceFeet   His stride. Stored per user; 3.0 by default.
+ * @returns null, or `{ lat, lon, uncertaintyM, fromTrack, agreementM,
+ *          confidence, reasons }`.
+ */
+export function locateCupFromPaces(
+  points,
+  {
+    approach = null,
+    anchor = null,
+    onPaces = 0,
+    sidePaces = 0,
+    paceFeet = 3,
+    fromTs = null,
+    toTs = null,
+    greenRadiusM = 35,
+    ...opts
+  } = {}
+) {
+  if (!anchor || !Number.isFinite(onPaces)) return null;
+  const cfg = { ...DEFAULTS, ...GREEN_DEFAULTS, ...opts };
+  const paceM = paceFeet * 0.3048;
+
+  const window = toFixes(points).filter(
+    (f) => (fromTs == null || f.ts >= fromTs) && (toTs == null || f.ts <= toTs)
+  );
+  const green = window.filter((f) => distanceM(anchor, f) <= greenRadiusM);
+  if (green.length < 5) return null;
+
+  /*
+   * The line of play. Without an approach position there is no principled
+   * direction to read the sheet along, and guessing one would rotate the whole
+   * description — a pin four paces right would land four paces long. Better to
+   * decline.
+   */
+  if (!approach) return null;
+  const theta = (bearingDeg(approach, anchor) * Math.PI) / 180;
+  const sin = Math.sin(theta);
+  const cos = Math.cos(theta);
+
+  // Project the walked fixes into (along the line of play, across it).
+  const proj = green.map((f) => {
+    const { north, east } = enuOffset(anchor, f);
+    return { along: east * sin + north * cos, across: east * cos - north * sin };
+  });
+
+  const sortedAlong = proj.map((p) => p.along).sort((a, b) => a - b);
+  const sortedAcross = proj.map((p) => p.across).sort((a, b) => a - b);
+  const at = (arr, q) => arr[Math.min(arr.length - 1, Math.max(0, Math.floor(arr.length * q)))];
+
+  /*
+   * A low percentile rather than the outright minimum. One wild fix — and this
+   * round's worst was 71 m — would otherwise define the front edge of the green
+   * and drag every pin placed from it.
+   */
+  const front = at(sortedAlong, 0.05);
+  /*
+   * Mid-range, NOT the median.
+   *
+   * The median is time-weighted, and by far the most time on a green is spent
+   * standing at the cup picking the ball out. So a median "centre" converges on
+   * the pin itself, every pin comes out dead centre, and the left/right entry
+   * silently stops meaning anything — it would appear to work perfectly while
+   * measuring nothing. The centre of a green is a fact about its shape, so it
+   * has to come from the extent of the walk rather than the dwell within it.
+   */
+  const centre = (at(sortedAcross, 0.05) + at(sortedAcross, 0.95)) / 2;
+  const walkedDepth = at(sortedAlong, 0.95) - front;
+  const walkedWidth = at(sortedAcross, 0.95) - at(sortedAcross, 0.05);
+
+  const along = front + onPaces * paceM;
+  const across = centre + sidePaces * paceM;
+  const cup = offsetPoint(anchor, {
+    north: along * cos + across * -sin,
+    east: along * sin + across * cos,
+  });
+
+  /*
+   * Error budget, all of it real:
+   *   - the front edge is a floor on the true edge, and how far off scales with
+   *     how little of the green he walked;
+   *   - a paced distance is good to roughly a tenth of itself;
+   *   - GPS under the walk itself.
+   */
+  const frontErr = Math.max(3, 8 - walkedDepth / 4);
+  // A centre inferred from a narrow walk is a guess about where the rest of the
+  // green is, and the lateral term inherits that.
+  const centreErr = Math.max(2, 10 - walkedWidth / 2);
+  const paceErr = Math.abs(onPaces * paceM) * 0.1 + Math.abs(sidePaces * paceM) * 0.1;
+  const uncertaintyM = Number(Math.hypot(frontErr, centreErr, paceErr, 3).toFixed(1));
+
+  const reasons = [
+    `${green.length} fixes on the green, ${walkedDepth.toFixed(0)} m walked along the line of play and ${walkedWidth.toFixed(0)} m across it`,
+    `${onPaces} pace${onPaces === 1 ? '' : 's'} on, ${Math.abs(sidePaces)} ${sidePaces < 0 ? 'left' : 'right'} of centre, at ${paceFeet} ft per pace`,
+  ];
+
+  // The independent answer: where he stood to pick the ball out.
+  const stops = segmentTrack(green, cfg).filter((s) => s.kind === 'stop');
+  const fromTrack = stops.length ? stops[stops.length - 1] : null;
+  const agreementM = fromTrack ? Number(distanceM(cup, fromTrack).toFixed(1)) : null;
+
+  let confidence = 'fair';
+  if (agreementM == null) {
+    confidence = 'fair';
+    reasons.push('no retrieval stop on the track to check it against');
+  } else if (agreementM <= uncertaintyM) {
+    confidence = 'good';
+    reasons.push(`agrees with where you picked the ball out, ${agreementM} m apart`);
+  } else if (agreementM <= uncertaintyM * 2.5) {
+    confidence = 'fair';
+    reasons.push(`${agreementM} m from where you picked the ball out`);
+  } else {
+    confidence = 'poor';
+    reasons.push(`${agreementM} m from where you picked the ball out — one of the two is wrong`);
+  }
+
+  return {
+    lat: cup.lat,
+    lon: cup.lon,
+    uncertaintyM,
+    fromTrack: fromTrack ? { lat: fromTrack.lat, lon: fromTrack.lon } : null,
+    agreementM,
+    confidence,
+    reasons,
   };
 }

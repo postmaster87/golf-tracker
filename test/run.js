@@ -16,6 +16,8 @@ import {
   addShot,
   addTrackShot,
   insertTeeShot,
+  setCupFromPaces,
+  cupIsPaced,
   teeShot,
   teeIsInferred,
   rebuildCourseLearning,
@@ -77,6 +79,7 @@ import {
   proposeFirstPutt,
   proposeHoleShots,
   candidateAccuracyM,
+  locateCupFromPaces,
 } from '../js/round/track-analysis.js';
 import {
   createTrackWriter,
@@ -2546,6 +2549,205 @@ test('a marked tee is not flagged as inferred', () => {
   addShot(round.holes[0], { lie: 'tee', reduced: fakeReduced(TEE) });
   eq(teeIsInferred(round.holes[0]), false, 'a real mark carries no flag');
   assert(teeShot(round.holes[0]), 'and is found as the tee shot');
+});
+
+/* ------------------------------------------------ the cup, described in paces */
+
+group('a pin sheet locates the cup');
+
+/**
+ * A green walked the way he walks one, with a KNOWN pin.
+ *
+ * The approach is played from due south, so the line of play runs north and
+ * "paces on" is northward, "right" is east. He arrives at the front, goes to
+ * his ball, walks behind the hole to read it, then stands at the cup to pick
+ * the ball out. The pin sits `onM` north of the front edge and `sideM` east of
+ * the green's centre line — which is what the test then asks the code to
+ * recover from paces alone.
+ */
+function walkedGreen({ onM = 6, sideM = 3, startTs = 1_700_000_000_000 } = {}) {
+  const approach = offsetM(TEE, 0, 0);
+  const front = offsetM(TEE, 150, 0); // front edge of the green
+  const cup = offsetM(front, onM, sideM);
+  const pts = [];
+  let ts = startTs;
+  const jitter = [0.5, -0.4, 0.3, -0.5, 0.2, 0.4, -0.3, 0.1];
+  let j = 0;
+  const push = (pt, n) => {
+    for (let i = 0; i < n; i++) {
+      const k = jitter[j++ % jitter.length];
+      const p = offsetM(pt, k, jitter[(j + 2) % jitter.length]);
+      pts.push({ lat: p.lat, lon: p.lon, acc: 3.2, ts });
+      ts += 1000;
+    }
+  };
+  // Walk on at the front, centre-ish, then around the green.
+  push(offsetM(front, 0.5, 0), 10); // arriving, front edge
+  push(offsetM(front, 4, -5), 14); // his ball, left of centre
+  push(offsetM(front, 11, 3), 12); // behind the hole, reading
+  push(cup, 26); // standing at the cup, picking the ball out
+  // Away to the next tee.
+  for (let i = 1; i <= 40; i++) push(offsetM(front, 6 + i * 4, 0), 1);
+  return { points: pts, approach, front, cup, startTs, endTs: ts };
+}
+
+const g = walkedGreen({ onM: 6, sideM: 3 });
+const PACE_FT = 3;
+const toPaces = (m) => Math.round(m / (PACE_FT * 0.3048));
+
+test('paces on and right of centre land on the real cup', () => {
+  const found = locateCupFromPaces(g.points, {
+    approach: g.approach,
+    anchor: g.cup,
+    onPaces: toPaces(6),
+    sidePaces: toPaces(3),
+    paceFeet: PACE_FT,
+    fromTs: g.startTs,
+    toTs: g.endTs,
+  });
+  assert(found, 'expected a placement');
+  // Pace rounding alone is worth a metre or so; the front edge is estimated
+  // from where he walked, not surveyed.
+  near(distanceM(found, g.cup), 0, 6, 'placed cup vs the real one');
+});
+
+test('it reports agreement with where he picked the ball out', () => {
+  const found = locateCupFromPaces(g.points, {
+    approach: g.approach, anchor: g.cup,
+    onPaces: toPaces(6), sidePaces: toPaces(3), paceFeet: PACE_FT,
+    fromTs: g.startTs, toTs: g.endTs,
+  });
+  assert(found.fromTrack, 'expected an independent estimate from the track');
+  assert(found.agreementM != null, 'expected an agreement figure');
+  eq(found.confidence, 'good', `two sources should agree here (${found.agreementM} m apart)`);
+});
+
+test('left of centre goes the other way', () => {
+  // The sign convention is load-bearing: getting it backwards puts the pin as
+  // far wrong as the offset is wide, and nothing downstream would notice.
+  const left = locateCupFromPaces(g.points, {
+    approach: g.approach, anchor: g.cup,
+    onPaces: toPaces(6), sidePaces: -toPaces(3), paceFeet: PACE_FT,
+    fromTs: g.startTs, toTs: g.endTs,
+  });
+  const right = locateCupFromPaces(g.points, {
+    approach: g.approach, anchor: g.cup,
+    onPaces: toPaces(6), sidePaces: toPaces(3), paceFeet: PACE_FT,
+    fromTs: g.startTs, toTs: g.endTs,
+  });
+  assert(distanceM(left, g.cup) > distanceM(right, g.cup), 'left must not land on a right pin');
+  near(distanceM(left, right), 2 * 3, 3, 'the two sit either side of centre');
+});
+
+test('a deeper pin lands further from the front', () => {
+  const shallow = locateCupFromPaces(g.points, {
+    approach: g.approach, anchor: g.cup, onPaces: 2, sidePaces: 0,
+    paceFeet: PACE_FT, fromTs: g.startTs, toTs: g.endTs,
+  });
+  const deep = locateCupFromPaces(g.points, {
+    approach: g.approach, anchor: g.cup, onPaces: 14, sidePaces: 0,
+    paceFeet: PACE_FT, fromTs: g.startTs, toTs: g.endTs,
+  });
+  const gap = distanceM(shallow, deep);
+  near(gap, 12 * PACE_FT * 0.3048, 2, 'twelve paces apart along the line of play');
+});
+
+test('the green centre comes from its shape, not from where he stood longest', () => {
+  /*
+   * The failure this guards. By far the most time on a green is spent standing
+   * at the cup picking the ball out, so a time-weighted centre converges on the
+   * pin itself. Every pin then comes out dead centre and the left/right entry
+   * silently stops meaning anything — appearing to work perfectly while
+   * measuring nothing at all.
+   *
+   * The fixture makes the dwell dominant on purpose: the cup is 6 m right of
+   * the green's mid-line and he stands there for more fixes than the rest of
+   * the walk combined, which is exactly what a real green visit looks like.
+   */
+  const approach = offsetM(TEE, 0, 0);
+  const front = offsetM(TEE, 150, 0);
+  const cup = offsetM(front, 6, 6);
+  const pts = [];
+  let ts = 1_700_000_000_000;
+  const push = (pt, n) => {
+    for (let i = 0; i < n; i++) {
+      pts.push({ lat: pt.lat, lon: pt.lon, acc: 3.2, ts });
+      ts += 1000;
+    }
+  };
+  push(offsetM(front, 0, -6), 8); // on at the front, left side
+  push(offsetM(front, 5, -6), 8); // his ball
+  push(offsetM(front, 12, 0), 8); // behind the hole
+  push(cup, 90); // and a long stand at the cup
+  const endTs = ts;
+
+  const middle = locateCupFromPaces(pts, {
+    approach, anchor: cup, onPaces: toPaces(6), sidePaces: 0,
+    paceFeet: PACE_FT, fromTs: 1_700_000_000_000, toTs: endTs,
+  });
+  assert(middle, 'expected a placement');
+  assert(
+    distanceM(middle, cup) > 3,
+    `"middle" landed on a pin 6 m off centre (${distanceM(middle, cup).toFixed(1)} m) — centre is tracking dwell`
+  );
+
+  const described = locateCupFromPaces(pts, {
+    approach, anchor: cup, onPaces: toPaces(6), sidePaces: toPaces(6),
+    paceFeet: PACE_FT, fromTs: 1_700_000_000_000, toTs: endTs,
+  });
+  assert(
+    distanceM(described, cup) < distanceM(middle, cup),
+    'describing the offset must beat ignoring it'
+  );
+});
+
+test('it declines without a line of play', () => {
+  // No approach means no axis, and a sheet read along a guessed axis puts
+  // "four paces right" four paces long.
+  eq(
+    locateCupFromPaces(g.points, {
+      approach: null, anchor: g.cup, onPaces: 6, paceFeet: PACE_FT,
+      fromTs: g.startTs, toTs: g.endTs,
+    }),
+    null,
+    'no axis => no answer'
+  );
+});
+
+test('it declines with no track on the green', () => {
+  eq(locateCupFromPaces([], { approach: g.approach, anchor: g.cup, onPaces: 6 }), null, 'empty track');
+});
+
+test('a described cup is stored as described, never as measured', () => {
+  const round = par4Round();
+  const hole = round.holes[0];
+  const found = locateCupFromPaces(g.points, {
+    approach: g.approach, anchor: g.cup, onPaces: toPaces(6), sidePaces: toPaces(3),
+    paceFeet: PACE_FT, fromTs: g.startTs, toTs: g.endTs,
+  });
+  setCupFromPaces(hole, found, { onPaces: toPaces(6), sidePaces: toPaces(3), paceFeet: PACE_FT });
+  eq(hole.cup.method, 'paces', 'the mark says how it was made');
+  eq(cupIsPaced(hole), true, 'and the hole knows');
+  eq(hole.cup.pinSheet.onPaces, toPaces(6), 'what he entered is kept');
+  eq(hole.cup.pinSheet.paceFeet, PACE_FT, 'including the stride it was converted with');
+  assert(hole.completedAt, 'and the hole is finished without ever marking the cup');
+});
+
+test('a described cup makes the hole position derivable', () => {
+  // The whole point: every distance on a hole is measured to the cup, so a
+  // hole with no cup produces nothing at all.
+  const round = par4Round();
+  const hole = round.holes[0];
+  addShot(hole, { lie: 'tee', reduced: fakeReduced(TEE) });
+  eq(holePosition(hole), null, 'no cup, no hole position');
+  const found = locateCupFromPaces(g.points, {
+    approach: g.approach, anchor: g.cup, onPaces: toPaces(6), sidePaces: toPaces(3),
+    paceFeet: PACE_FT, fromTs: g.startTs, toTs: g.endTs,
+  });
+  setCupFromPaces(hole, found, { onPaces: toPaces(6), sidePaces: toPaces(3), paceFeet: PACE_FT });
+  const pos = holePosition(hole);
+  assert(pos, 'a described cup gives the hole a position');
+  near(distanceM(pos, g.cup), 0, 6, 'and it is the right one');
 });
 
 group('which hole did he actually tee off on');

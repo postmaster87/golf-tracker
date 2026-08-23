@@ -49,6 +49,22 @@ export function enuOffset(from, to) {
   };
 }
 
+/**
+ * The inverse of `enuOffset`: step `north`/`east` metres from a point.
+ *
+ * Needed wherever a position is *constructed* rather than measured — placing a
+ * pin from a paced description, for instance — and it uses the same local
+ * radii, so a point offset and then measured back reads as the same distance.
+ */
+export function offsetPoint(from, { north = 0, east = 0 } = {}) {
+  const { M, N } = radiiAt(from.lat);
+  const lat = from.lat + (north / M) * (180 / Math.PI);
+  return {
+    lat,
+    lon: from.lon + (east / (N * Math.cos(from.lat * D2R))) * (180 / Math.PI),
+  };
+}
+
 /** Great-ellipse-approximating distance in metres. */
 export function distanceM(from, to) {
   if (!from || !to) return null;

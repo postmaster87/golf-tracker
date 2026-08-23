@@ -145,6 +145,49 @@ export function setCup(hole, reduced) {
   return hole.cup;
 }
 
+/**
+ * Record a cup located from a paced pin-sheet description.
+ *
+ * Kept apart from `setCup` so the provenance cannot be lost. A cup taken with a
+ * GPS burst is a measurement he stood on; this one is a construction from a
+ * direction, a walked green and two pace counts, and the difference has to
+ * survive into the data — every distance on the hole is measured to it.
+ *
+ * `method: 'paces'` marks the mark itself, and `pinSheet` keeps what he
+ * actually entered, so a recalibrated stride can be reapplied later rather than
+ * silently invalidating the hole. Same argument as `distanceEntry` on a putt.
+ *
+ * Deliberately does NOT feed `learnCup`. A constructed position is not evidence
+ * about where a cup has historically been cut, and laundering it into the
+ * course model is the silent mixing design rule 5 forbids.
+ */
+export function setCupFromPaces(hole, located, entry) {
+  if (!located) return null;
+  hole.cup = newMark({
+    lat: located.lat,
+    lon: located.lon,
+    accuracyM: located.uncertaintyM,
+    quality: located.confidence === 'good' ? 'degraded' : 'poor',
+    method: 'paces',
+    samples: [],
+    spreadM: null,
+    usedCount: null,
+  });
+  hole.cup.pinSheet = {
+    onPaces: entry?.onPaces ?? null,
+    sidePaces: entry?.sidePaces ?? null,
+    paceFeet: entry?.paceFeet ?? null,
+    confidence: located.confidence,
+    agreementM: located.agreementM,
+    enteredAt: new Date().toISOString(),
+  };
+  hole.completedAt ??= new Date().toISOString();
+  return hole.cup;
+}
+
+/** True when this hole's cup was described rather than marked. */
+export const cupIsPaced = (hole) => hole?.cup?.method === 'paces';
+
 export function attachPenalty(shot, { type, strokes = 1, note = null }) {
   shot.penalty = { type, strokes, note };
   return shot;

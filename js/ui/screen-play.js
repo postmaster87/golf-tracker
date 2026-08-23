@@ -5,6 +5,7 @@ import { readTrack } from '../data/trackstore.js';
 import {
   proposeFirstPutt,
   proposeHoleShots,
+  locateCupFromPaces,
   candidateAccuracyM,
   candidateQuality,
   segmentTrack,
@@ -40,6 +41,8 @@ import {
   roundGaps,
   roundTotals,
   setInferredFirstPutt,
+  setCupFromPaces,
+  cupIsPaced,
   holeWindow,
   addTrackShot,
   insertTeeShot,
@@ -912,6 +915,52 @@ export function playScreen(ctx) {
         // still means the same thing now that the sheet only speaks feet.
         return shot?.distanceFt ?? null;
       }),
+      // Pin-sheet description of the cup, for a hole finished without marking
+      // it. Null means he has not described one.
+      pinOn: hl.cup?.pinSheet?.onPaces ?? null,
+      pinSide: hl.cup?.pinSheet?.sidePaces ?? 0,
+    };
+
+    /*
+     * Everything the pin-sheet placement needs, read once when the sheet opens.
+     *
+     * Async because the dense track lives in IndexedDB, and re-read per
+     * keystroke would be absurd — so it is fetched once and the sheet re-renders
+     * when it lands. Until then the control says it is reading rather than
+     * pretending it has no track, because "no track" and "not loaded yet" mean
+     * opposite things.
+     */
+    let pinContext = null;
+    const loadPinContext = async () => {
+      const approach = [...hl.shots].reverse().find((x) => x.lie !== 'green' && x.mark)?.mark ?? null;
+      const marks = hl.shots.filter((x) => x.mark?.ts).map((x) => Date.parse(x.mark.ts)).filter(Number.isFinite);
+      const fromTs = marks.length ? Math.min(...marks) : null;
+      const toTs = hl.completedAt ? Date.parse(hl.completedAt) : Date.now();
+      let points = null;
+      try {
+        points = await readTrack(round.id);
+      } catch {
+        points = null;
+      }
+      if (!points?.length) {
+        return { usable: false, why: 'No dense track for this round, so a paced pin cannot be placed.' };
+      }
+      if (!approach) {
+        // Without it there is no line of play, and a pin sheet read along the
+        // wrong axis puts "four paces right" four paces long.
+        return { usable: false, why: 'No approach shot marked on this hole, so there is no line of play to read the paces along.' };
+      }
+      const anchor =
+        hl.shots.find((x) => x.lie === 'green' && x.mark)?.mark ??
+        (() => {
+          const win = points.filter((pt) => (fromTs == null || pt[3] >= fromTs) && pt[3] <= toTs);
+          const stops = win.length ? segmentTrack(win, GREEN_DEFAULTS).filter((x) => x.kind === 'stop') : [];
+          return stops.length ? stops[stops.length - 1] : null;
+        })();
+      if (!anchor) {
+        return { usable: false, why: 'Nothing on the track says which part of this hole is the green.' };
+      }
+      return { usable: true, points, approach, anchor, fromTs, toTs };
     };
 
     /*
@@ -1131,6 +1180,109 @@ export function playScreen(ctx) {
           );
         }
 
+        /*
+         * WHERE WAS THE PIN — the way out of marking the cup at all.
+         *
+         * Only when the cup was never marked, because a marked cup is a
+         * measurement and always wins. His ask after field test 4: finish the
+         * hole without walking back to the cup, and describe the pin the way a
+         * pin sheet does instead.
+         *
+         * The read-out under the control is the point of the whole feature. It
+         * is not decoration — it says how far the described pin lands from
+         * where the track says he picked the ball out, which is an independent
+         * answer to the same question. Two sources agreeing is the only reason
+         * to trust a constructed position, and when they disagree he can see it
+         * on the green rather than discovering it in the export.
+         */
+        if (!hl.cup) {
+          const paceFeet = ctx.app.settings.paceFeet ?? 3;
+          const located =
+            draft.pinOn != null && pinContext?.usable
+              ? locateCupFromPaces(pinContext.points, {
+                  approach: pinContext.approach,
+                  anchor: pinContext.anchor,
+                  onPaces: draft.pinOn,
+                  sidePaces: draft.pinSide,
+                  paceFeet,
+                  fromTs: pinContext.fromTs,
+                  toTs: pinContext.toTs,
+                })
+              : null;
+
+          const onGrid = h('div', {
+            class: 'seg',
+            style: { gridTemplateColumns: 'repeat(7, 1fr)', gridAutoFlow: 'row' },
+          });
+          for (const n of [1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 15, 18, 21, 25]) {
+            onGrid.appendChild(
+              h('button', {
+                class: 'seg-btn',
+                text: String(n),
+                rapid: true,
+                'aria-pressed': String(draft.pinOn === n),
+                onClick: () => {
+                  draft.pinOn = draft.pinOn === n ? null : n;
+                  render();
+                },
+              })
+            );
+          }
+
+          const sideGrid = segmented(
+            [
+              { value: -6, label: 'L6' },
+              { value: -4, label: 'L4' },
+              { value: -2, label: 'L2' },
+              { value: 0, label: 'MID' },
+              { value: 2, label: 'R2' },
+              { value: 4, label: 'R4' },
+              { value: 6, label: 'R6' },
+            ],
+            draft.pinSide,
+            (v) => {
+              draft.pinSide = v;
+              render();
+            },
+            { columns: 7 }
+          );
+
+          let readout;
+          if (!pinContext) {
+            readout = 'Reading the track…';
+          } else if (!pinContext.usable) {
+            readout = pinContext.why;
+          } else if (draft.pinOn == null) {
+            readout = 'Pick how many paces on, and the cup gets placed from your track.';
+          } else if (!located) {
+            readout = 'Not enough track on this green to place it. Pace the first putt instead.';
+          } else {
+            readout = `Cup placed ±${Math.round(located.uncertaintyM)} m. ${located.reasons[located.reasons.length - 1]}.`;
+          }
+
+          wrap.appendChild(
+            field(
+              'Where was the pin?',
+              frag(
+                h('p', {
+                  class: 'note muted',
+                  style: { margin: '0 2px 8px' },
+                  text: `Paces on from the front edge, then left or right of the middle — a pin sheet. Your stride is set to ${paceFeet} ft.`,
+                }),
+                onGrid,
+                h('p', { class: 'note muted', style: { margin: '10px 2px 6px' }, text: 'From the middle' }),
+                sideGrid,
+                h('p', {
+                  class: 'note',
+                  style: { margin: '10px 2px 0' },
+                  dataset: { q: located?.confidence ?? 'none' },
+                  text: readout,
+                })
+              )
+            )
+          );
+        }
+
         wrap.appendChild(
           h('button', {
             class: 'btn primary',
@@ -1141,6 +1293,27 @@ export function playScreen(ctx) {
                 distances: draft.values.slice(0, draft.putts),
                 unit: 'feet',
               });
+              // A described pin only lands if the cup was never marked; a
+              // measurement is never overwritten by a construction.
+              if (!hl.cup && draft.pinOn != null && pinContext?.usable) {
+                const paceFeet = ctx.app.settings.paceFeet ?? 3;
+                const located = locateCupFromPaces(pinContext.points, {
+                  approach: pinContext.approach,
+                  anchor: pinContext.anchor,
+                  onPaces: draft.pinOn,
+                  sidePaces: draft.pinSide,
+                  paceFeet,
+                  fromTs: pinContext.fromTs,
+                  toTs: pinContext.toTs,
+                });
+                if (located) {
+                  setCupFromPaces(hl, located, {
+                    onPaces: draft.pinOn,
+                    sidePaces: draft.pinSide,
+                    paceFeet,
+                  });
+                }
+              }
               persist();
               markWarning = null;
               paint();
@@ -1152,6 +1325,11 @@ export function playScreen(ctx) {
       };
 
       render();
+      // Fills in the pin control once IndexedDB answers.
+      loadPinContext().then((c) => {
+        pinContext = c;
+        if (document.body.contains(wrap)) render();
+      });
       return wrap;
     });
   }

@@ -386,6 +386,44 @@ tee mark would be *recovered from*.
   the round taught in place. `rebuildCourseLearning` replays the surviving
   rounds, which is what makes "dump that round" mean it.
 
+### The cup, described instead of marked
+
+His ask after field test 4: finish a hole without walking back to the cup, and
+*"enter a rough number of paces the cup was located on the green like a
+tournament pin sheet does. Then you can compare the tracked data and know
+fairly certainly from my entered data where the cup was."*
+
+Right instinct, because the two sources fail independently. The track knows the
+green's shape and where he walked but not which spot was the hole; he knows the
+pin position but not where it is on Earth. Together they pin it down.
+
+`locateCupFromPaces` reads the sheet along the **line of play** — the bearing
+from wherever the approach was played to the green — so paces on and left/right
+of centre transfer without anyone thinking about compass directions. Without an
+approach mark it declines rather than guessing an axis, because a sheet read
+along the wrong one puts "four paces right" four paces long.
+
+The read-out under the control is the feature, not decoration: it reports how
+far the described pin lands from where the track says he picked the ball out,
+which is an independent answer to the same question. Verified end to end in the
+simulator against a known cup — **1.0 m out**, with the two sources agreeing to
+1.1 m.
+
+**One flaw worth recording, because it would have shipped silently.** The green's
+centre was first taken as the median of the walked fixes, which is
+time-weighted — and by far the most time on a green is spent standing at the cup
+picking the ball out. The "centre" therefore converged on the pin itself, every
+pin came out dead centre, and the left/right entry stopped meaning anything while
+appearing to work perfectly. It is now the mid-range of the walked extent, which
+is a fact about the green's shape rather than about his dwell. The first test
+written for it passed against both versions; the fixture had to be rebuilt with
+a dominant cup dwell before it could tell them apart, and it now fails the old
+code by 0.1 m against a pin 6 m off centre.
+
+A described cup is stored `method: 'paces'` with the entry kept beside it, and is
+deliberately **not** fed to `learnCup` — a construction is not evidence about
+where a cup has historically been cut.
+
 ### The known bug: root cause found, fixed
 
 The backlog carried this as "`tick()` does not fire on the play screen at all …
