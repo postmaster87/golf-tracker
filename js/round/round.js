@@ -87,6 +87,49 @@ export function addShot(hole, { lie, reduced, source = 'gps', club = null }) {
   return shot;
 }
 
+/**
+ * Put a tee shot back on a hole that was played without one.
+ *
+ * The tee is the one position on a golf course that cannot really be lost. A
+ * ball's resting place is unique to that shot and gone the moment you play it,
+ * but the tee is a fixed feature you were standing on when the hole began — so
+ * it is in the dense track whether or not anyone remembered to mark it.
+ *
+ * Inserted at the FRONT and renumbered, because a tee shot recovered after the
+ * fact is still the first stroke of the hole. Appending it would make the drive
+ * the last shot played, which is the same class of error as the penalty landing
+ * on the wrong shot.
+ *
+ * `source: 'track'` and `inferred` are what keep this out of the measured data.
+ * Design rule 5: a recovered tee is evidence, not a mark he stood on and took.
+ */
+export function insertTeeShot(hole, { reduced, club = null, inferredFrom = 'track' }) {
+  const mark = reduced
+    ? newMark({
+        lat: reduced.lat,
+        lon: reduced.lon,
+        accuracyM: reduced.accuracyM,
+        quality: reduced.quality,
+        method: 'track',
+        samples: [],
+        spreadM: reduced.spreadM ?? null,
+        usedCount: reduced.usedCount ?? null,
+      })
+    : null;
+  const shot = newShot({ seq: 1, lie: 'tee', mark, source: 'track' });
+  shot.club = club || null;
+  shot.inferred = inferredFrom;
+  hole.shots.unshift(shot);
+  renumber(hole);
+  return shot;
+}
+
+/** True when this hole's tee shot was recovered rather than marked. */
+export const teeIsInferred = (hole) => Boolean(hole.shots?.[0]?.inferred && hole.shots[0].lie === 'tee');
+
+/** The tee shot on a hole, if one was ever recorded. */
+export const teeShot = (hole) => hole.shots?.find((s) => s.lie === 'tee') ?? null;
+
 export function setCup(hole, reduced) {
   hole.cup = newMark({
     lat: reduced.lat,
@@ -798,13 +841,34 @@ export function learnCup(app, round, holeNumber, mark, { warnM = 60 } = {}) {
   const L = learningFor(app, round.courseId);
   const prev = L.cups[holeNumber];
   let warning = null;
-  if (prev && prev.n >= 2) {
+  /*
+   * The threshold arms at n >= 1, not n >= 2.
+   *
+   * Waiting for two prior rounds meant the very first contradicting mark went
+   * in unchallenged — which is exactly how field test 4's second nine poisoned
+   * holes 7 and 8, each of which had a single prior observation. One prior mark
+   * is enough to notice that a cup has moved 150 yards.
+   */
+  if (prev && prev.n >= 1) {
     const d = distanceM(prev, mark);
     if (d > warnM) {
-      warning = `Cup mark is ${Math.round(toYards(d))} yd from where hole ${holeNumber}'s cup has been on ${prev.n} previous rounds.`;
+      warning =
+        prev.n === 1
+          ? `Cup mark is ${Math.round(toYards(d))} yd from where hole ${holeNumber}'s cup was last round.`
+          : `Cup mark is ${Math.round(toYards(d))} yd from where hole ${holeNumber}'s cup has been on ${prev.n} previous rounds.`;
     }
   }
-  L.cups[holeNumber] = runningMean(prev, mark);
+  /*
+   * A flagged mark is NOT learned from.
+   *
+   * It used to warn and then fold the mark in regardless, which is the worst of
+   * both: the app says the mark is impossible and then averages it into the
+   * model anyway, where it silently degrades every future round. The mark is
+   * still recorded on the hole — the golfer is the source of truth about where
+   * he was — but it does not get to teach the course until it stops looking
+   * like a mistake.
+   */
+  if (!warning) L.cups[holeNumber] = runningMean(prev, mark);
   return { warning };
 }
 
@@ -818,6 +882,48 @@ export function learnGreen(app, round, holeNumber, mark) {
   const L = learningFor(app, round.courseId);
   L.greens ??= {};
   L.greens[holeNumber] = runningMean(L.greens[holeNumber], mark);
+}
+
+/**
+ * REBUILD THE COURSE MODEL FROM THE ROUNDS THAT STILL EXIST.
+ *
+ * `learnTee` / `learnCup` / `learnGreen` fold marks into a running mean, which
+ * is a one-way operation: there is no way to subtract a round back out. So a
+ * round that taught the model something wrong poisons it permanently, and
+ * deleting the round does nothing — the average it moved stays moved.
+ *
+ * Field test 4 is the case in point. The abandoned second nine was set to start
+ * on hole 7 but actually started on hole 8, so every mark in it was filed under
+ * the wrong hole number. Averaged against the correct round, that left hole 8's
+ * learned tee **227 m** from the real tee and hole 7's 173 m out — two tees
+ * 450 m apart, meaned into a position that is neither. The model is the thing a
+ * missing tee mark would be recovered *from*, so a poisoned model turns one bad
+ * round into every future round's problem.
+ *
+ * Rebuilding is the only honest repair, and it is cheap: the marks are all
+ * still in the rounds, so the accumulators can simply be replayed. This runs on
+ * delete, which is what makes "dump that round" mean what it says.
+ *
+ * Abandoned rounds still contribute. Their marks are real positions taken on a
+ * real course, and refusing them would throw away most of what the model knows
+ * — the failure here was a wrong hole NUMBER, not an abandoned round, and the
+ * fix for that is deleting the round, which now works.
+ */
+export function rebuildCourseLearning(app, load) {
+  app.courseLearning = {};
+  for (const summary of app.rounds ?? []) {
+    const round = load(summary.id);
+    if (!round?.courseId) continue;
+    for (const hole of round.holes ?? []) {
+      const tee = hole.shots?.find((s) => s.lie === 'tee' && s.mark);
+      if (tee) learnTee(app, round, hole.number, tee.mark);
+      if (hole.cup) learnCup(app, round, hole.number, hole.cup);
+      for (const s of hole.shots ?? []) {
+        if (s.lie === 'green' && s.mark) learnGreen(app, round, hole.number, s.mark);
+      }
+    }
+  }
+  return app.courseLearning;
 }
 
 /**

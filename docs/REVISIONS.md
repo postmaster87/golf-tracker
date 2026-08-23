@@ -342,6 +342,50 @@ throughout the app, so looping a nine would put two hole 1s in one round. Each
 loop also gets its own dense track, which is the better shape for the thing
 being tested.
 
+### After field test 4 — the missing tee shot
+
+Matt, on why he kept driving back: *"we drove to tee shot on 3 then realized I
+forgot to mark the tee shot and had to drive back. I had to drive back and mark
+tee shots on multiple holes."* The track confirms it — hole 3's tee has three
+separate visits and the mark lands on the third.
+
+He was working around something worse than a missing mark. The first mark on a
+hole is committed as lie `tee` **without asking**, so marking the landing
+instead files the drive's resting place as the tee box: every distance on the
+hole wrong by the length of the drive, the hole looking complete, nothing
+saying so.
+
+- **A live nudge**, once per hole, the moment leaving the tee without a tee shot
+  becomes visible — distance scaled to the hole and floored at 100 m, so the
+  walk to the cart never trips it. `USE THE TRACK` back-fills the tee from the
+  first stop in the hole's window; verified against the simulator at **0.5 m**
+  from the real tee, stamped `source: 'track'`, `method: 'track'`, `inferred`.
+  Inserted at the front and renumbered, because a recovered tee shot is still
+  the first stroke of the hole.
+
+### The course model was poisoning itself
+
+The second nine of field test 4 was set to start on hole 7 and actually started
+on hole 8 — its "hole 7" tee sits 4.9 m from the morning's hole 8 tee, its
+"hole 7" cup 1.4 m from the morning's hole 8 cup. Every mark filed under the
+wrong number, and `learnTee` / `learnCup` folded those numbers into the
+permanent course model. Result: **hole 8's learned tee 227 m from the real tee,
+hole 7's 173 m out** — two tees 450 m apart, meaned into a position that is
+neither.
+
+That matters more than one bad round, because the learned tee is what a missing
+tee mark would be *recovered from*.
+
+- **`learnCup` no longer learns from a mark it has flagged.** It warned and then
+  averaged the mark in anyway, which is the worst of both. The threshold also
+  arms at one prior observation rather than two — with n=1 the first
+  contradicting mark went in silently, which is precisely how holes 7 and 8 were
+  poisoned.
+- **Deleting a round rebuilds the model without it.** The accumulators are
+  running means and cannot be subtracted, so deletion used to leave everything
+  the round taught in place. `rebuildCourseLearning` replays the surviving
+  rounds, which is what makes "dump that round" mean it.
+
 ### The known bug: root cause found, fixed
 
 The backlog carried this as "`tick()` does not fire on the play screen at all …

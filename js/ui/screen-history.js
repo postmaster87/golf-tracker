@@ -1,7 +1,7 @@
 import { h, card, segmented, confirmSheet, sheet, frag, toast } from './dom.js';
 import { loadRound, deleteRound, reconcileIndex } from '../data/store.js';
 import { deleteTrack } from '../data/trackstore.js';
-import { roundTotals, fmtToPar } from '../round/round.js';
+import { roundTotals, fmtToPar, rebuildCourseLearning } from '../round/round.js';
 
 export function historyScreen(ctx) {
   const el = h('div', { class: 'screen' });
@@ -161,9 +161,19 @@ export function historyScreen(ctx) {
       ctx.round = null;
     }
     reconcileIndex(ctx.app);
+    /*
+     * Un-teach the course model.
+     *
+     * The accumulators are running means, so a round cannot be subtracted back
+     * out — deleting it would otherwise leave everything it taught in place.
+     * That is not hypothetical: field test 4's second nine was set to the wrong
+     * starting hole and left hole 8's learned tee 227 m from the real one.
+     * Replaying the surviving rounds is what makes deleting a round mean it.
+     */
+    rebuildCourseLearning(ctx.app, loadRound);
     ctx.persistApp();
     paint();
-    toast('Round deleted.');
+    toast('Round deleted, and the course model rebuilt without it.');
   }
 
   paint();

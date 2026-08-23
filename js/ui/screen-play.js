@@ -7,6 +7,8 @@ import {
   proposeHoleShots,
   candidateAccuracyM,
   candidateQuality,
+  segmentTrack,
+  GREEN_DEFAULTS,
 } from '../round/track-analysis.js';
 import { SELECTABLE_CLUBS, clubLabel, clubFull } from '../data/clubs.js';
 import { LIES, LIE_LABELS, PENALTY_TYPES, isUnscored } from '../data/schema.js';
@@ -40,6 +42,9 @@ import {
   setInferredFirstPutt,
   holeWindow,
   addTrackShot,
+  insertTeeShot,
+  teeShot,
+  teeIsInferred,
   learnTee,
   learnCup,
   learnGreen,
@@ -98,6 +103,10 @@ export function playScreen(ctx) {
    * exactly what it had just written down; it simply never mentioned it.
    */
   let lastMark = null;
+  /** Where the current hole opened, so leaving it without a tee mark is visible. */
+  let holeOrigin = null;
+  /** Set once per hole when the missing-tee nudge has been raised. */
+  let teeNudge = null;
   /** Set when a cup capture was started from inside the putt sheet. */
   let reopenPuttsAfterCup = false;
 
@@ -270,6 +279,19 @@ export function playScreen(ctx) {
   function tick() {
     paintTrackChip();
     const fix = ctx.gps.current;
+    /*
+     * The hole's origin is the first fix after it becomes current — which is
+     * the tee, since a hole opens when you arrive to play it. Captured here
+     * rather than in `goToHole` because there may be no fix at that instant,
+     * and a null origin would silently disable the nudge for the whole hole.
+     */
+    if (!editing && fix && round.status === 'in_progress') {
+      const hl = hole();
+      if (hl && holeOrigin?.hole !== hl.number) {
+        holeOrigin = { hole: hl.number, lat: fix.lat, lon: fix.lon, acc: fix.acc, ts: fix.ts };
+      }
+      checkTeeNudge();
+    }
     if (ctx.gps.error?.code === 1) {
       accChip.dataset.q = 'poor';
       accChip.replaceChildren(h('small', { text: 'GPS' }), document.createTextNode('OFF'));
@@ -351,6 +373,23 @@ export function playScreen(ctx) {
             holeChange = null;
             if (idx >= 0) goToHole(idx, { silent: true });
           }
+        )
+      );
+    }
+
+    /*
+     * Missing tee shot, raised while it is still cheap to fix.
+     *
+     * Above the just-marked banner deliberately: if both are showing, the
+     * missing tee is the more expensive of the two to leave alone.
+     */
+    if (teeNudge && !editing && !teeShot(hl)) {
+      body.appendChild(
+        banner(
+          'warn',
+          `No tee shot marked on hole ${hl.number}. You are past the tee — mark it now, or take it from the track.`,
+          'USE THE TRACK',
+          () => recoverTee()
         )
       );
     }
@@ -1459,6 +1498,9 @@ export function playScreen(ctx) {
     // The mark belonged to the hole being left. Offering to undo it from the
     // next tee would undo it on the wrong hole.
     clearLastMark();
+    // Both are per-hole. The origin is re-seeded by the next fix.
+    holeOrigin = null;
+    teeNudge = null;
     holeChange = silent ? null : { from: from.number, to: round.holes[index].number };
     clearTimeout(holeChangeTimer);
     if (holeChange) {
@@ -1938,6 +1980,124 @@ export function playScreen(ctx) {
         })
       )
     );
+  }
+
+  /* ------------------------------------------------ missing tee shot nudge */
+
+  /**
+   * NOTICE A MISSING TEE SHOT WHILE IT CAN STILL BE FIXED.
+   *
+   * Field test 4, in his words: *"we drove to tee shot on 3 then realized I
+   * forgot to mark the tee shot and had to drive back. I had to drive back and
+   * mark tee shots on multiple holes."* The track shows it plainly — hole 3's
+   * tee has three separate visits and the mark lands on the third.
+   *
+   * Driving back was him working around something worse. The first mark on a
+   * hole is committed as lie `tee` without asking, so marking the landing
+   * instead would have filed the drive's resting place as the tee box and left
+   * every distance on the hole wrong by the length of the drive, with the hole
+   * looking complete and nothing saying otherwise.
+   *
+   * So this fires at the moment the mistake becomes recoverable rather than at
+   * the end of the round: you have left the tee, the hole has no tee shot, and
+   * there is still a decision to make. Once per hole, cleared the instant a tee
+   * shot exists by any route.
+   *
+   * THRESHOLD. A fixed distance is wrong on both ends — 100 m is most of a par
+   * 3 and nothing on a par 5 — so it scales with the hole, floored at 100 m so
+   * that walking to the cart never trips it. On Radcliffe the longest
+   * green-to-next-tee walk is 39 m, well clear of the floor.
+   */
+  const TEE_NUDGE_FLOOR_M = 100;
+  const TEE_NUDGE_FRACTION = 0.35;
+
+  function teeNudgeThreshold(hl) {
+    const holeM = hl.yards ? hl.yards * 0.9144 : 0;
+    return Math.max(TEE_NUDGE_FLOOR_M, holeM * TEE_NUDGE_FRACTION);
+  }
+
+  function checkTeeNudge() {
+    if (editing || round.status !== 'in_progress') return;
+    const hl = hole();
+    if (!hl || hl.manual || isHoleComplete(hl)) return;
+    // Already has one, however it got there.
+    if (teeShot(hl)) return (teeNudge = teeNudge?.hole === hl.number ? null : teeNudge);
+    if (teeNudge?.hole === hl.number) return; // asked once already
+    if (capture) return; // never interrupt a burst
+    const origin = holeOrigin;
+    const now = ctx.gps.current;
+    if (!origin || !now || origin.hole !== hl.number) return;
+    if (distanceM(origin, now) < teeNudgeThreshold(hl)) return;
+
+    teeNudge = { hole: hl.number, sinceTs: origin.ts };
+    paint();
+  }
+
+  /**
+   * Recover the tee from the dense track.
+   *
+   * The first stop inside the hole's window is where he stood to tee off — the
+   * track recorded it whether or not anyone marked it. Falls back to the
+   * position the hole opened at when there is no dense track to read, which is
+   * the same place a fraction less precisely.
+   */
+  async function recoverTee() {
+    const hl = hole();
+    let reduced = null;
+    try {
+      const points = await readTrack(round.id);
+      const fromTs = holeOrigin?.hole === hl.number ? holeOrigin.ts : null;
+      const stops = points?.length
+        ? segmentTrack(
+            points.filter((p) => (fromTs == null || p[3] >= fromTs) && p[3] <= Date.now()),
+            { ...GREEN_DEFAULTS, minDwellMs: 8000 }
+          ).filter((s) => s.kind === 'stop')
+        : [];
+      if (stops.length) {
+        const first = stops[0];
+        const accuracyM = candidateAccuracyM(first);
+        reduced = {
+          lat: first.lat,
+          lon: first.lon,
+          accuracyM,
+          quality: candidateQuality(accuracyM),
+          spreadM: first.spreadM,
+          usedCount: first.n,
+        };
+      }
+    } catch {
+      /* no dense track on this device; the fallback below still works */
+    }
+
+    if (!reduced && holeOrigin?.hole === hl.number) {
+      reduced = {
+        lat: holeOrigin.lat,
+        lon: holeOrigin.lon,
+        accuracyM: holeOrigin.acc ?? 8,
+        quality: 'degraded',
+        spreadM: null,
+        usedCount: 1,
+      };
+    }
+    if (!reduced) {
+      teeNudge = null;
+      paint();
+      return toast('No track for this hole yet — go back and mark the tee, or hand-enter the hole.');
+    }
+
+    insertTeeShot(hl, { reduced });
+    teeNudge = null;
+    persist();
+    paint();
+    toast('Tee shot recovered from the track — estimated, not marked.', {
+      ms: 7000,
+      action: 'UNDO',
+      onAction: () => {
+        if (hl.shots[0]?.inferred) hl.shots.shift();
+        persist();
+        paint();
+      },
+    });
   }
 
   /* ------------------------------------------------- end-of-hole entry (2) */
