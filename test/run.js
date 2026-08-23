@@ -11,6 +11,7 @@ import { distanceM, bearingDeg, radiiAt, toYards, toFeet, feetToM, weightedCentr
 import { median, mad } from '../js/util/stats.js';
 import { reduceBurst, GpsService } from '../js/gps/gps.js';
 import { VEENKER, RADCLIFFE, playOrder, holeYards, newCustomCourse } from '../js/data/courses.js';
+import { BUILD, buildLabel } from '../js/data/build.js';
 import {
   createRound,
   addShot,
@@ -2213,6 +2214,23 @@ export async function runShellTests() {
       queue.push(new URL(spec, new URL(path, base)).pathname.replace(/^.*?\/(js\/)/, '$1'));
     }
   }
+
+  /*
+   * The visible build number and the shell cache name must not drift.
+   *
+   * They are bumped by hand in two files, and a mismatch is silent and nasty:
+   * Settings would report a build the phone is not actually caching, which is
+   * precisely the question the number exists to answer.
+   */
+  test('the build number matches the shell cache name', () => {
+    const cache = swText.match(/gt-shell-(v\d+)/)?.[1] ?? null;
+    eq(cache, BUILD.id, 'sw.js cache version vs BUILD.id in js/data/build.js');
+  });
+
+  test('the build carries a plausible date', () => {
+    assert(/^\d{4}-\d{2}-\d{2}$/.test(BUILD.date), `BUILD.date should be ISO, got ${BUILD.date}`);
+    assert(buildLabel().includes(BUILD.id), 'the label names the build');
+  });
 
   test('the service worker caches every module the app statically imports', () => {
     const missing = [...seen].filter((p) => !shell.includes(p));

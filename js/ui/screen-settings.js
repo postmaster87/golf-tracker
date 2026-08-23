@@ -11,6 +11,8 @@ import {
 import { VEENKER } from '../data/courses.js';
 import { BASELINES, SOURCE, CATEGORY_DEFINITION } from '../analysis/benchmarks.js';
 import * as wakeLock from '../gps/wakelock.js';
+import { BUILD, buildLabel } from '../data/build.js';
+import { revisionLabel, revisionInfo } from '../data/revision.js';
 
 const THEME_LABELS = {
   fairway: 'Fairway',
@@ -411,6 +413,96 @@ export function settingsScreen(ctx) {
       })
     );
     body.appendChild(sgCard);
+
+    /* ------------------------------------------------------------ build */
+
+    /*
+     * WHICH BUILD IS ON THIS PHONE, AND IS IT THE CURRENT ONE.
+     *
+     * Two different questions, and the build number on its own only answers the
+     * first. Knowing you are on v16 tells you nothing unless you also know what
+     * is live — so the number is here to be quoted, and the button is here to
+     * answer the question that actually gets asked on a field test day.
+     *
+     * The check goes through the service worker rather than fetching a file,
+     * because the worker is what decides which modules the app gets. Asking it
+     * to update is the only thing that reliably distinguishes "I have the
+     * latest" from "the latest is sitting downloaded and waiting for a reload".
+     */
+    const buildLine = h('p', {
+      class: 'note',
+      text: `Build ${buildLabel()} · ${revisionLabel()} — ${revisionInfo()?.title ?? ''}`,
+    });
+    const updateLine = h('p', { class: 'note muted', text: 'Tap to check whether a newer build has been deployed.' });
+    const reloadBtn = h('button', {
+      class: 'btn primary',
+      text: 'RELOAD INTO THE NEW BUILD',
+      style: { display: 'none' },
+      onClick: async () => {
+        try {
+          const reg = await navigator.serviceWorker?.getRegistration?.();
+          await reg?.update?.();
+        } catch {
+          /* the reload below is what matters; the worker refresh is a courtesy */
+        }
+        location.reload();
+      },
+    });
+
+    /*
+     * Compares the DEPLOYED build against the running one, rather than asking
+     * the service worker whether an update is waiting.
+     *
+     * `sw.js` calls `skipWaiting()` on install, so a new worker activates
+     * immediately and `registration.waiting` is essentially never populated —
+     * a check written around it would report "you are on the latest" while the
+     * page was still running modules loaded before the deploy. Fetching the
+     * build id with `no-store` asks the question directly and answers it the
+     * same way whether or not a service worker exists at all.
+     */
+    const checkBtn = h('button', {
+      class: 'btn',
+      text: 'CHECK FOR UPDATE',
+      onClick: async (e) => {
+        const btn = e.target;
+        btn.disabled = true;
+        btn.textContent = 'CHECKING…';
+        try {
+          const res = await fetch(`./js/data/build.js?cb=${Date.now()}`, { cache: 'no-store' });
+          if (!res.ok) throw new Error(`server said ${res.status}`);
+          const live = (await res.text()).match(/id:\s*'([^']+)'/)?.[1] ?? null;
+          if (!live) {
+            updateLine.textContent = 'Could not read the deployed build number.';
+          } else if (live === BUILD.id) {
+            updateLine.textContent = `You are on the latest build (${BUILD.id}).`;
+            reloadBtn.style.display = 'none';
+          } else {
+            updateLine.textContent = `Build ${live} is deployed. This phone is running ${BUILD.id}.`;
+            reloadBtn.style.display = '';
+          }
+        } catch (err) {
+          // Offline is the common case here and is not a failure worth alarm.
+          updateLine.textContent = `Could not check — ${err.message}. This is expected with no signal.`;
+        } finally {
+          btn.disabled = false;
+          btn.textContent = 'CHECK FOR UPDATE';
+        }
+      },
+    });
+
+    body.appendChild(
+      card(
+        'Build',
+        buildLine,
+        h('p', {
+          class: 'note muted',
+          text: 'The build number changes every time the app is deployed. The revision only changes when a build is about to be played, so it stays put across many deploys.',
+        }),
+        checkBtn,
+        updateLine,
+        reloadBtn
+      )
+    );
 
     /* ------------------------------------------------------------ about */
     body.appendChild(

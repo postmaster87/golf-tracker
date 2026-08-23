@@ -466,6 +466,32 @@ Two layers now:
   only new ones. Verified against a model carrying 11,500 m of historical
   damage: rebuilt to **0 m**, with the desk session correctly refused.
 
+### Telling whether the phone has the latest code
+
+*"Put the version/build number in the settings so I can tell if it has pulled
+the latest changes."*
+
+`REVISION` cannot answer that. It marks a build that went to the course, so it
+deliberately stays put across many deploys — rev 4 has survived a dozen pushes.
+`js/data/build.js` carries a `BUILD` id that changes with every deploy, shown in
+Settings next to the revision, and it is the same string the service worker
+names its shell cache with. They are bumped by hand in two files, so **a test
+asserts they match** — a build number that disagrees with the cache would misreport
+exactly the thing it exists to report.
+
+The number alone is only half an answer, though: knowing you are on v17 says
+nothing unless you know what is live. So CHECK FOR UPDATE **fetches the deployed
+`build.js` with `no-store` and compares** — "You are on the latest build (v17)"
+or "Build v18 is deployed. This phone is running v17", with a reload button.
+
+It deliberately does not ask the service worker whether an update is waiting.
+`sw.js` calls `skipWaiting()` on install, so a new worker activates immediately
+and `registration.waiting` is essentially never populated — a check written
+around it would cheerfully report "you are on the latest" while the page was
+still running modules loaded before the deploy. Comparing the deployed id asks
+the question directly, and answers it the same way whether or not a service
+worker exists.
+
 ### The known bug: root cause found, fixed
 
 The backlog carried this as "`tick()` does not fire on the play screen at all …
