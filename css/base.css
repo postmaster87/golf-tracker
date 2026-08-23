@@ -727,9 +727,12 @@ input[type='text'] {
  */
 :root {
   /* Tab width plus the dead zone beside it. Consumed by the padding rules
-     below, so the strip is reserved in exactly one place. */
-  --lock-tab-w: 54px;
-  --lock-tab-gutter: 62px;
+     below, so the strip is reserved in exactly one place.
+     Widened after field test 4 — "it could be a little bigger and standout
+     better". Every extra pixel here is taken off the action buttons, so the
+     size went up one notch and the rest of the visibility comes from contrast. */
+  --lock-tab-w: 62px;
+  --lock-tab-gutter: 70px;
 }
 
 /* Nothing tappable may extend under the tab. Applied while `has-lock-tab` is
@@ -739,6 +742,15 @@ body.has-lock-tab .footer {
   padding-right: calc(12px + var(--lock-tab-gutter));
 }
 
+/*
+ * Inverted rather than accent-coloured, deliberately.
+ *
+ * The primary action button is already the accent colour, and a second accent
+ * block on the same screen would read as another way to mark a shot. Ink-on-bg
+ * is the one high-contrast treatment on the palette that is not already
+ * spoken for, and it is what the toast uses — unmistakable, and unmistakably
+ * not a marking control.
+ */
 .lock-tab {
   position: fixed;
   right: 0;
@@ -746,19 +758,19 @@ body.has-lock-tab .footer {
   transform: translateY(-50%);
   z-index: 40;
   width: var(--lock-tab-w);
-  min-height: 96px;
+  min-height: 116px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  padding: 10px 8px 10px 6px;
-  border: 2px solid var(--line);
+  gap: 6px;
+  padding: 12px 8px 12px 6px;
+  border: 2px solid var(--ink);
   border-right: 0;
-  border-radius: 16px 0 0 16px;
-  background: var(--surface);
-  color: var(--ink);
-  box-shadow: -4px 0 16px rgba(0, 0, 0, 0.22);
+  border-radius: 18px 0 0 18px;
+  background: var(--ink);
+  color: var(--bg);
+  box-shadow: -6px 0 22px rgba(0, 0, 0, 0.38);
   /* The tab must never be what a scroll gesture grabs. */
   touch-action: none;
   user-select: none;
@@ -773,16 +785,16 @@ body.has-lock-tab .footer {
 }
 
 .lock-tab-icon {
-  font-size: 22px;
+  font-size: 26px;
   line-height: 1;
 }
 
 /* Vertical, so a 62px tab can carry a real word instead of the bare glyph that
    went unnoticed for nine holes. */
 .lock-tab-text {
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 800;
-  letter-spacing: 0.16em;
+  letter-spacing: 0.2em;
   writing-mode: vertical-rl;
   text-orientation: mixed;
 }

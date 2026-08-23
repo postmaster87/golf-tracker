@@ -491,9 +491,33 @@ function dataQuality(round, t) {
       const candidates = stopCandidates(points);
       const strong = candidates.filter((c) => c.score >= 0.5).length;
       const spanMin = Math.round((points[points.length - 1][3] - points[0][3]) / 60000);
+      /*
+       * What the round did NOT record, said out loud.
+       *
+       * Field test 4 lost 16.7 minutes of a 181-minute round to nine gaps, and
+       * the cause turned out to be app-switching to change music as much as the
+       * hardware lock. A web page cannot hold the receiver while another app is
+       * in front, so the gaps are not a bug to fix — which is exactly why they
+       * have to be reported. Unrecorded time is invisible otherwise, and a
+       * habit that costs track data cannot be changed if it never shows up.
+       */
+      const sorted = [...points].sort((a, b) => a[3] - b[3]);
+      let lostMs = 0;
+      let gaps = 0;
+      for (let i = 1; i < sorted.length; i++) {
+        const g = sorted[i][3] - sorted[i - 1][3];
+        if (g > 20000) {
+          gaps++;
+          lostMs += g;
+        }
+      }
+      const lostMin = Math.round(lostMs / 60000);
       trackLine.textContent =
         `Track: ${points.length.toLocaleString()} fixes over ${spanMin} min · ` +
-        `${candidates.length} stops found, ${strong} look like shots.`;
+        `${candidates.length} stops found, ${strong} look like shots.` +
+        (gaps
+          ? ` ${gaps} gap${gaps === 1 ? '' : 's'} — ${lostMin} min not recorded, while the phone was locked or another app was in front.`
+          : ' No gaps — the receiver ran the whole round.');
     })
     .catch(() => {
       trackLine.textContent = 'Track: could not be read.';
