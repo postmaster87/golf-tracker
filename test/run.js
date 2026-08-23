@@ -2898,6 +2898,42 @@ test('rebuilding learns from the played round and ignores the rest', () => {
   eq(learned.n, 1, 'and the desk session contributed nothing');
 });
 
+
+test('a round with no holes logged is dumped from the model', () => {
+  // The protection stated plainly. learnTee fires live on every mark, because
+  // that is the only moment a mark exists, and at that moment nothing knows
+  // whether the round will become golf. The running means cannot be
+  // subtracted, so without this every abandoned session lives in the model for
+  // good — which is how 22 desk sessions moved Veenker's learned tees 23 km.
+  const app = newAppState();
+  const real = playedRound({ holes: 9, mins: 144, teeAt: TEE });
+  const nothing = playedRound({ holes: 0, mins: 4, teeAt: offsetM(TEE, 900, 0) });
+  for (const r of [real, nothing]) {
+    saveRound(r);
+    upsertRoundSummary(app, r);
+    // Live learning, exactly as marking a shot does it.
+    for (const h of r.holes) {
+      const t = h.shots.find((x) => x.lie === 'tee' && x.mark);
+      if (t) learnTee(app, r, h.number, t.mark);
+    }
+  }
+  // Before the rebuild the unplayed round is in there.
+  assert(isPlayedRound(nothing) === false, 'the fixture is genuinely unplayed');
+
+  rebuildCourseLearning(app, loadRound);
+  const learned = app.courseLearning.veenker.tees[1].gold;
+  near(distanceM(TEE, learned), 0, 2, 'only the round that was played is left');
+  eq(learned.n, 1, 'and the unplayed one contributed nothing');
+});
+
+test('an abandoned round that got through five holes still counts', () => {
+  // Rain after five holes is real golf. The rule is about whether it was
+  // played, not about how it ended.
+  const r = playedRound({ holes: 5, mins: 70 });
+  r.status = 'abandoned';
+  eq(isPlayedRound(r), true, 'five holes in the rain is a round');
+});
+
 test('rebuilding with nothing played leaves an empty model, not a stale one', () => {
   const app = newAppState();
   const desk = playedRound({ holes: 0, mins: 2 });

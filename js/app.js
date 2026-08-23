@@ -13,7 +13,7 @@ import {
 import { GpsService } from './gps/gps.js';
 import * as wakeLock from './gps/wakelock.js';
 import { createTrackWriter } from './data/trackstore.js';
-import { appendTrack } from './round/round.js';
+import { appendTrack, rebuildCourseLearning } from './round/round.js';
 import { clear, toast } from './ui/dom.js';
 import * as pocketLock from './ui/lock.js';
 import { homeScreen } from './ui/screen-home.js';
@@ -259,9 +259,38 @@ onStorageError((err) => {
 
 /* ------------------------------------------------------------------- boot */
 
+/**
+ * The rule the course model was last rebuilt under.
+ *
+ * Bumped whenever what counts as a round worth learning from changes, so an
+ * install repairs itself once under the new rule rather than carrying a model
+ * built by the old one forever.
+ */
+const COURSE_MODEL_RULE = 1;
+
 function boot() {
   if (reconcileIndex(ctx.app)) saveApp(ctx.app);
   setTheme(ctx.app.settings.theme);
+
+  /*
+   * Repair the course model once, for installs built before the rule existed.
+   *
+   * `learnTee` and friends fire live on every mark, because that is the only
+   * moment a mark exists — and at that moment nothing knows whether the round
+   * will become golf or be abandoned after one shot. The running means they
+   * write cannot be subtracted, so every test session ever logged is still in
+   * there: 22 of them put Veenker's learned 1st and 10th tees 23.6 km apart and
+   * made the starting-nine check fire on every single round.
+   *
+   * Rounds ending now rebuild as they go, so this is only for the backlog. It
+   * is keyed on the rule version rather than a boolean, so tightening what
+   * counts as played repairs everyone again instead of only new installs.
+   */
+  if (ctx.app.settings.courseModelRule !== COURSE_MODEL_RULE) {
+    rebuildCourseLearning(ctx.app, loadRound);
+    ctx.app.settings.courseModelRule = COURSE_MODEL_RULE;
+    saveApp(ctx.app);
+  }
 
   // Resume: an in-progress round survives a refresh, a tab kill or a dead
   // battery, and comes back on the hole it was left on.

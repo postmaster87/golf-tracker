@@ -444,6 +444,28 @@ The cost of it sticking is silent and expensive — a scramble is quarantined fr
 strokes gained, so carrying it into an ordinary round means playing your own ball
 all day and finding out much later that none of it reached the analysis.
 
+### An unplayed round is dumped from the model
+
+His instruction: *"put a protecting in that if no holes are logged the round is
+dumped from the model."*
+
+`learnTee` and friends fire live, on every mark, because that is the only moment
+a mark exists — and at that moment nothing can know whether the round will turn
+into golf or be abandoned after one shot. The running means they write cannot be
+subtracted, so an unplayed round used to leave its marks in the course model
+permanently. That is how 22 desk sessions put Veenker's learned 1st and 10th
+tees 23.6 km apart.
+
+Two layers now:
+
+- **Every round end rebuilds the model** from the rounds that were played, so an
+  unplayed one is simply never replayed back in. Finishing and abandoning both
+  do it; deleting already did.
+- **A one-time repair at boot**, keyed on a rule version rather than a boolean,
+  so tightening what counts as played repairs every install again instead of
+  only new ones. Verified against a model carrying 11,500 m of historical
+  damage: rebuilt to **0 m**, with the desk session correctly refused.
+
 ### The known bug: root cause found, fixed
 
 The backlog carried this as "`tick()` does not fire on the play screen at all …

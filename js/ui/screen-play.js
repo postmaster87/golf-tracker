@@ -44,6 +44,7 @@ import {
   setCupFromPaces,
   cupIsPaced,
   holeWindow,
+  rebuildCourseLearning,
   addTrackShot,
   insertTeeShot,
   teeShot,
@@ -2160,6 +2161,21 @@ export function playScreen(ctx) {
             round.completedAt = new Date().toISOString();
             ctx.app.activeRoundId = null;
             persist();
+    /*
+     * Rebuild the course model now the round's fate is known.
+     *
+     * `learnTee` and friends fire live, on every mark, because that is the only
+     * moment the mark exists. But at that moment nothing can know whether the
+     * round will turn into golf or be abandoned after one shot — and the
+     * running means they write cannot be subtracted afterwards. So a round that
+     * was never played leaves its marks in the model permanently, which is how
+     * 22 desk sessions put Veenker's learned 1st and 10th tees 23.6 km apart.
+     *
+     * Replaying the played rounds at the end of every round is what makes that
+     * self-correcting: an unplayed round is simply never replayed back in.
+     */
+    rebuildCourseLearning(ctx.app, loadRound);
+
             ctx.round = null;
             ctx.stopGps();
             ctx.go('home');
@@ -2970,6 +2986,20 @@ export function playScreen(ctx) {
     round.completedAt = new Date().toISOString();
     ctx.app.activeRoundId = null;
     persist();
+    /*
+     * Rebuild the course model now the round's fate is known.
+     *
+     * `learnTee` and friends fire live, on every mark, because that is the only
+     * moment the mark exists. But at that moment nothing can know whether the
+     * round will turn into golf or be abandoned after one shot — and the
+     * running means they write cannot be subtracted afterwards. So a round that
+     * was never played leaves its marks in the model permanently, which is how
+     * 22 desk sessions put Veenker's learned 1st and 10th tees 23.6 km apart.
+     *
+     * Replaying the played rounds at the end of every round is what makes that
+     * self-correcting: an unplayed round is simply never replayed back in.
+     */
+    rebuildCourseLearning(ctx.app, loadRound);
     const id = round.id;
     ctx.round = null;
     ctx.stopGps();
