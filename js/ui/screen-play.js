@@ -49,7 +49,7 @@ import {
   learnCup,
   learnGreen,
   accumulatedHolePosition,
-  detectStartingNine,
+  detectStartingHole,
   fmtDistance,
   fmtToPar,
 } from '../round/round.js';
@@ -847,7 +847,7 @@ export function playScreen(ctx) {
 
     if (chosenLie === 'tee' && shot.seq === 1) {
       learnTee(ctx.app, round, hl.number, shot.mark);
-      if (round.currentHoleIndex === 0) checkStartingNine(shot);
+      if (round.currentHoleIndex === 0) checkStartingHole(shot);
     }
     // A ball resting on the green is a free sample of where that green is.
     if (chosenLie === 'green') learnGreen(ctx.app, round, hl.number, shot.mark);
@@ -1176,56 +1176,61 @@ export function playScreen(ctx) {
    * eighteen holes because of one GPS fix is exactly the kind of "helpful"
    * behaviour that ruins a dataset.
    */
-  function checkStartingNine(shot) {
-    const course = getCourse(ctx.app, round.courseId);
-    if (!course) return;
-    /*
-     * Only ask this where the question exists.
-     *
-     * A course with one nine has no other nine to have started on, and the
-     * check would compare the first hole's tee against the fifth's and offer to
-     * "switch nines" on the strength of it.
-     *
-     * A shotgun start breaks it the same way for a different reason: the round
-     * begins wherever the group was sent, so the first tee mark is near neither
-     * nine's opening hole and the verdict is meaningless. `holes[0]` is the
-     * hole actually teed off, so a rotated order says so plainly.
-     */
-    if (course.holes.length < 18) return;
-    const nine = Math.floor(course.holes.length / 2);
-    const opensNine = [course.holes[0]?.number, course.holes[nine]?.number];
-    if (!opensNine.includes(round.holes[0]?.number)) return;
+  /**
+   * Did he tee off on the hole the round says he did?
+   *
+   * Generalised from the old front-nine/back-nine check, which could only ever
+   * ask one question and could not see a shotgun start at all. Field test 4's
+   * second round was set to hole 7 while actually starting on hole 8 — every
+   * mark filed under the wrong number, silently, and the course model poisoned
+   * for good. Nothing asked.
+   *
+   * Runs on the first tee mark only, and stays quiet unless the evidence is
+   * decisive. The nagging guards live in `detectStartingHole`.
+   */
+  function checkStartingHole(shot) {
+    const verdict = detectStartingHole(ctx.app, round, shot.mark);
+    if (!verdict) return;
 
-    const verdict = detectStartingNine(ctx.app, course, round.teeSet, shot.mark);
-    if (!verdict || verdict.nine === round.startingNine) return;
-
-    sheet('Starting nine', (done) =>
+    sheet('Starting hole', (done) =>
       frag(
         h('p', {
           class: 'note',
-          text: `This round is set to start on the ${round.startingNine} nine, but your tee mark is ${Math.round(
-            verdict.nine === 'back' ? verdict.dBackM : verdict.dFrontM
-          )} m from the ${verdict.nine === 'back' ? '10th' : '1st'} tee and ${Math.round(
-            verdict.nine === 'back' ? verdict.dFrontM : verdict.dBackM
-          )} m from the other. Switch?`,
+          text: `This round is set to start on hole ${verdict.claimed}, but you are ${verdict.actualM} m from hole ${verdict.actual}'s tee and ${verdict.claimedM} m from hole ${verdict.claimed}'s.`,
+        }),
+        h('p', {
+          class: 'note muted',
+          text: 'Worth getting right now: this files every mark on the round under a hole number, and that cannot be corrected afterwards.',
         }),
         h('button', {
           class: 'btn primary',
-          text: `SWITCH TO ${verdict.nine.toUpperCase()} NINE`,
+          text: `RESTART ON HOLE ${verdict.actual}`,
           onClick: () => {
-            applyStartingNine(course, verdict.nine);
-            done(true);
+            done('switch');
+            restartOnHole(verdict.actual);
           },
         }),
-        h('button', { class: 'btn', text: 'Keep as set', onClick: () => done(false) })
+        h('button', {
+          class: 'btn sm dim',
+          text: `NO, I AM ON ${verdict.claimed}`,
+          onClick: () => done('keep'),
+        })
       )
     );
   }
 
-  /** Safe only on the first tee shot, when no other hole holds data yet. */
-  function applyStartingNine(course, nine) {
-    const firstShot = round.holes[0].shots[0];
-    const ordered = playOrder(course, nine, round.holes.length);
+  /**
+   * Re-deal the round from a different starting hole, keeping the tee shot.
+   *
+   * Safe only here, on the first tee mark, when no other hole holds data yet —
+   * which is why it can rebuild the hole list outright rather than trying to
+   * renumber a round already in flight.
+   */
+  function restartOnHole(number) {
+    const course = getCourse(ctx.app, round.courseId);
+    if (!course) return;
+    const firstShot = round.holes[round.currentHoleIndex]?.shots?.[0] ?? null;
+    const ordered = playOrder(course, round.startingNine, round.holes.length, number);
     round.holes = ordered.map((src, i) => ({
       ...round.holes[i],
       number: src.number,
@@ -1236,14 +1241,18 @@ export function playScreen(ctx) {
       shots: [],
       cup: null,
       manual: null,
+      greenEntry: null,
       completedAt: null,
     }));
-    round.holes[0].shots = [firstShot];
-    round.startingNine = nine;
-    ctx.app.settings.startingNine = nine;
+    round.currentHoleIndex = 0;
+    if (firstShot) round.holes[0].shots = [firstShot];
+    // Both are per-hole and the hole underneath them just changed identity.
+    holeOrigin = null;
+    teeNudge = null;
+    clearLastMark();
     persist();
     paint();
-    toast(`Switched to the ${nine} nine.`);
+    toast(`Restarted on hole ${number}. Your tee shot came with it.`, { ms: 7000 });
   }
 
   /* ------------------------------------------------------------- actions */

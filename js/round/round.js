@@ -823,12 +823,28 @@ function learningFor(app, courseId) {
   return app.courseLearning[courseId];
 }
 
-/** Fold a good-quality tee mark into the accumulated tee position. */
-export function learnTee(app, round, holeNumber, mark) {
-  if (!mark || mark.quality === 'poor') return;
+/**
+ * Fold a good-quality tee mark into the accumulated tee position.
+ *
+ * A tee box does not move. `warnM` is generous enough to absorb a tee set being
+ * played forward and the markers being shifted, and nothing else — a mark
+ * further out than this is on another hole, or another course, or a desk. It is
+ * still recorded on the round; it simply does not get to teach the course.
+ */
+export function learnTee(app, round, holeNumber, mark, { warnM = 120 } = {}) {
+  if (!mark || mark.quality === 'poor') return { warning: null };
   const L = learningFor(app, round.courseId);
   L.tees[holeNumber] ??= {};
-  L.tees[holeNumber][round.teeSet] = runningMean(L.tees[holeNumber][round.teeSet], mark);
+  const prev = L.tees[holeNumber][round.teeSet];
+  let warning = null;
+  if (prev && prev.n >= 1) {
+    const d = distanceM(prev, mark);
+    if (d > warnM) {
+      warning = `Tee mark is ${Math.round(toYards(d))} yd from where hole ${holeNumber}'s ${round.teeSet} tee has been.`;
+    }
+  }
+  if (!warning) L.tees[holeNumber][round.teeSet] = runningMean(prev, mark);
+  return { warning };
 }
 
 /**
@@ -909,11 +925,49 @@ export function learnGreen(app, round, holeNumber, mark) {
  * — the failure here was a wrong hole NUMBER, not an abandoned round, and the
  * fix for that is deleting the round, which now works.
  */
+/**
+ * Was this round actually played on the course, or was it a test?
+ *
+ * The distinction is not cosmetic — it decides what the app is allowed to
+ * believe about a golf course. Field test 4's export carried 26 rounds, of
+ * which four were real; the other 22 were development sessions logged at a
+ * desk, and every one of them taught the course model where a tee was. The
+ * damage: Veenker's learned 1st and 10th tees ended up **23.6 km apart**, and
+ * hole 1's learned tee sat 23 km from the tee in the two rounds that were
+ * genuinely played there.
+ *
+ * That is what made `detectStartingNine` prompt on every single round — it
+ * compares the first mark against those positions, they are nonsense, so it
+ * produces a confident wrong verdict every time.
+ *
+ * Clustering the marks does NOT rescue this. The largest cluster of hole 1 tee
+ * marks has six members and is a desk; the real tee has two, from the only two
+ * rounds that reached the ninth green. Volume of marks says nothing. Whether
+ * the round was played says everything, and it separates cleanly: real rounds
+ * finished 5-9 holes over 93-181 minutes, and every polluting round finished
+ * one hole or none, most inside two minutes.
+ *
+ * Deliberately not keyed on `status`. An abandoned round that got through five
+ * holes is real golf and worth learning from; a "completed" round that lasted
+ * two minutes is not.
+ */
+export function isPlayedRound(round, { minHoles = 5, minMinutes = 30 } = {}) {
+  if (!round?.holes?.length) return false;
+  const finished = round.holes.filter((h) => h.greenEntry || h.manual).length;
+  if (finished < minHoles) return false;
+  const start = Date.parse(round.startedAt);
+  const end = Date.parse(round.completedAt ?? round.startedAt);
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return false;
+  return (end - start) / 60000 >= minMinutes;
+}
+
 export function rebuildCourseLearning(app, load) {
   app.courseLearning = {};
   for (const summary of app.rounds ?? []) {
     const round = load(summary.id);
     if (!round?.courseId) continue;
+    // A round that was never played teaches nothing. See `isPlayedRound`.
+    if (!isPlayedRound(round)) continue;
     for (const hole of round.holes ?? []) {
       const tee = hole.shots?.find((s) => s.lie === 'tee' && s.mark);
       if (tee) learnTee(app, round, hole.number, tee.mark);
@@ -938,6 +992,70 @@ export function accumulatedHolePosition(app, courseId, holeNumber) {
   const green = L?.greens?.[holeNumber];
   if (green) return { lat: green.lat, lon: green.lon, source: 'accumulated-green', uncertaintyM: 18, n: green.n };
   return null;
+}
+
+/**
+ * WHICH HOLE DID HE ACTUALLY TEE OFF ON?
+ *
+ * Replaces `detectStartingNine`, which asked a narrower question — front nine
+ * or back — and could only ever catch one kind of mistake. A shotgun start can
+ * put you on any hole, and field test 4's second round was set to hole 7 while
+ * actually starting on hole 8: its "hole 7" tee sits 4.9 m from the real hole 8
+ * tee. Nothing questioned it, every mark went in under the wrong number, and
+ * the course model took the damage permanently.
+ *
+ * The question this asks instead: of all the tees this course has taught us,
+ * which one is the first mark standing on? If that is not the hole the round
+ * says it started on, and the answer is not close, say so.
+ *
+ * TWO GUARDS AGAINST NAGGING, which matters more than the detection.
+ *
+ * Matt on the old check: *"Veenker Tees are close enough it asks me every
+ * time."* The real cause was a poisoned model rather than close tees, but the
+ * lesson stands — a check that cries wolf gets dismissed reflexively and then
+ * catches nothing.
+ *
+ *   1. The candidate must be **decisively** closer than the hole he chose. A
+ *      tee that is merely nearer by a few metres is GPS noise, not evidence.
+ *   2. The mark must be plausibly ON the candidate tee. Being 400 m from every
+ *      known tee means the model does not cover where he is, and the honest
+ *      response to that is silence, not a guess.
+ *
+ * Returns null whenever the data cannot carry the question — which is most of
+ * the time, and is the point.
+ */
+export function detectStartingHole(app, round, mark, { decisiveM = 60, maxFromTeeM = 50 } = {}) {
+  const L = app.courseLearning?.[round?.courseId];
+  if (!L?.tees || !mark) return null;
+
+  const claimed = round.holes?.[0]?.number ?? null;
+  if (claimed == null) return null;
+
+  const candidates = [];
+  for (const [num, sets] of Object.entries(L.tees)) {
+    const tee = sets?.[round.teeSet];
+    if (!tee) continue;
+    candidates.push({ hole: Number(num), distanceM: distanceM(tee, mark) });
+  }
+  if (candidates.length < 2) return null; // nothing to compare against
+
+  candidates.sort((a, b) => a.distanceM - b.distanceM);
+  const best = candidates[0];
+  const claimedTee = candidates.find((c) => c.hole === claimed) ?? null;
+
+  // The model has never seen the hole he says he is on. Not evidence of a
+  // mistake — it is evidence the model is incomplete.
+  if (!claimedTee) return null;
+  if (best.hole === claimed) return null;
+  if (best.distanceM > maxFromTeeM) return null;
+  if (claimedTee.distanceM - best.distanceM < decisiveM) return null;
+
+  return {
+    claimed,
+    actual: best.hole,
+    actualM: Math.round(best.distanceM),
+    claimedM: Math.round(claimedTee.distanceM),
+  };
 }
 
 /**

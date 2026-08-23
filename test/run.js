@@ -19,6 +19,7 @@ import {
   teeShot,
   teeIsInferred,
   rebuildCourseLearning,
+  isPlayedRound,
   holeWindow,
   setCup,
   undoLast,
@@ -51,6 +52,7 @@ import {
   learnTee,
   learnCup,
   detectStartingNine,
+  detectStartingHole,
   fmtDistance,
 } from '../js/round/round.js';
 import {
@@ -2546,78 +2548,160 @@ test('a marked tee is not flagged as inferred', () => {
   assert(teeShot(round.holes[0]), 'and is found as the tee shot');
 });
 
-group('the course model can be rebuilt');
+group('which hole did he actually tee off on');
 
-/** Two rounds where the second files its marks under the wrong hole numbers. */
-function pollutedApp() {
-  const app = newAppState();
-  const good = par4Round();
-  good.courseId = 'veenker';
-  addShot(good.holes[0], { lie: 'tee', reduced: fakeReduced(TEE) });
-  setCup(good.holes[0], fakeReduced(offsetM(TEE, 370, 0)));
-  saveRound(good);
-  upsertRoundSummary(app, good);
-
-  // The field test 4 failure: a shotgun round set to the wrong starting hole,
-  // so hole 1's slot holds a tee 450 m away.
-  const bad = par4Round();
-  bad.courseId = 'veenker';
-  addShot(bad.holes[0], { lie: 'tee', reduced: fakeReduced(offsetM(TEE, 450, 0)) });
-  bad.status = 'abandoned';
-  saveRound(bad);
-  upsertRoundSummary(app, bad);
-
-  for (const r of [good, bad]) {
-    for (const h of r.holes) {
-      const t = h.shots.find((s) => s.lie === 'tee' && s.mark);
-      if (t) learnTee(app, r, h.number, t.mark);
-      if (h.cup) learnCup(app, r, h.number, h.cup);
-    }
-  }
-  return { app, good, bad };
-}
-
-test('a wrong-hole round drags the learned tee off the real one', () => {
-  // Reproduces the bug, so the repair below is measured against it rather than
-  // asserted into existence.
-  const { app } = pollutedApp();
-  const learned = app.courseLearning.veenker.tees[1].gold;
-  const off = distanceM(TEE, learned);
-  assert(off > 150, `expected heavy pollution, got ${off.toFixed(0)} m`);
-});
-
-test('deleting the round and rebuilding puts the model back', () => {
-  const { app, bad } = pollutedApp();
-  deleteRound(bad.id);
-  app.rounds = app.rounds.filter((s) => s.id !== bad.id);
-  rebuildCourseLearning(app, loadRound);
-  const learned = app.courseLearning.veenker.tees[1].gold;
-  near(distanceM(TEE, learned), 0, 1, 'learned tee is back on the real tee');
-  eq(learned.n, 1, 'and it counts one observation, not two');
-});
-
-test('rebuilding from nothing leaves an empty model, not a stale one', () => {
-  const { app } = pollutedApp();
-  app.rounds = [];
-  rebuildCourseLearning(app, loadRound);
-  eq(Object.keys(app.courseLearning).length, 0, 'nothing left to learn from');
-});
-
-group('an impossible cup mark does not teach the course');
-
-test('a cup 150 yards from last round is flagged after ONE prior round', () => {
-  // It used to arm at n >= 2, so the first contradicting mark went in
-  // unchallenged — which is exactly how holes 7 and 8 were poisoned.
+/** Seed a course model with real tees for a few holes. */
+function seededApp(holes = { 1: 0, 7: 600, 8: 950, 10: 300 }) {
   const app = newAppState();
   const round = par4Round();
-  const first = fakeReduced(offsetM(TEE, 370, 0));
-  eq(learnCup(app, round, 1, first).warning, null, 'the first mark cannot contradict anything');
-  const far = fakeReduced(offsetM(TEE, 520, 0));
-  const { warning } = learnCup(app, round, 1, far);
+  for (const [n, north] of Object.entries(holes)) {
+    learnTee(app, round, Number(n), fakeReduced(offsetM(TEE, north, 0)));
+  }
+  return { app, round };
+}
+
+/** A round dealt to start on `startHole`, as the setup screen would. */
+function roundStartingOn(startHole) {
+  return createRound({
+    course: VEENKER, teeSet: 'gold', startingNine: 'front', type: 'practice',
+    holeCount: 18, startHole,
+  });
+}
+
+test('it catches the field test 4 mistake: set to 7, standing on 8', () => {
+  const { app } = seededApp();
+  const r = roundStartingOn(7);
+  const verdict = detectStartingHole(app, r, fakeReduced(offsetM(TEE, 950, 0)));
+  assert(verdict, 'expected a verdict');
+  eq(verdict.claimed, 7, 'what the round says');
+  eq(verdict.actual, 8, 'where he is standing');
+});
+
+test('it says nothing when he is on the hole he said', () => {
+  const { app } = seededApp();
+  const r = roundStartingOn(7);
+  eq(detectStartingHole(app, r, fakeReduced(offsetM(TEE, 603, 2))), null, 'no complaint');
+});
+
+test('it says nothing when two tees are too close to call', () => {
+  // The guard that matters most. "Veenker Tees are close enough it asks me
+  // every time" is how a check earns a reflexive dismissal and then catches
+  // nothing. Tees 30 m apart cannot separate a shotgun start from GPS noise.
+  const { app } = seededApp({ 1: 0, 2: 30 });
+  const r = roundStartingOn(1);
+  eq(detectStartingHole(app, r, fakeReduced(offsetM(TEE, 22, 0))), null, 'ambiguous => silent');
+});
+
+test('it says nothing when he is nowhere near any known tee', () => {
+  // The model does not cover where he is. That is not evidence of a mistake.
+  const { app } = seededApp();
+  const r = roundStartingOn(7);
+  eq(detectStartingHole(app, r, fakeReduced(offsetM(TEE, 5000, 0))), null, 'off the map => silent');
+});
+
+test('it says nothing about a hole the model has never seen', () => {
+  const { app } = seededApp({ 1: 0, 10: 300 });
+  const r = roundStartingOn(7); // hole 7 unseeded
+  eq(detectStartingHole(app, r, fakeReduced(offsetM(TEE, 5, 0))), null, 'no reference => silent');
+});
+
+test('it needs more than one tee before it has an opinion at all', () => {
+  const { app } = seededApp({ 1: 0 });
+  const r = roundStartingOn(1);
+  eq(detectStartingHole(app, r, fakeReduced(offsetM(TEE, 900, 0))), null, 'one tee proves nothing');
+});
+
+
+group('only a round that was played teaches the course');
+
+/** A round with `holes` finished over `mins`, teeing off at `teeAt`. */
+function playedRound({ holes = 9, mins = 120, teeAt = TEE, courseId = 'veenker' } = {}) {
+  const round = par4Round();
+  round.courseId = courseId;
+  round.startedAt = new Date(Date.now() - mins * 60000).toISOString();
+  round.completedAt = new Date().toISOString();
+  for (let i = 0; i < holes; i++) {
+    const h = round.holes[i];
+    addShot(h, { lie: 'tee', reduced: fakeReduced(i === 0 ? teeAt : offsetM(teeAt, 400 * (i + 1), 0)) });
+    setGreenEntry(h, { putts: 2, distances: [10, 2], unit: 'feet' });
+  }
+  return round;
+}
+
+test('a real round counts and a two-minute test does not', () => {
+  // 26 rounds were exported after field test 4. Four were golf; the rest were
+  // logged at a desk, and every one of them taught the course model.
+  eq(isPlayedRound(playedRound({ holes: 9, mins: 144 })), true, 'field test 3 shape');
+  eq(isPlayedRound(playedRound({ holes: 8, mins: 145 })), true, 'field test 2 shape');
+  eq(isPlayedRound(playedRound({ holes: 5, mins: 93 })), true, 'field test 1 shape');
+  eq(isPlayedRound(playedRound({ holes: 0, mins: 2 })), false, 'a desk session');
+  eq(isPlayedRound(playedRound({ holes: 1, mins: 33 })), false, 'one hole is not a round');
+  // The round left open for a week: long, but nothing was played.
+  eq(isPlayedRound(playedRound({ holes: 0, mins: 11280 })), false, 'open for days, played none');
+});
+
+test('rebuilding learns from the played round and ignores the rest', () => {
+  const app = newAppState();
+  const real = playedRound({ holes: 9, mins: 144, teeAt: TEE });
+  // A desk session whose "hole 1 tee" is somewhere else entirely.
+  const desk = playedRound({ holes: 0, mins: 2, teeAt: offsetM(TEE, 23000, 0) });
+  for (const r of [real, desk]) {
+    saveRound(r);
+    upsertRoundSummary(app, r);
+  }
+  rebuildCourseLearning(app, loadRound);
+  const learned = app.courseLearning.veenker.tees[1].gold;
+  near(distanceM(TEE, learned), 0, 2, 'the learned tee is the one he played from');
+  eq(learned.n, 1, 'and the desk session contributed nothing');
+});
+
+test('rebuilding with nothing played leaves an empty model, not a stale one', () => {
+  const app = newAppState();
+  const desk = playedRound({ holes: 0, mins: 2 });
+  saveRound(desk);
+  upsertRoundSummary(app, desk);
+  rebuildCourseLearning(app, loadRound);
+  eq(Object.keys(app.courseLearning).length, 0, 'nothing to learn from');
+});
+
+group('an impossible mark does not teach the course');
+
+test('a tee mark far from the known tee is refused', () => {
+  // Veenker's learned 1st and 10th tees ended up 23.6 km apart because every
+  // mark was folded in unconditionally. A tee box does not move 450 m.
+  const app = newAppState();
+  const round = par4Round();
+  eq(learnTee(app, round, 1, fakeReduced(TEE)).warning, null, 'the first mark sets the reference');
+  const { warning } = learnTee(app, round, 1, fakeReduced(offsetM(TEE, 450, 0)));
+  assert(warning, 'expected a warning on a 450 m jump');
+  const learned = app.courseLearning[round.courseId].tees[1].gold;
+  near(distanceM(TEE, learned), 0, 1, 'the model still points at the real tee');
+  eq(learned.n, 1, 'and the impossible mark was not counted');
+});
+
+test('a tee set played forward is still learned from', () => {
+  // The guard is for marks that cannot be the same tee, not for the markers
+  // being moved up or a different set being played.
+  const app = newAppState();
+  const round = par4Round();
+  learnTee(app, round, 1, fakeReduced(TEE));
+  const { warning } = learnTee(app, round, 1, fakeReduced(offsetM(TEE, 40, 5)));
+  eq(warning, null, '40 m is a tee marker, not a mistake');
+  eq(app.courseLearning[round.courseId].tees[1].gold.n, 2, 'and it counts');
+});
+
+test('a cup mark far from last round is flagged after ONE prior round', () => {
+  // It used to arm at n >= 2, so the first contradicting mark went in
+  // unchallenged — which is exactly how Radcliffe's holes 7 and 8 were
+  // poisoned, each having a single prior observation.
+  const app = newAppState();
+  const round = par4Round();
+  eq(learnCup(app, round, 1, fakeReduced(offsetM(TEE, 370, 0))).warning, null, 'the first mark sets the reference');
+  const { warning } = learnCup(app, round, 1, fakeReduced(offsetM(TEE, 520, 0)));
   assert(warning, 'expected a warning on a 150 m jump');
 });
 
-test('and the flagged mark is not folded into the model', () => {
+test('and the flagged cup is not folded into the model', () => {
   const app = newAppState();
   const round = par4Round();
   const good = offsetM(TEE, 370, 0);
