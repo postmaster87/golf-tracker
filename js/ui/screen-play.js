@@ -330,18 +330,35 @@ export function playScreen(ctx) {
     );
   }
 
+  /**
+   * Repaint the live figures inside the capture panel.
+   *
+   * Uses the element references `paintCapture` hands over, NOT a class lookup.
+   * It used to query `.cap-meta` and `.cap-bar span` off `body` — and the
+   * capture panel is appended to `footer`. Both lookups returned null, both
+   * were guarded by `if (bar)` / `if (meta)`, and so this function silently did
+   * nothing at all for every capture the app has ever taken.
+   *
+   * What that looked like on a golf course: the progress bar never moved and
+   * the panel read "Capturing…" forever, including for minutes after the burst
+   * had finished and the shot was sitting there waiting for a lie. The tee shot
+   * hid it, because a tee shot commits itself; every other shot looked hung.
+   * Field test 5, in his words: "multiple times I hit mark shot and it hung
+   * (app said capturing shot) and it did not log it. I had to refresh the app
+   * and then remark the shot."
+   *
+   * Nothing was ever wrong with the capture. The shot was always one lie tap
+   * from being saved — the screen just never said so.
+   */
   function updateCaptureUI() {
-    if (!capture) return;
-    const bar = body.querySelector('.cap-bar span');
-    const meta = body.querySelector('.cap-meta');
+    if (!capture?.ui) return;
+    const { bar, meta } = capture.ui;
     const pct = Math.min(100, (capture.progress.elapsed / capture.progress.total) * 100);
-    if (bar) bar.style.width = `${pct}%`;
-    if (meta) {
-      const best = capture.progress.bestAcc;
-      meta.textContent = capture.reduced
-        ? `Captured · ${capture.reduced.usedCount}/${capture.reduced.sampleCount} fixes · ±${capture.reduced.accuracyM} m`
-        : `Capturing · ${capture.progress.count} fixes${best != null ? ` · best ±${best.toFixed(1)} m` : ''}`;
-    }
+    bar.style.width = `${pct}%`;
+    const best = capture.progress.bestAcc;
+    meta.textContent = capture.reduced
+      ? `Captured · ${capture.reduced.usedCount}/${capture.reduced.sampleCount} fixes · ±${capture.reduced.accuracyM} m`
+      : `Capturing · ${capture.progress.count} fixes${best != null ? ` · best ±${best.toFixed(1)} m` : ''}`;
   }
 
   /* --------------------------------------------------------------- paint */
@@ -744,6 +761,12 @@ export function playScreen(ctx) {
     }
 
     footer.appendChild(wrap);
+    /*
+     * Handed over by reference rather than looked up later. A repaint builds a
+     * fresh panel, so these are refreshed every time — and nothing downstream
+     * has to know which container the panel ended up in.
+     */
+    capture.ui = { bar: wrap.querySelector('.cap-bar span'), meta: wrap.querySelector('.cap-meta') };
     footer.appendChild(
       h('button', {
         class: 'btn sm',

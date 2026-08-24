@@ -492,6 +492,36 @@ still running modules loaded before the deploy. Comparing the deployed id asks
 the question directly, and answers it the same way whether or not a service
 worker exists.
 
+### Field test 5: "mark shot hung and did not log it"
+
+His report: *"multiple times I hit mark shot and it hung (app said capturing
+shot) and it did not log it. I had to refresh the app and then remark the
+shot."* Hole 10's third shot is the worked example — a punchout knocked down on
+the edge of the fairway rough, marked, and lost.
+
+**The capture was never broken.** `updateCaptureUI` looked its targets up with
+`body.querySelector('.cap-meta')`, and `paintCapture` appends the panel to
+`footer`. Both lookups returned null, both sat behind `if (bar)` / `if (meta)`,
+and the function therefore did nothing at all — for every capture the app has
+ever taken.
+
+So the progress bar never moved and the panel read the hardcoded "Capturing…"
+forever, including minutes after the burst had finished and the shot was sitting
+one lie tap from being saved. A tee shot hides it completely, because a tee shot
+commits itself; every other shot looks hung. The lock tab made it worse rather
+than causing it: locking straight after MARK SHOT covers the lie grid, so the
+first thing seen on unlocking is a panel claiming to still be capturing.
+
+The track settles what did not happen: 782 fixes over the nine minutes around
+the failure, continuous at 1 Hz, **no gap**. The page was never frozen and the
+receiver never stopped — this was only ever the screen refusing to say the burst
+was over.
+
+Fixed by handing the elements over from `paintCapture` by reference instead of
+looking them up by class afterwards, so nothing downstream has to know which
+container the panel is in. Five tests drive the real screen and assert the panel
+changes; reintroducing the old lookup fails four of them.
+
 ### The known bug: root cause found, fixed
 
 The backlog carried this as "`tick()` does not fire on the play screen at all …

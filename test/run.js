@@ -3603,6 +3603,135 @@ test('a stop far beyond putting range is never taken as the cup', () => {
   eq(late, null, 'accepted a stop that is nowhere near the ball');
 });
 
+
+/* ------------------------------------------------- the capture panel is live */
+
+/**
+ * THE BUG THIS GUARDS.
+ *
+ * `updateCaptureUI` looked its targets up with `body.querySelector('.cap-meta')`
+ * while `paintCapture` appended the panel to `footer`. Both lookups returned
+ * null, both were guarded by `if (bar)` / `if (meta)`, and the function
+ * therefore did nothing at all — for every capture the app had ever taken.
+ *
+ * On the course that reads as a hang. The progress bar never moves and the
+ * panel says "Capturing…" forever, including long after the burst has finished
+ * and the shot is sitting one lie tap from being saved. A tee shot hides it
+ * completely, because a tee shot commits itself. Field test 5, in his words:
+ * "multiple times I hit mark shot and it hung (app said capturing shot) and it
+ * did not log it."
+ *
+ * So the test drives the real screen and asserts the panel actually changes —
+ * a silently-guarded lookup against the wrong container passes any test that
+ * only checks the capture eventually commits.
+ */
+export async function runCaptureUiTests() {
+  group('the capture panel reports progress');
+
+  const app = newAppState();
+  const round = par4Round();
+  const now = Date.now();
+
+  // A receiver that answers instantly, so the test is about the panel rather
+  // than about waiting out a burst.
+  const gps = {
+    running: true,
+    error: null,
+    fixCount: 4,
+    last: { lat: TEE.lat, lon: TEE.lon, acc: 2.5, ts: now },
+    get current() {
+      return this.last;
+    },
+    staleSinceMs: () => 0,
+    subscribe: () => () => {},
+    captureBurst({ onProgress }) {
+      // One tick mid-burst, then resolve — the shape the real one produces.
+      onProgress?.({ elapsed: 1500, total: 3000, count: 2, bestAcc: 2.5 });
+      return Promise.resolve({
+        lat: TEE.lat,
+        lon: TEE.lon,
+        accuracyM: 1.53,
+        quality: 'good',
+        spreadM: 1,
+        usedCount: 3,
+        sampleCount: 4,
+        samples: [],
+      });
+    },
+  };
+
+  const screen = playScreen({
+    app,
+    round,
+    gps,
+    params: {},
+    go() {},
+    persistRound() {},
+    persistApp() {},
+    startGps() {},
+    stopGps() {},
+    trackStats: () => null,
+  });
+  document.body.appendChild(screen.el);
+
+  const press = (re) =>
+    [...screen.el.querySelectorAll('.footer button')].find((b) => re.test(b.textContent))?.click();
+  const meta = () => screen.el.querySelector('.cap-meta')?.textContent ?? null;
+
+  // The tee shot commits itself, which is exactly why it hid the bug.
+  press(/MARK TEE SHOT/);
+  await new Promise((r) => setTimeout(r, 80));
+
+  // A landing mark is the case that waits for a lie.
+  press(/MARK SHOT/);
+  await new Promise((r) => setTimeout(r, 80));
+  const afterBurst = meta();
+  const barWidth = screen.el.querySelector('.cap-bar span')?.style.width ?? '';
+  const lieOffered = Boolean(screen.el.querySelector('.lie-grid'));
+
+  // Repainting must not lose it either — tapping a club repaints the panel.
+  screen.el.querySelector('.club-grid .seg-btn')?.click();
+  await new Promise((r) => setTimeout(r, 40));
+  const afterRepaint = meta();
+
+  screen.el.remove();
+
+  test('the panel is found where it actually lives, not where it was assumed to be', () => {
+    assert(afterBurst != null, 'no capture panel rendered at all');
+    assert(
+      afterBurst !== 'Capturing…',
+      `the panel never updated — still the hardcoded placeholder (${JSON.stringify(afterBurst)})`
+    );
+  });
+
+  test('it says the burst finished, rather than capturing forever', () => {
+    assert(
+      /^Captured/.test(afterBurst),
+      `expected the panel to report completion, got ${JSON.stringify(afterBurst)}`
+    );
+    assert(/1\.53/.test(afterBurst), 'and to quote the accuracy it settled on');
+  });
+
+  test('the progress bar is driven', () => {
+    assert(barWidth !== '', 'the bar was never given a width');
+  });
+
+  test('a finished burst still waits on the lie, and says so', () => {
+    // The shot is one tap from saved. That was always true; the screen simply
+    // never admitted the burst was over.
+    assert(lieOffered, 'the lie grid should be on screen waiting');
+  });
+
+  test('a repaint does not drop it back to the placeholder', () => {
+    // paintCapture rebuilds the panel, so the references have to be re-handed
+    // every time. Tapping a club is the ordinary way that happens mid-capture.
+    assert(
+      afterRepaint == null || afterRepaint !== 'Capturing…',
+      `a repaint reverted the panel to the placeholder (${JSON.stringify(afterRepaint)})`
+    );
+  });
+}
+
 /**
  * LIVE INDICATORS ON THE PLAY SCREEN
  *

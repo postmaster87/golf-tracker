@@ -39,6 +39,7 @@
         runTrackStoreTests,
         runExportTrackTests,
         runLiveIndicatorTests,
+        runCaptureUiTests,
       } from './run.js';
 
       await runContrastTests();
@@ -47,6 +48,7 @@
       await runTrackStoreTests();
       await runExportTrackTests();
       await runLiveIndicatorTests();
+      await runCaptureUiTests();
       const results = getResults();
       const failed = results.filter((r) => !r.ok);
 
