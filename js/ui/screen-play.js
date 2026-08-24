@@ -14,7 +14,7 @@ import {
 import { SELECTABLE_CLUBS, clubLabel, clubFull } from '../data/clubs.js';
 import { LIES, LIE_LABELS, PENALTY_TYPES, isUnscored } from '../data/schema.js';
 import { getCourse, playOrder, holeYards } from '../data/courses.js';
-import { distanceM, toFeet } from '../util/geo.js';
+import { distanceM, toFeet, toYards } from '../util/geo.js';
 import {
   currentHole,
   addShot,
@@ -326,7 +326,7 @@ export function playScreen(ctx) {
     accChip.dataset.q = fix.acc <= max / 2 ? 'good' : fix.acc <= max ? 'degraded' : 'poor';
     accChip.replaceChildren(
       h('small', { text: 'accuracy' }),
-      document.createTextNode(`±${fix.acc.toFixed(1)}m`)
+      document.createTextNode(`±${Math.round(toFeet(fix.acc))}ft`)
     );
   }
 
@@ -357,8 +357,8 @@ export function playScreen(ctx) {
     bar.style.width = `${pct}%`;
     const best = capture.progress.bestAcc;
     meta.textContent = capture.reduced
-      ? `Captured · ${capture.reduced.usedCount}/${capture.reduced.sampleCount} fixes · ±${capture.reduced.accuracyM} m`
-      : `Capturing · ${capture.progress.count} fixes${best != null ? ` · best ±${best.toFixed(1)} m` : ''}`;
+      ? `Captured · ${capture.reduced.usedCount}/${capture.reduced.sampleCount} fixes · ±${Math.round(toFeet(capture.reduced.accuracyM))} ft`
+      : `Capturing · ${capture.progress.count} fixes${best != null ? ` · best ±${Math.round(toFeet(best))} ft` : ''}`;
   }
 
   /* --------------------------------------------------------------- paint */
@@ -594,7 +594,7 @@ export function playScreen(ctx) {
               : s.penalty
                 ? 'penalty'
                 : g.toHoleSource?.startsWith('accumulated')
-                  ? `est. ±${Math.round(g.toHoleUncertaintyM)} m`
+                  ? `est. ±${Math.round(toYards(g.toHoleUncertaintyM))} yd`
                   : ''
           : g.lengthM != null
             ? 'shot'
@@ -648,7 +648,7 @@ export function playScreen(ctx) {
             h('span', { class: 'lie', text: 'Cup' }),
             // Not "holed out" — the cup is marked before putting now, so it
             // records where the hole is, not that the ball went in it.
-            h('span', { class: 'dist' }, `±${hl.cup.accuracyM} m`, h('small', { text: 'hole marked' }))
+            h('span', { class: 'dist' }, `±${Math.round(toFeet(hl.cup.accuracyM))} ft`, h('small', { text: 'hole marked' }))
           )
         )
       );
@@ -1281,7 +1281,7 @@ export function playScreen(ctx) {
           } else if (!located) {
             readout = 'Not enough track on this green to place it. Pace the first putt instead.';
           } else {
-            readout = `Cup placed ±${Math.round(located.uncertaintyM)} m. ${located.reasons[located.reasons.length - 1]}.`;
+            readout = `Cup placed ±${Math.round(toFeet(located.uncertaintyM))} ft. ${located.reasons[located.reasons.length - 1]}.`;
           }
 
           wrap.appendChild(
@@ -1398,7 +1398,7 @@ export function playScreen(ctx) {
       frag(
         h('p', {
           class: 'note',
-          text: `This round is set to start on hole ${verdict.claimed}, but you are ${verdict.actualM} m from hole ${verdict.actual}'s tee and ${verdict.claimedM} m from hole ${verdict.claimed}'s.`,
+          text: `This round is set to start on hole ${verdict.claimed}, but you are ${Math.round(toYards(verdict.actualM))} yd from hole ${verdict.actual}'s tee and ${Math.round(toYards(verdict.claimedM))} yd from hole ${verdict.claimed}'s.`,
         }),
         h('p', {
           class: 'note muted',
@@ -1983,7 +1983,7 @@ export function playScreen(ctx) {
         shot.mark
           ? h('p', {
               class: 'note muted',
-              text: `±${shot.mark.accuracyM} m · ${shot.mark.usedCount}/${shot.mark.sampleCount} fixes used · spread ${shot.mark.spreadM} m · ${new Date(shot.mark.ts).toLocaleTimeString()}`,
+              text: `±${Math.round(toFeet(shot.mark.accuracyM))} ft · ${shot.mark.usedCount}/${shot.mark.sampleCount} fixes used · spread ${Math.round(toFeet(shot.mark.spreadM))} ft · ${new Date(shot.mark.ts).toLocaleTimeString()}`,
             })
           : h('p', { class: 'note muted', text: 'Hand-entered — no GPS mark.' }),
         h('button', {
@@ -2549,7 +2549,7 @@ export function playScreen(ctx) {
         rows.forEach((row, i) => {
           const c = row.candidate;
           const bits = [];
-          if (c.departureM != null) bits.push(`ball went ${Math.round(c.departureM)} m`);
+          if (c.departureM != null) bits.push(`ball went ${Math.round(toYards(c.departureM))} yd`);
           bits.push(`stood ${Math.round(c.dwellMs / 1000)} s`);
           if (Number.isFinite(c.arrivalSpeed)) {
             bits.push(c.arrivalSpeed > 2.5 ? 'arrived by cart' : 'arrived on foot');
@@ -2624,7 +2624,7 @@ export function playScreen(ctx) {
                 class: 'note muted',
                 text: `From where you stood to pick the ball out — ${Math.round(
                   cupOffer.dwellMs / 1000
-                )} s, give or take ${Math.round(candidateAccuracyM(cupOffer))} m. Without this the hole produces no strokes gained at all.`,
+                )} s, give or take ${Math.round(toFeet(candidateAccuracyM(cupOffer)))} ft. Without this the hole produces no strokes gained at all.`,
               }),
               segmented(
                 [

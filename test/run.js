@@ -3709,7 +3709,8 @@ export async function runCaptureUiTests() {
       /^Captured/.test(afterBurst),
       `expected the panel to report completion, got ${JSON.stringify(afterBurst)}`
     );
-    assert(/1\.53/.test(afterBurst), 'and to quote the accuracy it settled on');
+    // 1.53 m is 5.0 ft. Reported in feet, like everything else on screen.
+    assert(/5\s*ft/.test(afterBurst), `expected the accuracy in feet, got ${JSON.stringify(afterBurst)}`);
   });
 
   test('the progress bar is driven', () => {
@@ -3788,8 +3789,11 @@ export async function runLiveIndicatorTests() {
   await new Promise((r) => setTimeout(r, 2400));
   const afterRemoval = chipText();
 
-  test('the accuracy chip shows the live reading while fixes are arriving', () => {
-    assert(/3\.2/.test(whileLive), `expected the live accuracy, got ${JSON.stringify(whileLive)}`);
+  test('the accuracy chip shows the live reading, in feet', () => {
+    // 3.2 m is 10.5 ft. Metres never reach the screen — Matt reads yards and
+    // feet, and a number he has to convert in his head is one he will not check.
+    assert(/10\s*ft/.test(whileLive), `expected the live accuracy in feet, got ${JSON.stringify(whileLive)}`);
+    assert(!/m/.test(whileLive), `metres leaked into the chip: ${JSON.stringify(whileLive)}`);
   });
 
   test('the accuracy chip stops showing a stale reading once fixes stop', () => {

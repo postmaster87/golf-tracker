@@ -12,7 +12,7 @@ import { readTrack } from '../data/trackstore.js';
 import { roundRevisionLabel } from '../data/revision.js';
 import { isUnscored } from '../data/schema.js';
 import { stopCandidates } from '../round/track-analysis.js';
-import { toYards } from '../util/geo.js';
+import { toYards, toFeet } from '../util/geo.js';
 import { median } from '../util/stats.js';
 import {
   roundTotals,
@@ -431,7 +431,7 @@ function dataQuality(round, t) {
       'div',
       { class: 'stat-grid' },
       stat('GPS marks', String(marks.length)),
-      stat('Median accuracy', marks.length ? `±${median(marks).toFixed(1)} m` : '—'),
+      stat('Median accuracy', marks.length ? `±${Math.round(toFeet(median(marks)))} ft` : '—'),
       stat('Poor marks', String(t.poorMarks), t.poorMarks ? 'excluded from learning' : ''),
       stat('Hand-entered', `${t.manualHoles} hole${t.manualHoles === 1 ? '' : 's'}`)
     )

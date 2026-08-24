@@ -1,5 +1,6 @@
 import { h, card, field, segmented, toast, confirmSheet } from './dom.js';
 import { THEMES } from '../data/schema.js';
+import { toFeet } from '../util/geo.js';
 import {
   downloadExport,
   shareExport,
@@ -107,7 +108,9 @@ export function settingsScreen(ctx) {
       field(
         'Reject marks worse than',
         segmented(
-          [5, 8, 12].map((v) => ({ value: v, label: `±${v} m` })),
+          // Stored in metres because that is what the receiver reports; shown in
+          // feet because that is what Matt reads.
+          [5, 8, 12].map((v) => ({ value: v, label: `±${Math.round(toFeet(v))} ft` })),
           s.maxAccuracyM,
           (v) => {
             s.maxAccuracyM = v;
@@ -537,7 +540,7 @@ export function settingsScreen(ctx) {
         class: 'note',
         text: ctx.gps.running
           ? fix
-            ? `Tracking · ±${fix.acc.toFixed(1)} m · ${ctx.gps.fixCount} fixes this session · ${fix.lat.toFixed(6)}, ${fix.lon.toFixed(6)}`
+            ? `Tracking · ±${Math.round(toFeet(fix.acc))} ft · ${ctx.gps.fixCount} fixes this session · ${fix.lat.toFixed(6)}, ${fix.lon.toFixed(6)}`
             : `Tracking · waiting for a fix (${ctx.gps.fixCount} so far)`
           : 'Not tracking — GPS starts when a round starts.',
       }),

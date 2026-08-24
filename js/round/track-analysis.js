@@ -37,7 +37,7 @@
  * this trainable, which is a stated requirement and not a nice-to-have.
  */
 
-import { distanceM, weightedCentroid, enuOffset, offsetPoint, bearingDeg } from '../util/geo.js';
+import { distanceM, weightedCentroid, enuOffset, offsetPoint, bearingDeg, toFeet, toYards } from '../util/geo.js';
 import { expandFix } from '../data/trackstore.js';
 
 /**
@@ -253,9 +253,9 @@ export function stopCandidates(points, opts = {}) {
       // shot-like, and a 250 yard drive should not outrank a wedge.
       const d = Math.min(departureM, 200) / 200;
       score += 0.5 * (0.4 + 0.6 * d);
-      reasons.push(`departed ${departureM} m`);
+      reasons.push(`ball went ${Math.round(toYards(departureM))} yd`);
     } else {
-      reasons.push(`departed only ${departureM} m — repositioning, or reading a putt`);
+      reasons.push(`moved only ${Math.round(toYards(departureM))} yd — repositioning, or reading a putt`);
     }
 
     if (Number.isFinite(arrivalSpeed) && arrivalSpeed > 2.5) {
@@ -278,7 +278,7 @@ export function stopCandidates(points, opts = {}) {
 
     if (stop.spreadM <= 8) {
       score += 0.1;
-      reasons.push(`tight cluster (${stop.spreadM} m)`);
+      reasons.push(`tight cluster (${Math.round(toFeet(stop.spreadM))} ft)`);
     }
 
     return {
@@ -534,7 +534,7 @@ export function proposeFirstPutt(
     confidence = 'poor';
   }
 
-  reasons.push(`${distanceFt} ft ±${uncertaintyFt} ft from ${stops.length} stop(s) in the window`);
+  reasons.push(`${Math.round(distanceFt)} ft ±${Math.round(uncertaintyFt)} ft from ${stops.length} stop(s) in the window`);
 
   return { distanceFt, uncertaintyFt, confidence, ball: ballAt, cup: cupAt, reasons };
 }
@@ -849,7 +849,7 @@ export function locateCupFromPaces(
   const uncertaintyM = Number(Math.hypot(frontErr, centreErr, paceErr, 3).toFixed(1));
 
   const reasons = [
-    `${green.length} fixes on the green, ${walkedDepth.toFixed(0)} m walked along the line of play and ${walkedWidth.toFixed(0)} m across it`,
+    `${green.length} fixes on the green, ${Math.round(toFeet(walkedDepth))} ft walked along the line of play and ${Math.round(toFeet(walkedWidth))} ft across it`,
     `${onPaces} pace${onPaces === 1 ? '' : 's'} on, ${Math.abs(sidePaces)} ${sidePaces < 0 ? 'left' : 'right'} of centre, at ${paceFeet} ft per pace`,
   ];
 
@@ -864,13 +864,13 @@ export function locateCupFromPaces(
     reasons.push('no retrieval stop on the track to check it against');
   } else if (agreementM <= uncertaintyM) {
     confidence = 'good';
-    reasons.push(`agrees with where you picked the ball out, ${agreementM} m apart`);
+    reasons.push(`agrees with where you picked the ball out, ${Math.round(toFeet(agreementM))} ft apart`);
   } else if (agreementM <= uncertaintyM * 2.5) {
     confidence = 'fair';
-    reasons.push(`${agreementM} m from where you picked the ball out`);
+    reasons.push(`${Math.round(toFeet(agreementM))} ft from where you picked the ball out`);
   } else {
     confidence = 'poor';
-    reasons.push(`${agreementM} m from where you picked the ball out — one of the two is wrong`);
+    reasons.push(`${Math.round(toFeet(agreementM))} ft from where you picked the ball out — one of the two is wrong`);
   }
 
   return {
