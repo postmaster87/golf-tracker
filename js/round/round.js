@@ -484,7 +484,14 @@ export function setGreenEntry(hole, { putts, distances = [], unit = 'paces', pac
   renumber(hole);
 
   hole.greenEntry = { putts, unit, paceFeet, enteredAt: new Date().toISOString() };
-  hole.completedAt = new Date().toISOString();
+  /*
+   * Set once. `completedAt` is supposed to mean when the hole was finished, and
+   * re-stamping it on every edit turned it into "when it was last touched" —
+   * field test 5 finished at 22:57 with six holes claiming 23:03 or later,
+   * hole 11 adrift by 112 minutes. `enteredAt` above already records when the
+   * putts were typed, which is the thing an edit actually changes.
+   */
+  hole.completedAt ??= new Date().toISOString();
   return hole.greenEntry;
 }
 
@@ -609,13 +616,42 @@ export function scramble(hole) {
  * narrow silently omits a real shot, which he then has to notice is missing.
  * Those costs are not symmetric.
  */
-export function holeWindow(round, hole, { now = Date.now() } = {}) {
+export function holeWindow(round, hole, { now = Date.now(), padMs = 180000 } = {}) {
   const order = round.holes;
   const i = order.indexOf(hole);
   const parse = (iso) => (iso ? Date.parse(iso) : NaN);
 
+  /*
+   * MARKS FIRST, `completedAt` ONLY AS A LAST RESORT.
+   *
+   * `completedAt` is stamped "now" every time a hole is written, so it does not
+   * mean when the hole was played — it means when it was last touched. Field
+   * test 5 made that unusable: six holes were edited after the round and carry
+   * a `completedAt` LATER than the round's own end, hole 11 by 112 minutes.
+   * Reading windows off it gave hole 14 a ninety-minute window containing 99
+   * stops, and shot identification collapsed to 13% for reasons that had
+   * nothing to do with the ranking.
+   *
+   * A mark, by contrast, carries the timestamp of the moment it was taken and
+   * is never rewritten. So the window is bounded by the marks on the holes
+   * either side, which is evidence about when golf happened rather than about
+   * when someone last opened a sheet.
+   */
+  const stamps = (h) => {
+    if (!h) return [];
+    const out = h.shots.filter((s) => s.mark?.ts).map((s) => parse(s.mark.ts));
+    if (h.cup?.ts) out.push(parse(h.cup.ts));
+    return out.filter(Number.isFinite);
+  };
+
+  // Opening bound: the last thing that happened on an earlier hole.
   let fromTs = parse(round.startedAt);
   for (let j = i - 1; j >= 0; j--) {
+    const prev = stamps(order[j]);
+    if (prev.length) {
+      fromTs = Math.max(...prev);
+      break;
+    }
     const t = parse(order[j].completedAt);
     if (Number.isFinite(t)) {
       fromTs = t;
@@ -623,26 +659,39 @@ export function holeWindow(round, hole, { now = Date.now() } = {}) {
     }
   }
 
-  // This hole's own marks tighten the window when there are any — a marked tee
-  // shot is a much better lower bound than the previous green.
-  const marks = hole.shots
-    .filter((s) => s.mark?.ts)
-    .map((s) => Date.parse(s.mark.ts))
-    .filter(Number.isFinite);
-  if (marks.length) fromTs = Math.min(fromTs, ...marks);
+  // This hole's own marks tighten it further — a marked tee shot is a much
+  // better lower bound than the previous green.
+  const own = stamps(hole);
+  if (own.length) fromTs = Math.min(fromTs, ...own);
 
-  let toTs = now;
-  const own = parse(hole.completedAt);
-  if (Number.isFinite(own)) toTs = own;
+  /*
+   * Closing bound: the first thing that happened on a later hole, which is the
+   * hard limit — he cannot have been playing this hole after teeing off the
+   * next one. Failing that, this hole's own last mark plus a pad, because the
+   * ball is retrieved and the green walked off after the final mark is taken.
+   */
+  let toTs = null;
   for (let j = i + 1; j < order.length; j++) {
-    const t = parse(order[j].completedAt);
-    if (Number.isFinite(t)) {
-      toTs = Math.min(toTs, t);
+    const next = stamps(order[j]);
+    if (next.length) {
+      toTs = Math.min(...next);
       break;
     }
   }
+  if (toTs == null) {
+    if (own.length) toTs = Math.max(...own) + padMs;
+    else {
+      const t = parse(hole.completedAt);
+      toTs = Number.isFinite(t) ? t : now;
+    }
+  }
+  if (own.length) toTs = Math.max(toTs, Math.max(...own));
+  toTs = Math.min(toTs, now);
 
-  return { fromTs: Number.isFinite(fromTs) ? fromTs : null, toTs: Number.isFinite(toTs) ? toTs : null };
+  return {
+    fromTs: Number.isFinite(fromTs) ? fromTs : null,
+    toTs: Number.isFinite(toTs) ? toTs : null,
+  };
 }
 
 /**
