@@ -40,6 +40,7 @@
         runExportTrackTests,
         runLiveIndicatorTests,
         runCaptureUiTests,
+        runStoragePersistTests,
       } from './run.js';
 
       await runContrastTests();
@@ -49,6 +50,7 @@
       await runExportTrackTests();
       await runLiveIndicatorTests();
       await runCaptureUiTests();
+      await runStoragePersistTests();
       const results = getResults();
       const failed = results.filter((r) => !r.ok);
 

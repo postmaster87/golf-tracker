@@ -279,6 +279,47 @@ input[type='text'] {
   color: var(--ink-2);
 }
 
+/* ----------------------------------------------------- storage persistence */
+
+/*
+ * The one thing on the Data card allowed to raise its voice. Eviction takes
+ * every round on the phone and says nothing while doing it, so the app has to
+ * be the part of the system that is not silent about it. The healthy state is
+ * deliberately quiet — "your data is fine" competes with nothing.
+ */
+.storage {
+  border-left: 3px solid var(--good);
+  padding: 4px 0 6px 10px;
+  margin: 0 0 12px;
+}
+
+.storage h4 {
+  margin: 0 0 3px;
+  font-size: 14px;
+  letter-spacing: 0.02em;
+  color: var(--good);
+}
+
+.storage.tone-bad {
+  border-left-color: var(--bad);
+}
+
+.storage.tone-bad h4 {
+  color: var(--bad);
+}
+
+.storage.tone-warn {
+  border-left-color: var(--warn);
+}
+
+.storage.tone-warn h4 {
+  color: var(--warn);
+}
+
+.storage .note {
+  margin: 0 0 8px;
+}
+
 /* --------------------------------------------------------------- play HUD */
 
 .hud {

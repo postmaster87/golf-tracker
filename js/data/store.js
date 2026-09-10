@@ -13,6 +13,7 @@
 import { migrate, newAppState, summarizeRound, APP_VERSION } from './schema.js';
 import { REVISION } from './revision.js';
 import { readTrack, writeTrackChunk } from './trackstore.js';
+import { checkPersistence } from './persistence.js';
 
 const APP_KEY = 'gt:app';
 const ROUND_PREFIX = 'gt:round:';
@@ -210,7 +211,22 @@ export async function buildExportWithTracks(app) {
       // A track that cannot be read must not take the round data down with it.
     }
   }
-  return { ...payload, tracks, trackPoints: points };
+  /*
+   * Whether the phone this came off was protecting its storage.
+   *
+   * Recorded because the question "was this device at risk?" was unanswerable
+   * for the eviction that took field tests 1 to 5 — it had to be reconstructed
+   * from a settings diff weeks later. One field means a future export answers
+   * it on its own, and a file that predates the fix simply has no field rather
+   * than a wrong one.
+   */
+  let persistence;
+  try {
+    persistence = await checkPersistence();
+  } catch {
+    persistence = 'unknown';
+  }
+  return { ...payload, tracks, trackPoints: points, storagePersistence: persistence };
 }
 
 export function exportFilename(now = new Date()) {

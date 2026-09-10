@@ -1,4 +1,4 @@
-import { h, card, field, segmented, toast, confirmSheet } from './dom.js';
+import { h, card, field, segmented, toast, confirmSheet, clear } from './dom.js';
 import { THEMES } from '../data/schema.js';
 import { toFeet } from '../util/geo.js';
 import {
@@ -14,6 +14,12 @@ import { BASELINES, SOURCE, CATEGORY_DEFINITION } from '../analysis/benchmarks.j
 import * as wakeLock from '../gps/wakelock.js';
 import { BUILD, buildLabel } from '../data/build.js';
 import { revisionLabel, revisionInfo } from '../data/revision.js';
+import {
+  PERSISTENT,
+  checkPersistence,
+  requestPersistence,
+  persistenceLabel,
+} from '../data/persistence.js';
 
 const THEME_LABELS = {
   fairway: 'Fairway',
@@ -192,6 +198,23 @@ export function settingsScreen(ctx) {
 
     /* ------------------------------------------------------------- data */
     const dataCard = card('Data');
+    /*
+     * Whether the browser intends to keep any of this.
+     *
+     * Top of the card, above the round count, because it outranks everything
+     * else here: a headroom figure is meaningless if the origin can be evicted
+     * wholesale, and the old one-line warning at the bottom of the card was
+     * both true and completely unread.
+     *
+     * Always painted from a live `navigator.storage.persisted()` read. An app
+     * that claims to be protected without checking is worse than one that says
+     * nothing, which is the same argument as the export that used to report
+     * success while carrying no track.
+     */
+    const storageBox = h('div', { class: 'storage tone-warn' });
+    dataCard.appendChild(storageBox);
+    paintStorage(storageBox, checkPersistence());
+
     const bytes = usageBytes();
     const count = allRoundIds().length;
     dataCard.appendChild(
@@ -530,6 +553,59 @@ export function settingsScreen(ctx) {
       { class: 'swatches' },
       ...vars.map((c) => h('span', { class: 'swatch', style: { background: c } }))
     );
+  }
+
+  /**
+   * Render the storage-persistence box from a promised state.
+   *
+   * Takes a promise rather than a state because both callers have one: the
+   * first paint is waiting on `persisted()`, and the button is waiting on
+   * `persist()`. Every resolution re-checks `box.isConnected` first — Settings
+   * repaints on any toggle, and a storage API answering into a detached node
+   * would either throw or, worse, quietly paint nothing.
+   */
+  function paintStorage(box, statePromise) {
+    clear(box);
+    box.className = 'storage tone-warn';
+    box.appendChild(h('h4', { text: 'Storage: checking…' }));
+    statePromise
+      .then((state) => {
+        if (!box.isConnected) return;
+        const { heading, detail, tone } = persistenceLabel(state);
+        clear(box);
+        box.className = `storage tone-${tone}`;
+        box.appendChild(h('h4', { text: heading }));
+        box.appendChild(h('p', { class: 'note', text: detail }));
+        if (state === PERSISTENT) return;
+        box.appendChild(
+          h('button', {
+            class: 'btn sm',
+            text: 'REQUEST PROTECTION',
+            onClick: (e) => {
+              const btn = e.target;
+              btn.disabled = true;
+              btn.textContent = 'ASKING…';
+              // Matt's hand, so this ignores the once-only guard that
+              // `ensurePersistence` applies to the automatic path.
+              paintStorage(
+                box,
+                requestPersistence().then((next) => {
+                  s.storagePersistAsked = true;
+                  s.storagePersistence = next;
+                  ctx.persistApp();
+                  toast(
+                    next === PERSISTENT
+                      ? 'Protected. This browser will not delete your rounds to free space.'
+                      : 'Refused. The browser decides this silently — on how much you use the app, whether it is installed to your home screen, and whether it can send notifications.'
+                  );
+                  return next;
+                })
+              );
+            },
+          })
+        );
+      })
+      .catch(() => {});
   }
 
   function paintDiagnostics() {

@@ -104,6 +104,16 @@ import {
 } from '../js/analysis/strokes-gained.js';
 import * as pocketLock from '../js/ui/lock.js';
 import { playScreen } from '../js/ui/screen-play.js';
+import { settingsScreen } from '../js/ui/screen-settings.js';
+import {
+  PERSISTENT,
+  BEST_EFFORT,
+  UNKNOWN,
+  checkPersistence,
+  requestPersistence,
+  ensurePersistence,
+  persistenceLabel,
+} from '../js/data/persistence.js';
 import { CLUBS, SELECTABLE_CLUBS, clubOrder } from '../js/data/clubs.js';
 import {
   mean as tMean,
@@ -3812,6 +3822,187 @@ export async function runLiveIndicatorTests() {
 
   test('the heartbeat cancels itself when the screen is detached', () => {
     eq(afterRemoval, afterQuiet, 'a removed screen kept repainting');
+  });
+}
+
+/* ------------------------------------------- storage eviction protection */
+
+/**
+ * A stand-in for `navigator`, so these tests never touch the real receiver of
+ * the real browser's storage state.
+ *
+ * `calls` records what was actually asked for, because the interesting bugs
+ * here are about asking too often, or not at all — neither of which shows up in
+ * a return value.
+ */
+function fakeNav({ persisted = false, grant = false, throws = false, missing = false } = {}) {
+  const calls = { persisted: 0, persist: 0 };
+  if (missing) return { calls, navigator: {} };
+  let state = persisted;
+  return {
+    calls,
+    navigator: {
+      storage: {
+        async persisted() {
+          calls.persisted++;
+          if (throws) throw new Error('nope');
+          return state;
+        },
+        async persist() {
+          calls.persist++;
+          if (throws) throw new Error('nope');
+          state = grant;
+          return grant;
+        },
+      },
+    },
+  };
+}
+
+export async function runStoragePersistTests() {
+  group('storage eviction protection');
+
+  /* ------------------------------------------------------------- reading */
+
+  const granted = await checkPersistence(fakeNav({ persisted: true }).navigator);
+  const notGranted = await checkPersistence(fakeNav({ persisted: false }).navigator);
+  const noApi = await checkPersistence(fakeNav({ missing: true }).navigator);
+  const threw = await checkPersistence(fakeNav({ throws: true }).navigator);
+
+  test('a persisted origin reads as persistent', () => eq(granted, PERSISTENT));
+  test('a best-effort origin reads as best-effort', () => eq(notGranted, BEST_EFFORT));
+
+  test('a browser without the API reads as unknown, never as best-effort', () => {
+    // The distinction is the whole point of the third state. Telling Matt his
+    // rounds are at risk when we simply could not ask is the same class of lie
+    // as an export reporting success while carrying no track.
+    eq(noApi, UNKNOWN);
+  });
+
+  test('a rejected persisted() reads as unknown rather than throwing', () => eq(threw, UNKNOWN));
+
+  /* ------------------------------------------------------------ asking */
+
+  const alreadyOn = fakeNav({ persisted: true });
+  const stillOn = await requestPersistence(alreadyOn.navigator);
+  test('an already-persistent origin is not asked again', () => {
+    eq(stillOn, PERSISTENT);
+    eq(alreadyOn.calls.persist, 0, 'persist() was called on an origin that was already protected');
+  });
+
+  const willGrant = fakeNav({ persisted: false, grant: true });
+  const afterGrant = await requestPersistence(willGrant.navigator);
+  test('a granted request comes back persistent', () => {
+    eq(afterGrant, PERSISTENT);
+    eq(willGrant.calls.persist, 1);
+  });
+
+  const willRefuse = fakeNav({ persisted: false, grant: false });
+  const afterRefusal = await requestPersistence(willRefuse.navigator);
+  test('a refused request comes back best-effort, not unknown', () => eq(afterRefusal, BEST_EFFORT));
+
+  // Computed here rather than inside test(): the framework is synchronous, so
+  // an async test body would resolve after the assertion was already recorded
+  // as a pass — a test that cannot fail.
+  const noPersistFn = await requestPersistence({ storage: { persisted: async () => false } });
+  test('a browser with no persist() at all comes back unknown', () => eq(noPersistFn, UNKNOWN));
+
+  /* -------------------------------------------- the automatic path */
+
+  const s1 = {};
+  const nav1 = fakeNav({ persisted: false, grant: true });
+  const auto1 = await ensurePersistence(s1, nav1.navigator);
+  test('START ROUND asks, and records what it got', () => {
+    eq(auto1, PERSISTENT);
+    eq(s1.storagePersistence, PERSISTENT);
+    eq(s1.storagePersistAsked, true);
+  });
+
+  const s2 = { storagePersistAsked: true };
+  const nav2 = fakeNav({ persisted: false, grant: false });
+  await ensurePersistence(s2, nav2.navigator);
+  test('a browser that already said no is not asked at every tee', () => {
+    // Chrome decides silently, but Firefox shows the user a permission popup —
+    // and a popup on the first tee of every round is its own kind of broken.
+    eq(nav2.calls.persist, 0, 'persist() was called again after a recorded refusal');
+    eq(s2.storagePersistence, BEST_EFFORT);
+  });
+
+  const s3 = { storagePersistAsked: true };
+  const nav3 = fakeNav({ persisted: true });
+  await ensurePersistence(s3, nav3.navigator);
+  test('a grant is recorded even when the asking was skipped', () => eq(s3.storagePersistence, PERSISTENT));
+
+  /* ------------------------------------------------------------ wording */
+
+  test('the at-risk wording says the data can be deleted, and says it plainly', () => {
+    const { heading, detail, tone } = persistenceLabel(BEST_EFFORT);
+    assert(/AT RISK/.test(heading), `expected a blunt heading, got ${JSON.stringify(heading)}`);
+    assert(/delete/i.test(detail), `expected the consequence spelled out, got ${JSON.stringify(detail)}`);
+    eq(tone, 'bad');
+  });
+
+  test('the protected wording does not overclaim', () => {
+    // Persistence stops automatic eviction and nothing else. A card that reads
+    // as "your data is safe" would be wrong the next time he clears site data.
+    const { detail, tone } = persistenceLabel(PERSISTENT);
+    assert(/clearing browsing data/i.test(detail), `the caveat is missing: ${JSON.stringify(detail)}`);
+    eq(tone, 'ok');
+  });
+
+  test('an unknown state is not dressed up as protection', () => {
+    const { heading, tone } = persistenceLabel(UNKNOWN);
+    assert(/UNKNOWN/.test(heading), heading);
+    assert(tone !== 'ok', 'unknown rendered as though it were healthy');
+  });
+
+  /* ------------------------------------------------------------- export */
+
+  const exported = await buildExportWithTracks(newAppState());
+  test('every export records whether the phone was protecting its storage', () => {
+    // The eviction that took field tests 1 to 5 had to be reconstructed from a
+    // settings diff weeks after the fact. A file should answer this on its own.
+    assert(
+      [PERSISTENT, BEST_EFFORT, UNKNOWN].includes(exported.storagePersistence),
+      `expected a storage state in the export, got ${JSON.stringify(exported.storagePersistence)}`
+    );
+  });
+
+  /* ------------------------------------------------------ the Data card */
+
+  const screen = settingsScreen({
+    app: newAppState(),
+    round: null,
+    gps: { current: null, running: false, error: null, fixCount: 0, staleSinceMs: () => null },
+    params: {},
+    go() {},
+    persistApp() {},
+    persistRound() {},
+    startGps() {},
+    stopGps() {},
+    trackStats: () => null,
+  });
+  document.body.appendChild(screen.el);
+  // The box paints from a real promise; give it a turn to resolve.
+  await new Promise((r) => setTimeout(r, 60));
+  const box = screen.el.querySelector('.storage');
+  const heading = box?.querySelector('h4')?.textContent ?? '';
+  const hasButton = Boolean(box?.querySelector('button'));
+  screen.el.remove();
+
+  test('the Data card states a storage verdict rather than staying quiet', () => {
+    assert(box != null, 'no storage box rendered on the Data card at all');
+    assert(
+      /PROTECTED|AT RISK|UNKNOWN/.test(heading),
+      `the box never resolved past its placeholder: ${JSON.stringify(heading)}`
+    );
+  });
+
+  test('the verdict and the button agree with each other', () => {
+    // A protected origin offering to request protection is confusing; an
+    // at-risk one with no way to act on it is worse.
+    const protectedNow = /PROTECTED/.test(heading);
+    eq(hasButton, !protectedNow, `heading ${JSON.stringify(heading)} vs request button ${hasButton}`);
   });
 }
 

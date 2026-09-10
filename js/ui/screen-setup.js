@@ -2,6 +2,7 @@ import { h, card, field, segmented, toast, frag } from './dom.js';
 import { allCourses, getCourse, newCustomCourse, playOrder } from '../data/courses.js';
 import { createRound } from '../round/round.js';
 import { saveRound, upsertRoundSummary } from '../data/store.js';
+import { ensurePersistence } from '../data/persistence.js';
 
 const TEE_ORDER = ['blue', 'gold', 'white', 'red'];
 
@@ -416,6 +417,19 @@ export function setupScreen(ctx) {
     ctx.persistApp();
     ctx.startGps();
     ctx.go('play');
+
+    /*
+     * Ask the browser to stop treating this origin as disposable.
+     *
+     * Here rather than at page load because the guidance is to ask on a user
+     * gesture at the moment critical data is first written, and this tap is
+     * exactly that. Deliberately NOT awaited and deliberately last: a storage
+     * API must never sit between Matt's thumb and the play screen, and if this
+     * rejects, hangs, or does not exist, the round has already started.
+     */
+    ensurePersistence(ctx.app.settings)
+      .then(() => ctx.persistApp())
+      .catch(() => {});
   }
 
   paint();

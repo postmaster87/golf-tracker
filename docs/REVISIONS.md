@@ -551,6 +551,61 @@ the worse of the two: that screen exists so a glance at a pocketed phone answers
 "is the GPS still happy?" without unlocking, and a phone pocketed long enough to
 be worth checking is exactly the one whose page has been suspended.
 
+### The browser threw the rounds away — build v21
+
+Between 2026-08-24 00:10 and 2026-09-03 19:30 the origin was evicted on Matt's
+phone. Field tests 1 to 5 went with it — five rounds and 22,000 GPS fixes — and
+the app said nothing, before, during or after. They exist today only because
+they had been exported.
+
+He deleted nothing. What proves it is the settings diff between the last good
+export and the first one after: `theme` back to `fairway`, which is the code
+default and not what he had it on; radcliffe gone from both `teeByCourse` and
+`courseLearning`; and `autoLockRaisedForLockTab` — a one-time migration flag —
+absent, which only ever happens on state that was never migrated because it was
+newly created. That is `newAppState()`, not rounds being removed one at a time.
+
+The mechanism, from the Storage Standard rather than from memory. Every origin
+is **best-effort** unless it asks to be **persistent**. Best-effort data may be
+evicted whenever the device is short of disk; eviction is per-origin and total
+("all of its data, not parts of it"), and it walks least-recently-used origins
+first, skipping persistent ones. A golf app opened two or three times a month
+sits near the front of that queue. None of this is the ~5 MB localStorage limit
+the Data card reports headroom against — being well under quota protects
+nothing, which is worth saying because the card implies otherwise.
+
+The app had never called `navigator.storage.persist()`. Being installed to the
+home screen, which Matt had done, is one of the signals Chrome weighs *when
+asked*; it is not an automatic upgrade, and nothing was ever asking.
+
+What v21 does:
+
+- `js/data/persistence.js` — `checkPersistence`, `requestPersistence`,
+  `ensurePersistence`, `persistenceLabel`. Three states, not a boolean:
+  `unknown` is a real answer and is never rendered as though it were
+  best-effort, for the same reason an export that carried no track must not
+  look like one that did.
+- **START ROUND asks.** On the tap, not at page load — the guidance is to ask
+  on a user gesture when critical data is first written, and that tap is both.
+  Fired and abandoned: no storage API sits between his thumb and the play
+  screen. A refusal is remembered so Firefox's permission popup cannot appear
+  at every tee; the Settings button ignores that and always re-asks, because
+  that one is his hand.
+- **Settings → Data leads with the verdict**, read live rather than assumed:
+  PROTECTED, AT RISK, or UNKNOWN, with a REQUEST PROTECTION button whenever it
+  is not the first. The old warning about clearing browsing data sat at the
+  bottom of the card and was never read.
+- **Every export records the state it was taken under**, so the next time this
+  question comes up the file answers it instead of a settings diff weeks later.
+
+What it does not do. Persistence stops automatic eviction and nothing else:
+clearing browsing data, Android's per-app "clear storage" and uninstalling the
+browser all still take everything. The PROTECTED wording says so, and a test
+asserts that it keeps saying so. Exporting after every round remains the only
+thing that has ever actually survived.
+
+Revision stays 4 — this has not been played. Build v21.
+
 ### Found while working, not yet acted on
 
 **The auto-lock timer cannot defend the pocket, and never could.**
@@ -561,6 +616,28 @@ overlay is the real pocket defence; this timer only ever protected against
 putting the phone down. Raising the default to 2 minutes is safe for that
 reason, but the timer should probably not be described as a pocket guard.
 Deciding what, if anything, to do about it is Matt's call.
+
+### Asked for after field test 6 — extending a nine into eighteen
+
+His words, 2026-09-10: *"Note for next build the ability to add \"9 more\"
+holes to a 9 hole round."*
+
+What produced it. Field test 6 (2026-09-09, Veenker, playing with Craig, who
+walked) was one session that had to be filed as two rounds: he played hole 1,
+went back to the clubhouse for a work email, and the group then decided to play
+14-18 — so the nine in progress had to be ended and a back-nine round started
+in its place.
+
+Why it matters beyond the taps. A round's hole set is fixed when the round is
+created, and nothing can extend it. Ending and restarting is the only way to
+change your mind about which holes you are playing, and it splits one session
+into two round records: two tracks, two hole windows, two entries in any
+per-round trend, and a course-learning pass over each. The app is correct about
+what it was told and wrong about what happened.
+
+Not designed yet, and deliberately so — the hole set, the starting-nine
+rotation and every round already logged are all involved, which by his own
+standing rule puts it at xhigh with his sign-off before a line is written.
 
 ### Still open from the backlog
 
