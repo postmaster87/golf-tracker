@@ -16,6 +16,7 @@ import { BUILD, buildLabel } from '../data/build.js';
 import { revisionLabel, revisionInfo } from '../data/revision.js';
 import {
   PERSISTENT,
+  UNKNOWN,
   checkPersistence,
   requestPersistence,
   persistenceLabel,
@@ -590,8 +591,11 @@ export function settingsScreen(ctx) {
               paintStorage(
                 box,
                 requestPersistence().then((next) => {
-                  s.storagePersistAsked = true;
-                  s.storagePersistence = next;
+                  // ctx.app.settings, not the `s` alias — that one is scoped
+                  // inside paint(), and reaching for it from here is what left
+                  // this box reading "checking…" for ever the first time.
+                  ctx.app.settings.storagePersistAsked = true;
+                  ctx.app.settings.storagePersistence = next;
                   ctx.persistApp();
                   toast(
                     next === PERSISTENT
@@ -605,7 +609,24 @@ export function settingsScreen(ctx) {
           })
         );
       })
-      .catch(() => {});
+      .catch(() => {
+        /*
+         * Never leave the placeholder standing.
+         *
+         * The first version swallowed this, and one ReferenceError in the
+         * button's own handler left the box reading "checking…" permanently —
+         * the same shape as the capture panel that said "Capturing…" for ever
+         * because both its element lookups quietly returned null. A promise
+         * that fails here must say something false-negative and actionable,
+         * not nothing.
+         */
+        if (!box.isConnected) return;
+        const { heading, detail } = persistenceLabel(UNKNOWN);
+        clear(box);
+        box.className = 'storage tone-warn';
+        box.appendChild(h('h4', { text: heading }));
+        box.appendChild(h('p', { class: 'note', text: detail }));
+      });
   }
 
   function paintDiagnostics() {

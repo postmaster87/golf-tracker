@@ -3970,8 +3970,9 @@ export async function runStoragePersistTests() {
 
   /* ------------------------------------------------------ the Data card */
 
+  const uiApp = newAppState();
   const screen = settingsScreen({
-    app: newAppState(),
+    app: uiApp,
     round: null,
     gps: { current: null, running: false, error: null, fixCount: 0, staleSinceMs: () => null },
     params: {},
@@ -3988,6 +3989,21 @@ export async function runStoragePersistTests() {
   const box = screen.el.querySelector('.storage');
   const heading = box?.querySelector('h4')?.textContent ?? '';
   const hasButton = Boolean(box?.querySelector('button'));
+
+  /*
+   * Press it, and make sure the box comes back to a verdict.
+   *
+   * Written after the first version of the button threw a ReferenceError
+   * inside its own promise chain, where a bare `.catch(() => {})` swallowed it
+   * and left the box reading "checking…" for ever. Nothing about that was
+   * visible: no console error, no failed test, just a control that silently
+   * stopped meaning anything — which is exactly how the capture panel failed
+   * for every capture the app had ever taken.
+   */
+  screen.el.querySelector('.storage button')?.click();
+  await new Promise((r) => setTimeout(r, 250));
+  const afterPress = screen.el.querySelector('.storage h4')?.textContent ?? '';
+
   screen.el.remove();
 
   test('the Data card states a storage verdict rather than staying quiet', () => {
@@ -4003,6 +4019,32 @@ export async function runStoragePersistTests() {
     // at-risk one with no way to act on it is worse.
     const protectedNow = /PROTECTED/.test(heading);
     eq(hasButton, !protectedNow, `heading ${JSON.stringify(heading)} vs request button ${hasButton}`);
+  });
+
+  test('pressing REQUEST PROTECTION records the answer it got', () => {
+    if (!hasButton) return; // Already protected here; nothing to press.
+    /*
+     * Asserted on the settings object, NOT on the heading.
+     *
+     * The heading version of this test was vacuous: the error path paints
+     * UNKNOWN, which is itself a valid verdict, so it passed just as happily
+     * with the bug reintroduced. What the bug actually destroys is the record
+     * — the ReferenceError fires before anything is written — so that is what
+     * this checks. Proven by putting the bug back and watching it fail.
+     */
+    assert(
+      [PERSISTENT, BEST_EFFORT, UNKNOWN].includes(uiApp.settings.storagePersistence),
+      `the request never recorded its outcome: ${JSON.stringify(uiApp.settings.storagePersistence)}`
+    );
+    eq(uiApp.settings.storagePersistAsked, true, 'the request was not marked as asked');
+  });
+
+  test('and never leaves the box on its placeholder', () => {
+    if (!hasButton) return;
+    assert(
+      /PROTECTED|AT RISK|UNKNOWN/.test(afterPress),
+      `the box never came back from the request: ${JSON.stringify(afterPress)}`
+    );
   });
 }
 
