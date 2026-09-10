@@ -551,6 +551,80 @@ the worse of the two: that screen exists so a glance at a pocketed phone answers
 "is the GPS still happy?" without unlocking, and a phone pocketed long enough to
 be worth checking is exactly the one whose page has been suspended.
 
+### The shot ranking was inverted — build v22
+
+Matt's call, 2026-09-10: *"let's drop it and rebuild"*.
+
+`stopCandidates` scored a stop mostly on `departureM`, the straight-line
+distance to the next stop, on the reasoning that a shot moves a long way and
+reading a putt moves a few metres. That reasoning was never measured, and it is
+wrong. Across 444 stops on 24 played holes and four rounds — a scramble, two
+riding, one cart-path-only — comparing stops that sit on a confirmed mark
+against those that do not:
+
+| feature | on a real shot | everywhere else |
+|---|---|---|
+| **dwell** | **62.9 s** | **19.0 s** |
+| departure | 20.5 m (FT6) | 23.7 m |
+| arrival speed | 4.60 m/s | 4.31 m/s |
+| spread | 11.6 m | 11.4 m |
+| fix count | 93 | 33 |
+
+Dwell is the only one that separates anything. Fix count is dwell in another
+unit. Departure, arrival speed and spread are noise — and departure and arrival
+speed were the two most heavily weighted terms in the score, while dwell earned
+0.15 and only inside a 6-45 s band that excludes two thirds of real shots. On
+FT6 that band contained 34% of real-shot stops and **85%** of everything else.
+The score was not weak, it was pointing the wrong way.
+
+Why departure fails is structural, not a tuning problem. There are ~2.4
+non-shot stops for every shot stop, and the nearest one sits a median 20-21 m
+from the ball in every regime measured — the partner's ball when riding, the
+cart you walked back to on a cart-path day. The "next stop" is almost never
+where the ball went. Redefining it to skip companion stops does not help: at a
+30 m skip it reads 50.1 m at shots against 46.0 m elsewhere, and adding it to
+dwell in any form makes dwell *worse*. Non-shot stops lie on the same line of
+travel as shots, so distance-to-somewhere-further-along cannot separate them at
+any threshold.
+
+**The score is now `d / (d + 45 s)` and nothing else.** Strictly increasing, so
+ranking by score is exactly ranking by dwell with no ties — capping at 90 s or
+120 s costs accuracy (69% against 74%) by tying the longest stops together,
+which are the ones most likely to be shots. Bounded below 1, so it still reads
+as a confidence and the summary's existing `score >= 0.5` count keeps working;
+it now means "stood at least 45 s", which falls between the two medians.
+
+Selected correctly, top-N per hole against confirmed marks:
+
+| | was | now |
+|---|---|---|
+| FT4 Radcliffe scramble | 10/27 (37%) | 16/27 (59%) |
+| FT5 Veenker back 9, riding | 8/35 (23%) | 26/35 (74%) |
+| FT6 Veenker 14-18, cart path only | 5/23 (22%) | **21/23 (91%)** |
+| FT6 Veenker hole 1 | 2/4 (50%) | 3/4 (75%) |
+| **overall** | **25/89 (28%)** | **66/89 (74%)** |
+
+Finding the position was never the problem and still is not: 100% of marks have
+a candidate within 10 m on all three Veenker rounds, 93% at Radcliffe.
+
+**The known cost, recorded rather than discovered later.** Dwell cannot tell a
+shot from sitting still for a long time. That is the whole of the gap between
+91% on a normal round and 59% on the scramble, where three other people hit
+between his shots. A test asserts the weakness so the next feature has
+something to beat. Propose-and-confirm is what makes it survivable — a wrong
+proposal costs one tap; auto-fill would be a different matter.
+
+The other features stay ON each candidate. They are real measurements and a
+trained model may want them. They simply no longer vote.
+
+`tools/detection-scoring.html` reproduces every number above from the exports in
+`docs/roundDownloads/`, so the next session checks rather than recomputes. Two
+fixtures had to be rebuilt: they had been written with a cart pause dwelling
+longer than either shot, which is the opposite of what the instrument says, and
+a fixture that contradicts the instrument is a decoy rather than a test.
+
+Revision stays 4 — not yet played. Build v22.
+
 ### The browser threw the rounds away — build v21
 
 Between 2026-08-24 00:10 and 2026-09-03 19:30 the origin was evicted on Matt's

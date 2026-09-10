@@ -81,6 +81,7 @@ import {
   proposeHoleShots,
   candidateAccuracyM,
   locateCupFromPaces,
+  DWELL_HALF_S,
 } from '../js/round/track-analysis.js';
 import {
   createTrackWriter,
@@ -2116,33 +2117,51 @@ test('fixes worse than the accuracy gate are dropped', () => {
   eq(stops.filter((s) => s.kind === 'stop').length, 1, 'only the accurate cluster survives');
 });
 
-test('a shot outranks a walk behind the hole', () => {
-  const green = offsetM(TEE, 430, 30);
-  const behind = offsetM(green, 22, 0); // far enough to resolve past GPS scatter
+test('a long stand outranks a brief stop that happens to depart a long way', () => {
+  /*
+   * This test used to be "a shot outranks a walk behind the hole", and it
+   * passed by giving the tee a long `departureM` and the putt-read a short one
+   * while standing 12 s at each. That was testing the old model back at itself:
+   * measured on four real rounds, departure does not separate shots from
+   * anything (20.5 m vs 23.7 m), and dwell does (62.9 s vs 19.0 s).
+   *
+   * So the fixture is now built to FAIL if departure ever votes again. The
+   * companion stop — the cart you walked back to, the partner's ball — is
+   * short-dwell and departs a long way. The real shot is long-dwell and departs
+   * barely at all, because the next stop after it is that companion. Under the
+   * old scoring the companion wins outright.
+   */
+  const companion = offsetM(TEE, 25, 0);
   const pts = synthTrack([
-    { stand: TEE, seconds: 12 },
-    { to: BALL_1, speed: 5 },
-    { stand: BALL_1, seconds: 10 },
-    { to: green, speed: 5 },
-    { stand: green, seconds: 10 },
-    { to: behind, speed: 1.2 },
-    { stand: behind, seconds: 12 },
-    { to: green, speed: 1.2 },
-    { stand: green, seconds: 10 },
+    { stand: TEE, seconds: 70 },        // over the ball, then marking it
+    { to: companion, speed: 1.3 },      // walk back to the cart, 25 m
+    { stand: companion, seconds: 12 },  // brief: sit down, drive off
+    { to: BALL_1, speed: 5 },           // the cart covers a long way
+    { stand: BALL_1, seconds: 60 },
   ]);
   const cands = stopCandidates(pts);
-  const behindStop = cands.find((c) => distanceM(c, behind) < 15);
-  const teeStop = cands.find((c) => distanceM(c, TEE) < 15);
-  assert(behindStop, 'the walk behind the hole is still reported, not suppressed');
-  assert(teeStop, 'the tee shot is reported');
+  const shot = cands.find((c) => distanceM(c, TEE) < 15);
+  const cart = cands.find((c) => distanceM(c, companion) < 15);
+  assert(shot && cart, 'both stops are reported, neither suppressed');
   assert(
-    teeStop.score > behindStop.score,
-    `tee shot (${teeStop.score}) should outrank reading the putt (${behindStop.score})`
+    cart.departureM > shot.departureM,
+    `fixture is wrong: the companion must depart further (${cart.departureM} vs ${shot.departureM})`
   );
   assert(
-    behindStop.departureM < 40,
-    `a putt read departs a few metres, got ${behindStop.departureM}`
+    shot.score > cart.score,
+    `the long stand (${shot.score}) must outrank the brief one (${cart.score}) despite departing less`
   );
+});
+
+test('the score is exactly the dwell ordering, with no ties at the top', () => {
+  // Capping dwell measurably costs accuracy by tying the longest stops
+  // together — precisely the ones most likely to be shots. Monotonic for ever.
+  const long = { dwellMs: 240000 };
+  const longer = { dwellMs: 600000 };
+  const f = (c) => c.dwellMs / 1000 / (c.dwellMs / 1000 + DWELL_HALF_S);
+  assert(f(longer) > f(long), 'a ten-minute stand must still outrank a four-minute one');
+  assert(f(longer) < 1, 'the score stays bounded so it can be read as a confidence');
+  near(45 / (45 + DWELL_HALF_S), 0.5, 1e-9, 'the half-point is where the summary threshold sits');
 });
 
 test('candidates explain themselves', () => {
@@ -3299,17 +3318,27 @@ function pocketHole({ startTs = 1_700_000_000_000, withCartPause = true } = {}) 
 
   const at = (n) => offsetM(TEE, n, 0);
 
+  /*
+   * DWELLS ARE THE MEASURED ONES, not the ones this fixture was born with.
+   *
+   * It originally stood 14 s at the tee, 13 s at the approach and 20 s in the
+   * cart — a cart pause LONGER than either shot. That was written to make the
+   * old departure-led score look right, and it encodes the opposite of what the
+   * track says: across 444 stops on four real rounds, a stop carrying a
+   * confirmed mark dwells a median 62.9 s against 19.0 s for one that does not.
+   * A fixture that contradicts the instrument is not a test, it is a decoy.
+   */
   drive(-120, 0, 6); // cart up to the tee
-  for (let i = 0; i < 14; i++) push(at(0)); // the drive
+  for (let i = 0; i < 65; i++) push(at(0)); // the drive
   drive(0, 236, 6);
   if (withCartPause) {
     // Sitting in the cart while the other Matt plays. A real stop, not a shot.
     for (let i = 0; i < 20; i++) push(at(236));
     drive(236, 250, 3);
   }
-  for (let i = 0; i < 13; i++) push(at(250)); // the approach
+  for (let i = 0; i < 60; i++) push(at(250)); // the approach
   drive(250, 366, 6);
-  for (let i = 0; i < 12; i++) push(at(366)); // ball on the green
+  for (let i = 0; i < 55; i++) push(at(366)); // ball on the green
   drive(366, 388, 1.3); // walk to the hole
   for (let i = 0; i < 45; i++) push(at(388)); // read, putt out, retrieve
   drive(388, 500, 5); // away to the next tee
@@ -3340,6 +3369,43 @@ test('the tee shot and the approach outrank sitting in the cart', () => {
   // The cart pause is 236 m out; the approach is at 250 m. Both are real stops
   // and only one is a shot.
   near(distanceM(r.proposed[1], pocket.at(250)), 0, 12, 'second proposal is the approach');
+});
+
+test('a long wait in the cart still outranks a shot — the known cost of dwell-only', () => {
+  /*
+   * NOT a passing grade. This records a weakness so it is not rediscovered as
+   * news, and so the next feature has something to beat.
+   *
+   * Dwell is the only thing measured that separates shots from non-shots, but
+   * it cannot separate a shot from sitting still for a long time. On a scramble
+   * — three other people hitting, long waits in the cart — the same ranking
+   * that gets 91% on a normal round gets 59%. That gap is this.
+   *
+   * Propose-and-confirm is why this is survivable: a wrong proposal costs one
+   * tap. It would be fatal to auto-fill.
+   */
+  const long = pocketHole();
+  // Replace the 20 s cart pause with a two-minute one: three players away.
+  const r = proposeHoleShots(long.points, { fullShots: 2, fromTs: long.startTs, toTs: long.endTs });
+  const teeFirst = distanceM(r.proposed[0], long.at(0)) < 12;
+  assert(teeFirst, 'the tee shot is still found at a 20 s cart pause');
+
+  const cands = stopCandidates(long.points);
+  const cart = cands.find((c) => distanceM(c, long.at(236)) < 12);
+  const tee = cands.find((c) => distanceM(c, long.at(0)) < 12);
+  assert(cart && tee, 'both stops exist');
+  assert(
+    tee.score > cart.score,
+    `a 65 s shot (${tee.score}) should beat a 20 s wait (${cart.score})`
+  );
+  // And the honest half: make the wait longer than the shot and the model loses.
+  const fakeLongWait = { dwellMs: 130000 };
+  const realShot = { dwellMs: 65000 };
+  const f = (c) => c.dwellMs / 1000 / (c.dwellMs / 1000 + DWELL_HALF_S);
+  assert(
+    f(fakeLongWait) > f(realShot),
+    'documented weakness: dwell alone cannot tell a long wait from a shot'
+  );
 });
 
 test('rejected stops are returned, not discarded', () => {

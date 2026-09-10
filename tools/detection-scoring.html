@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>golf-tracker — shot detection scoring</title>
+    <link rel="stylesheet" href="../css/themes.css" />
+    <style>
+      body { margin:0; padding:16px; background:var(--bg); color:var(--ink);
+             font:14px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+      h1 { font-size:18px; margin:0 0 4px; }
+      p.sub { margin:0 0 16px; color:var(--ink-3); max-width:70ch; }
+      table { border-collapse:collapse; margin:0 0 20px; }
+      th, td { text-align:left; padding:4px 14px 4px 0; border-bottom:1px solid var(--line); }
+      th { color:var(--ink-3); font-weight:700; text-transform:uppercase; font-size:11px; letter-spacing:.06em; }
+      td.num { text-align:right; font-variant-numeric:tabular-nums; }
+      .miss { color:var(--ink-3); }
+      h2 { font-size:13px; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-3); margin:20px 0 6px; }
+    </style>
+  </head>
+  <body>
+    <h1>Shot detection scoring</h1>
+    <p class="sub">
+      How often the shipped ranking picks the stops that turned out to be real shots.
+      Ground truth is the confirmed marks in an export; a shot counts as found when a
+      SELECTED candidate lands within 10 m of its mark. Selection is the top N candidates
+      by score in the hole's window, where N is the number of marked shots on that hole —
+      which is what the end-of-hole sheet actually asks for.
+      <br /><br />
+      Reads exports from <code>docs/roundDownloads/</code>. Those are gitignored (the tracks
+      are a location history and this repo is public), so on a machine without them this page
+      says so instead of failing. Serve with <code>python tools/devserver.py 8123</code> and
+      open <code>/tools/detection-scoring.html</code>.
+    </p>
+    <div id="out">running…</div>
+
+    <script type="module">
+      import { stopCandidates } from '../js/round/track-analysis.js';
+      import { holeWindow } from '../js/round/round.js';
+      import { distanceM } from '../js/util/geo.js';
+
+      const MATCH_M = 10;
+
+      /** Each entry: file, a predicate picking the round, and what it was. */
+      const ROUNDS = [
+        ['golf-tracker-20260823-0834.json', (r) => r.id.startsWith('r_49183f52'), 'FT4 Radcliffe', 'scramble, riding'],
+        ['2026-08-23_FT5_veenker-back9_export-1910_CORRECTED.json', (r) => r.startedAt.startsWith('2026-08-23'), 'FT5 Veenker back 9', 'riding'],
+        ['2026-09-09_FT6_veenker_export-0928_AUTHORITATIVE.json', (r) => r.id.startsWith('r_bd6d'), 'FT6 Veenker 14-18', 'cart path only'],
+        ['2026-09-09_FT6_veenker_export-0928_AUTHORITATIVE.json', (r) => r.id.startsWith('r_de55'), 'FT6 Veenker hole 1', 'cart path only'],
+      ];
+
+      const med = (a) => {
+        const s = a.filter(Number.isFinite).sort((x, y) => x - y);
+        if (!s.length) return null;
+        const m = s.length >> 1;
+        return +(s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2).toFixed(1);
+      };
+
+      async function load(file) {
+        const res = await fetch(`../docs/roundDownloads/${file}`);
+        if (!res.ok) return null;
+        return res.json();
+      }
+
+      function scoreRound(round, track) {
+        // A hole's window is bounded by marks, never by completedAt — see the
+        // note on holeWindow for why that distinction cost a whole analysis once.
+        const now = Date.parse(round.completedAt || round.startedAt) + 3.6e6;
+        let hit = 0, tot = 0, found = 0, stops = 0;
+        const dwellT = [], dwellE = [], depT = [], depE = [];
+        for (const hole of round.holes ?? []) {
+          const marks = (hole.shots ?? []).filter((s) => s.mark?.lat != null);
+          if (!marks.length) continue;
+          const w = holeWindow(round, hole, { now });
+          const cs = stopCandidates(track.filter((p) => p[3] >= w.fromTs && p[3] <= w.toTs));
+          stops += cs.length;
+          tot += marks.length;
+          const near = (c, m) => distanceM({ lat: c.lat, lon: c.lon }, m.mark) <= MATCH_M;
+          for (const c of cs) {
+            const real = marks.some((m) => near(c, m));
+            (real ? dwellT : dwellE).push(c.dwellMs / 1000);
+            if (c.departureM != null) (real ? depT : depE).push(c.departureM);
+          }
+          // Is the position even in the track? Separate question from ranking.
+          found += marks.filter((m) => cs.some((c) => near(c, m))).length;
+          const picked = [...cs].sort((a, b) => b.score - a.score).slice(0, marks.length);
+          hit += marks.filter((m) => picked.some((c) => near(c, m))).length;
+        }
+        return { hit, tot, found, stops,
+          dwell: [med(dwellT), med(dwellE)], dep: [med(depT), med(depE)] };
+      }
+
+      const rows = [];
+      const missing = [];
+      for (const [file, pred, label, how] of ROUNDS) {
+        const exp = await load(file);
+        if (!exp) { missing.push(`${label} — ${file}`); continue; }
+        const round = exp.rounds.find(pred);
+        if (!round) { missing.push(`${label} — round not in ${file}`); continue; }
+        rows.push({ label, how, ...scoreRound(round, exp.tracks?.[round.id] ?? []) });
+      }
+
+      const pc = (n, d) => (d ? `${n}/${d} (${Math.round((n / d) * 100)}%)` : '—');
+      const out = document.getElementById('out');
+      if (!rows.length) {
+        out.textContent = 'No exports found under docs/roundDownloads/ — nothing to score.';
+      } else {
+        const H = rows.reduce((a, r) => a + r.hit, 0);
+        const T = rows.reduce((a, r) => a + r.tot, 0);
+        out.innerHTML = `
+          <h2>Ranking</h2>
+          <table>
+            <tr><th>round</th><th>how it was played</th><th>shots</th><th>position in track</th><th>selected by score</th></tr>
+            ${rows.map((r) => `<tr><td>${r.label}</td><td>${r.how}</td>
+              <td class="num">${r.tot}</td><td class="num">${pc(r.found, r.tot)}</td>
+              <td class="num">${pc(r.hit, r.tot)}</td></tr>`).join('')}
+            <tr><td colspan="4"><strong>overall</strong></td><td class="num"><strong>${pc(H, T)}</strong></td></tr>
+          </table>
+          <h2>The two features, median at real shots vs everywhere else</h2>
+          <table>
+            <tr><th>round</th><th>dwell, shots</th><th>dwell, other</th><th>departure, shots</th><th>departure, other</th></tr>
+            ${rows.map((r) => `<tr><td>${r.label}</td>
+              <td class="num">${r.dwell[0]} s</td><td class="num">${r.dwell[1]} s</td>
+              <td class="num">${r.dep[0]} m</td><td class="num">${r.dep[1]} m</td></tr>`).join('')}
+          </table>
+          ${missing.length ? `<p class="miss">not found: ${missing.join(' · ')}</p>` : ''}`;
+      }
+      console.log(`DETECTION_OVERALL ${rows.reduce((a, r) => a + r.hit, 0)}/${rows.reduce((a, r) => a + r.tot, 0)}`);
+    </script>
+  </body>
+</html>

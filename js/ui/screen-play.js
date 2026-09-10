@@ -2548,9 +2548,11 @@ export function playScreen(ctx) {
 
         rows.forEach((row, i) => {
           const c = row.candidate;
-          const bits = [];
-          if (c.departureM != null) bits.push(`ball went ${Math.round(toYards(c.departureM))} yd`);
-          bits.push(`stood ${Math.round(c.dwellMs / 1000)} s`);
+          // Dwell leads because dwell is what ranked it. `departureM` used to
+          // read "ball went 25 yd" and sit first; measured, that number
+          // describes the walk back to the cart, not the shot.
+          const bits = [`stood ${Math.round(c.dwellMs / 1000)} s`];
+          if (c.departureM != null) bits.push(`next stop ${Math.round(toYards(c.departureM))} yd away`);
           if (Number.isFinite(c.arrivalSpeed)) {
             bits.push(c.arrivalSpeed > 2.5 ? 'arrived by cart' : 'arrived on foot');
           }

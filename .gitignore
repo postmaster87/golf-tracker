@@ -5,5 +5,14 @@
 .DS_Store
 Thumbs.db
 
-# Exported round backups, if any land in the repo by accident
+# Round data NEVER goes in this repo.
+#
+# Pages serves it, so the repo is public, and a dense track is a location
+# history - his course, his office, his house. The filename pattern below was
+# the whole guard until 2026-09-10, when exports were renamed to say what was
+# in them (2026-09-09_FT6_veenker_...) and stopped matching it. `git add -A`
+# then staged four of them. Ignore the DIRECTORY, so the guard does not depend
+# on what anyone happens to call a file.
+docs/roundDownloads/
 golf-tracker-*.json
+*-export-*.json

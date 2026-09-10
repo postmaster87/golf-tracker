@@ -15,12 +15,11 @@
  * the network is indistinguishable from being offline, so treat it as offline.
  */
 
-// v21: ask the browser to stop treating this origin as disposable. Bumped because
-// the offline fallback is a whole module set, and an un-bumped cache would keep
-// serving the previous set to a phone that loses signal mid-round - internally
-// consistent, but the wrong build, and on this one it would be the build that
-// never asks for persistent storage.
-const CACHE = 'gt-shell-v21';
+// v22: the shot ranking is dwell, and only dwell. Bumped because the offline
+// fallback is a whole module set, and an un-bumped cache would keep serving the
+// previous set to a phone that loses signal mid-round - internally consistent,
+// but on this one it would be the build that ranks real shots below the noise.
+const CACHE = 'gt-shell-v22';
 const NET_TIMEOUT_MS = 2500;
 const SHELL = [
   './',

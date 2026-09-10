@@ -14,21 +14,54 @@
  * default, not a truth, and every candidate keeps the raw numbers behind its
  * score so a wrong call can be diagnosed instead of guessed at.
  *
- * WHAT THE SIGNAL ACTUALLY IS
+ * WHAT THE SIGNAL ACTUALLY IS — REWRITTEN 2026-09-10, FROM MEASUREMENT
  *
- * Not dwell length. Matt is over the ball for "about 10 seconds or less", which
- * at 1 Hz is ten fixes — close enough to GPS noise that duration alone cannot
- * carry the decision. The TRANSITION carries it: arrival at zero speed after
- * cart motion, then departure a long way. A cart segment runs 4-7 m/s, walking
- * is ~1.3 m/s, standing is 0. Those are separable; ten seconds versus fourteen
- * is not.
+ * It is dwell. This module previously said the opposite, in this comment, and
+ * built its score around it: "Not dwell length... The TRANSITION carries it:
+ * arrival at zero speed after cart motion, then departure a long way." That was
+ * reasoned from how golf looks, not measured, and it was wrong in both halves.
+ *
+ * Measured over 444 stops across 24 played holes and four rounds — a scramble,
+ * two rounds riding, and one cart-path-only — comparing stops that sit on a
+ * confirmed mark against those that do not:
+ *
+ *   dwell          62.9 s  vs  19.0 s     the only feature that separates
+ *   arrival speed   4.60 m/s vs 4.31 m/s  nothing
+ *   spread         11.6 m  vs  11.4 m     nothing
+ *   fix count      93      vs  33         dwell again, in another unit
+ *
+ * `departureM` — distance to the next stop — was the most heavily weighted term
+ * and carries no signal at all: 20.5 m at real shots against 23.7 m elsewhere
+ * on the cart-path round, 22.4 vs 23.3 riding. The reason is structural rather
+ * than incidental. There are ~2.4 non-shot stops for every shot stop, and the
+ * nearest one sits a median 20-21 m from the ball in every regime measured: the
+ * partner's ball when riding, the cart you walked back to on a cart-path day.
+ * So the "next stop" is almost never where the ball went. Redefining it to skip
+ * companion stops does not rescue it either — at a 30 m skip it reads 50.1 m at
+ * shots against 46.0 m elsewhere, and adding it to dwell in any form makes dwell
+ * worse. Non-shot stops lie on the same line of travel as shots, so "distance to
+ * somewhere further along" cannot separate the two at any threshold.
+ *
+ * The old score therefore ranked real shots BELOW the noise: 25/89 (28%) of
+ * confirmed shots selected across those four rounds. Dwell alone gets 66/89
+ * (74%), and nothing measured improves on it — capping it costs accuracy by
+ * creating ties, and spread, fix count and arrival speed each change nothing.
+ *
+ * So the score is dwell, and only dwell. It is `d / (d + 45 s)`: bounded in
+ * [0, 1) for display, strictly increasing for ever so the ranking is exactly
+ * the dwell ordering with no ties, and crossing 0.5 at 45 s — between the two
+ * measured medians, which is what makes "strong candidate" mean something.
+ *
+ * The other features stay ON the candidate. They are real measurements, they
+ * are what a trained model would want, and one of them being useless for
+ * ranking today is not a reason to stop recording it. They simply no longer
+ * vote.
  *
  * KNOWN FALSE POSITIVES, DELIBERATELY NOT FILTERED OUT
  *
  *  - Behind the hole. Matt walks behind every cup to read the putt back the
  *    other way, "every time no deviation". That is a real stop that is not a
- *    shot. It is also the most predictable event on the golf course, so it is
- *    surfaced as a low `departureM` rather than suppressed.
+ *    shot. It is surfaced with its short dwell rather than suppressed.
  *  - Sitting in the cart while a partner plays. The phone rides in his pocket,
  *    so a cart at rest is a stop. Confirmation resolves it; a filter would
  *    guess.
@@ -50,11 +83,22 @@ import { expandFix } from '../data/trackstore.js';
  * too large is merging a stop with an adjacent one; the cost of too small is
  * shredding every stop into noise, which is far worse for ranking.
  */
+/**
+ * The dwell at which a stop is even money, in seconds.
+ *
+ * Sets where `d / (d + HALF)` crosses 0.5, which is the threshold the round
+ * summary already uses to count "strong" candidates. 45 s sits between the two
+ * measured medians — 62.9 s on stops that carry a confirmed mark, 19.0 s on
+ * those that do not — so the count means "stops that look more like a shot than
+ * not" rather than an arbitrary line. Changing it re-labels candidates; it can
+ * never change their ORDER, because the curve is monotonic in dwell whatever
+ * this is set to.
+ */
+export const DWELL_HALF_S = 45;
+
 export const DEFAULTS = {
   stopRadiusM: 12,
   minDwellMs: 6000,
-  /** Below this, a "stop" is a cart pause, not someone standing over a ball. */
-  minDepartureM: 18,
   /** Fixes worse than this are dropped before segmenting. */
   maxAccuracyM: 20,
   /** Gap that means the receiver dropped out; never bridged into one stop. */
@@ -226,10 +270,11 @@ function mergeAdjacentStops(segments, cfg) {
  * explanation is untestable and unfixable — and because these become the
  * labelled examples that make the thing trainable.
  *
- * `departureM` is straight-line distance to the NEXT stop, which is the closest
- * thing to "how far the ball went" available before anything is confirmed. It
- * is the single most discriminating feature: a shot moves a long way, reading a
- * putt from behind the hole moves a few metres.
+ * `departureM` is straight-line distance to the NEXT stop. It is kept because
+ * it is a real measurement and a future model may find a use for it, but it no
+ * longer scores anything: measured, it does not separate shots from anything
+ * else, and the header explains why that is structural rather than a tuning
+ * problem. The score is dwell.
  */
 export function stopCandidates(points, opts = {}) {
   const cfg = { ...DEFAULTS, ...opts };
@@ -242,44 +287,42 @@ export function stopCandidates(points, opts = {}) {
     const departureM = next ? Number(distanceM(stop, next).toFixed(1)) : null;
     const arrivalSpeed = prevMove?.speed ?? null;
 
-    const reasons = [];
-    let score = 0;
-
-    if (departureM == null) {
-      reasons.push('last stop on the track — no departure to measure');
-      score += 0.2;
-    } else if (departureM >= cfg.minDepartureM) {
-      // Saturating rather than linear: past a full shot, further is not more
-      // shot-like, and a 250 yard drive should not outrank a wedge.
-      const d = Math.min(departureM, 200) / 200;
-      score += 0.5 * (0.4 + 0.6 * d);
-      reasons.push(`ball went ${Math.round(toYards(departureM))} yd`);
-    } else {
-      reasons.push(`moved only ${Math.round(toYards(departureM))} yd — repositioning, or reading a putt`);
-    }
-
-    if (Number.isFinite(arrivalSpeed) && arrivalSpeed > 2.5) {
-      score += 0.25;
-      reasons.push(`arrived at ${arrivalSpeed.toFixed(1)} m/s (cart)`);
-    } else if (Number.isFinite(arrivalSpeed)) {
-      score += 0.1;
-      reasons.push(`arrived on foot (${arrivalSpeed.toFixed(1)} m/s)`);
-    }
-
     const dwellS = stop.dwellMs / 1000;
-    // Matt's routine is ~10 s. Credit the band around it without letting dwell
-    // dominate — see the header on why duration cannot carry this decision.
-    if (dwellS >= 6 && dwellS <= 45) {
-      score += 0.15;
-      reasons.push(`stood ${Math.round(dwellS)} s`);
-    } else if (dwellS > 45) {
-      reasons.push(`stood ${Math.round(dwellS)} s — long for a pre-shot routine`);
+
+    /*
+     * The score IS the dwell. See the header for the measurements.
+     *
+     * d / (d + HALF) rather than a clamped ramp, for two reasons. It is
+     * strictly increasing with no ceiling, so ranking by score is exactly
+     * ranking by dwell and two long stops never tie — capping at 90 s or 120 s
+     * measurably costs accuracy (69% against 74%) by manufacturing ties among
+     * precisely the stops most likely to be shots. And it is bounded below 1,
+     * so it still reads as a confidence and the existing `score >= 0.5` test on
+     * the round summary keeps working — that threshold now means "stood at
+     * least HALF seconds", which falls between the measured medians of 62.9 s
+     * on shots and 19.0 s elsewhere.
+     */
+    const score = dwellS / (dwellS + DWELL_HALF_S);
+
+    /*
+     * Reasons are the evidence FOR THE SCORE, so dwell leads and is the only
+     * one phrased as a judgement. The rest are observations, deliberately
+     * neutral now that they do not vote — the old list asserted "ball went
+     * 25 yd" about a number that turned out to describe the walk back to the
+     * cart, which is worse than saying nothing.
+     */
+    const reasons = [`stood ${Math.round(dwellS)} s`];
+    if (departureM == null) reasons.push('last stop on the track');
+    else reasons.push(`next stop ${Math.round(toYards(departureM))} yd away`);
+    if (Number.isFinite(arrivalSpeed)) {
+      reasons.push(
+        arrivalSpeed > 2.5
+          ? `arrived at ${arrivalSpeed.toFixed(1)} m/s (cart)`
+          : `arrived on foot (${arrivalSpeed.toFixed(1)} m/s)`
+      );
     }
 
-    if (stop.spreadM <= 8) {
-      score += 0.1;
-      reasons.push(`tight cluster (${Math.round(toFeet(stop.spreadM))} ft)`);
-    }
+    reasons.push(`${stop.n} fixes, ${Math.round(toFeet(stop.spreadM))} ft spread`);
 
     return {
       lat: stop.lat,
@@ -293,7 +336,7 @@ export function stopCandidates(points, opts = {}) {
       merged: stop.merged ?? 1,
       arrivalSpeed,
       departureM,
-      score: Number(Math.min(1, score).toFixed(3)),
+      score: Number(score.toFixed(3)),
       reasons,
     };
   });
