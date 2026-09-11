@@ -30,4 +30,4 @@ never "Fable decided".
   `docs/handoff/FOR_FABLE.md`, `docs/handoff/FOR_FABLE_LOG.md`,
   `docs/DECISIONS_LOG.md`, `CLAUDE.md` (new, the Opus-side contract).
 - **Report:** none - this was the setup session in Matt's own chat with
-  Fable. **Commit:** the setup commit of 2026-09-10.
+  Fable. **Commit:** `17dd43f`.
