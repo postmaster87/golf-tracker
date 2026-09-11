@@ -40,6 +40,7 @@
         runExportTrackTests,
         runLiveIndicatorTests,
         runCaptureUiTests,
+        runMarkFlowTests,
         runStoragePersistTests,
       } from './run.js';
 
@@ -50,6 +51,7 @@
       await runExportTrackTests();
       await runLiveIndicatorTests();
       await runCaptureUiTests();
+      await runMarkFlowTests();
       await runStoragePersistTests();
       const results = getResults();
       const failed = results.filter((r) => !r.ok);

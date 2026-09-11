@@ -171,6 +171,7 @@ all of the interaction fixes first, then the GPS work.
   YARDAGES. On the tee there is no cup button to mis-tap, which is what hole 8
   actually needed. The putt sheet's own cup control and the round-menu entry are
   both untouched, so nothing is lost for a hole that gets chipped in.
+  *(Replaced in build v23: it hid the cup on the fringe. See that section.)*
 - **Every mark is stated on screen, with UNDO attached** — "Tee shot marked.",
   "Cup marked here." — for 20 s. This is the answer to UNDO being
   undiscoverable: rather than hoping he finds a control, the control arrives at
@@ -550,6 +551,85 @@ same blank before and mean opposite things.
 the worse of the two: that screen exists so a glance at a pocketed phone answers
 "is the GPS still happy?" without unlocking, and a phone pocketed long enough to
 be worth checking is exactly the one whose page has been suspended.
+
+### The button says the shot, the cup from anywhere, LOCK never loses a mark — build v23
+
+His message, 2026-09-11, verbatim:
+
+> "Okay lets add the ability to mark the cup on any screen i had multiple times
+> where my ball is on the fringe of near the green and I have gone behind the
+> hole to read the line and wanted to mark but couldn't. I need the ability to
+> use the app lock screen as soon as marking the cup or a shot but still have it
+> log the shot there was an issue before of me hitting the lock button before a
+> shot was fully logged and it missed. I am not sure that got fix but if not fix
+> it. Then the most confusing thing it says mark tee shot, mark shot 1 landing,
+> mark shot...  It should be Mark Tee shot at the tee location, Mark shot 2 from
+> where I hit shot 2 which is exactly where the last shot finished, then mark
+> shot 3, then mark shot 4. log a 1 putt and I am done with the hole. If there is
+> a penalty I will log it when it occurs and the score is adjusted after holing
+> out on that hole. any questions on these?"
+
+Five questions went back to him. His answer: *"Go ahead build and push it. I
+need to get ready"* — so each was built on the recommended option, listed at the
+end of this section, and each is his to overrule.
+
+**The words.** The data already stored every mark as the shot about to be
+played from that spot — the mark after the tee shot has always been `seq` 2.
+Only the screen was backwards: the button said `MARK SHOT 1 LANDING` and the
+banner said `seq - 1`. Now: MARK TEE SHOT, then MARK SHOT 2, 3, 4; the banner
+says "Shot 2 marked (Fairway)."; the hint says "At your ball: MARK SHOT 2."
+Button, banner, shot list and data give one number for one tap. No stored round
+changes.
+
+**LOCK straight after MARK SHOT — it was not fixed.** The field-test-5 fix above
+only made the panel stop saying "Capturing…". The tee shot and the cup always
+saved themselves when the burst ended; every other shot was saved *by the lie
+tap*, so LOCK before the lie left it one tap from saved, and leaving the play
+screen threw it away with no message. And `canLock` in `js/app.js` refused to
+auto-lock while any `.capture` panel existed, so the phone went into the pocket
+unlocked with the lie grid live.
+
+Now the position is saved the moment the burst ends. The lie is asked for on a
+panel laid out exactly like the capture panel it replaces — same grids in the
+same place, because it swaps in three seconds after MARK SHOT, when a thumb may
+be on its way to a lie. Tapping a lie finishes the shot; LIE LATER walks on;
+CANCEL SHOT takes it back. An unanswered shot reads "Lie?" in the shot list and
+the gaps gate lists "Hole N: lie for shot K not chosen" before the round can be
+saved. The auto-lock now waits only on a *running* burst
+(`.capture[data-burst="running"]`).
+
+The unanswered shot is stored as `lie: 'fairway'` with `lieInferred: true` —
+the same flagged placeholder end-of-hole entry already writes for "don't
+remember" (`addTrackShot`). No new field and no new value; `lieUnanswered` tells
+the two apart by source, since only a GPS mark can arrive unanswered. Whether
+that is truly not a schema revision is put to Fable as a critical review
+(`docs/handoff/FOR_FABLE.md`, item 2.1).
+
+**The cup.** The footer's MARK CUP now shows from the first mark of the hole,
+not only after a ball marked GREEN — the fringe case. The putt sheet's MARK CUP
+is no longer disabled without a ball on the green. The hole-8 guard moved to
+where the error is: a cup fix within 30 yd of the tee mark asks "Cup at the
+tee?" before it is saved, and declining saves nothing. That question sits under
+the lock screen if it is up (scrim z 50, lock 200), so a pocket cannot answer
+it.
+
+**Options taken on his "go ahead", not answered by him:**
+1. The cup's reach — the play screen from the first mark, plus the putt sheet
+   and the ≡ menu as before. Not a floating control on every screen.
+2. The hole-8 guard — the 30 yd question, not a banner-only UNDO.
+3. The green — unchanged: a GREEN mark opens the putt sheet; a cup marked from
+   the putt sheet reopens it.
+4. Penalties — (a) they count in the running score the moment they are logged,
+   as before; (b) the button counts swings, not penalty strokes, read from his
+   "If there is a penalty I will log it when it occurs and the score is adjusted
+   after holing out on that hole".
+5. An unanswered lie is never filled in: the gate asks, and SAVE WITH GAPS
+   ANYWAY keeps the flagged placeholder, as end-of-hole entry already does.
+
+**Tests.** 13 new in "marks name the shot, and LOCK never loses one", driving
+the real screen with a receiver whose burst ends only when the test says so.
+Suite 493/493 on 2026-09-11 — the intermittent "the deliberate gesture
+unlocks" passed on that run, which is not evidence it is fixed.
 
 ### The shot ranking was inverted — build v22
 

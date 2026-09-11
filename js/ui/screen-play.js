@@ -46,6 +46,9 @@ import {
   holeWindow,
   rebuildCourseLearning,
   addTrackShot,
+  addShotLieLater,
+  setShotLie,
+  lieUnanswered,
   insertTeeShot,
   teeShot,
   teeIsInferred,
@@ -113,6 +116,8 @@ export function playScreen(ctx) {
   let teeNudge = null;
   /** Set when a cup capture was started from inside the putt sheet. */
   let reopenPuttsAfterCup = false;
+  /** A shot saved when its burst ended, whose lie is still being asked for. */
+  let pendingLie = null;
 
   const hole = () => currentHole(round);
   const isLastHole = () => round.currentHoleIndex >= round.holes.length - 1;
@@ -471,7 +476,9 @@ export function playScreen(ctx) {
     if (showScoring()) body.appendChild(tally(hl));
     body.appendChild(shotList(hl));
 
+    const waiting = capture ? null : pendingLieShot(hl);
     if (capture) paintCapture();
+    else if (waiting) paintPendingLie(hl, waiting);
     else paintActions(hl);
   }
 
@@ -562,7 +569,7 @@ export function playScreen(ctx) {
     const geo = shotGeometry(hl, accumulatedHolePosition(ctx.app, round.courseId, hl.number));
     if (!geo.length) {
       wrap.appendChild(
-        h('li', { class: 'note muted', text: 'No shots marked yet. Stand at the ball and tap MARK SHOT.' })
+        h('li', { class: 'note muted', text: 'No shots marked yet. On the tee, tap MARK TEE SHOT.' })
       );
       return wrap;
     }
@@ -614,11 +621,16 @@ export function playScreen(ctx) {
               onClick: () => openShotEditor(hl, s, i),
             },
             h('span', { class: 'seq', text: String(i + 1) }),
-            h('span', { class: 'lie', text: LIE_LABELS[s.lie] }),
+            // A shot saved before its lie was tapped says so rather than
+            // showing the placeholder it is stored with.
+            h('span', { class: 'lie', text: lieUnanswered(s) ? 'Lie?' : LIE_LABELS[s.lie] }),
             s.club && s.club !== 'putter'
               ? h('span', { class: 'club-tag', text: clubLabel(s.club) })
               : null,
             s.penalty ? h('span', { class: 'flag', text: `+${s.penalty.strokes} ${s.penalty.type}` }) : null,
+            // Inferred is never silently mixed with measured: a lie taken as
+            // "don't remember" at end-of-hole is labelled as the guess it is.
+            s.lieInferred && !lieUnanswered(s) ? h('span', { class: 'flag', text: 'lie guessed' }) : null,
             s.mark?.quality === 'poor' ? h('span', { class: 'flag', text: 'poor fix' }) : null,
             // Distances are part of "statistics" — hidden mid-practice-round
             // for the same reason as the score. The mark is still recorded and
@@ -660,7 +672,8 @@ export function playScreen(ctx) {
 
   function paintCapture() {
     const isShot = capture.kind === 'shot';
-    const wrap = h('div', { class: 'capture' });
+    // `data-burst` is what the auto-lock reads: only a running burst holds it off.
+    const wrap = h('div', { class: 'capture', dataset: { burst: 'running' } });
 
     wrap.appendChild(
       h(
@@ -822,8 +835,178 @@ export function playScreen(ctx) {
         if (!capture || controller.signal.aborted) return;
         capture.reduced = reduced;
         updateCaptureUI();
-        maybeCommit();
+        /*
+         * The burst is over, so the position is saved now — lie or no lie.
+         *
+         * The tee shot and the cup always saved themselves at this point.
+         * Every other shot waited on the lie tap, so LOCK straight after MARK
+         * SHOT left it one tap from saved, and leaving the screen threw it
+         * away. Now the lie follows the shot instead of gating it; see
+         * `addShotLieLater` for his words.
+         */
+        if (capture.kind === 'shot' && !capture.lieConfirmed) saveLieLater();
+        else maybeCommit();
       });
+  }
+
+  /** What a burst with no fix leaves behind: a warning, and nothing saved. */
+  function noFixWarning() {
+    markWarning = {
+      kind: 'bad',
+      text: 'No GPS fix arrived — nothing was saved. Wait for the accuracy reading, or hand-enter the hole.',
+      action: 'Dismiss',
+    };
+  }
+
+  /** Save a shot whose lie has not been tapped, and keep asking for it. */
+  function saveLieLater() {
+    const { reduced, club } = capture;
+    capture = null;
+    if (!reduced) {
+      noFixWarning();
+      paint();
+      return;
+    }
+    const hl = hole();
+    const shot = addShotLieLater(hl, { reduced, club });
+    persist();
+    pendingLie = { holeNumber: hl.number, shotId: shot.id };
+    markWarning = reduced.quality === 'poor' ? poorMarkWarning('shot') : null;
+    paint();
+  }
+
+  /** The saved shot on this hole whose lie panel is up, if there is one. */
+  function pendingLieShot(hl) {
+    if (!pendingLie || editing || pendingLie.holeNumber !== hl.number) return null;
+    const shot = hl.shots.find((s) => s.id === pendingLie.shotId);
+    return shot && lieUnanswered(shot) ? shot : null;
+  }
+
+  /**
+   * The lie, asked for on a shot that is already saved.
+   *
+   * Laid out exactly like the capture panel it replaces — same head, same bar,
+   * same club and lie grids, one button row where CANCEL sat — because it swaps
+   * in the instant the burst ends, three seconds after MARK SHOT, which is
+   * exactly when a thumb may be on its way to a lie. The footer is anchored at
+   * the bottom, so keeping everything from the lie grid down the same height
+   * keeps every lie button under the same spot on the glass.
+   *
+   * Carries `data-burst="done"`, so the auto-lock is free to fire over it.
+   */
+  function paintPendingLie(hl, shot) {
+    const wrap = h('div', { class: 'capture', dataset: { burst: 'done' } });
+    const m = shot.mark;
+    wrap.appendChild(
+      h(
+        'div',
+        { class: 'cap-head' },
+        h('span', { text: `Shot ${shot.seq} saved` }),
+        h('span', {
+          class: 'val cap-meta',
+          // The words the capture panel ended on, so the only thing that
+          // changes on screen is that the shot is now safe.
+          text: m
+            ? `Captured · ${m.usedCount}/${m.sampleCount} fixes · ±${Math.round(toFeet(m.accuracyM))} ft`
+            : 'Captured',
+        })
+      )
+    );
+    wrap.appendChild(h('div', { class: 'cap-bar' }, h('span', { style: { width: '100%' } })));
+
+    if (ctx.app.settings.trackClubs) {
+      const clubGrid = h('div', { class: 'club-grid' });
+      for (const c of SELECTABLE_CLUBS) {
+        clubGrid.appendChild(
+          h('button', {
+            class: 'seg-btn club-chip',
+            type: 'button',
+            text: c.label,
+            'aria-label': c.full,
+            'aria-pressed': String(shot.club === c.id),
+            onClick: () => {
+              setShotClub(shot, shot.club === c.id ? null : c.id);
+              persist();
+              paint();
+            },
+          })
+        );
+      }
+      wrap.appendChild(
+        h(
+          'div',
+          { class: 'field-optional' },
+          h('div', { class: 'cap-label', text: shot.club ? `Club · ${clubFull(shot.club)}` : 'Club — optional' }),
+          clubGrid
+        )
+      );
+    }
+
+    const grid = h('div', { class: 'lie-grid' });
+    for (const lie of LIES) {
+      grid.appendChild(
+        h('button', {
+          class: 'seg-btn',
+          type: 'button',
+          text: LIE_LABELS[lie].toUpperCase(),
+          'aria-pressed': 'false',
+          onClick: () => answerLie(hl, shot, lie),
+        })
+      );
+    }
+    wrap.appendChild(
+      h(
+        'div',
+        { class: 'field-required' },
+        h('div', { class: 'req-label' }, h('span', { class: 'req-dot' }), 'Lie — tap one to finish the shot'),
+        grid
+      )
+    );
+    footer.appendChild(wrap);
+
+    footer.appendChild(
+      h(
+        'div',
+        { class: 'btn-row' },
+        h('button', {
+          class: 'btn sm',
+          // What CANCEL always did — nothing kept — now that there is
+          // something saved to take back.
+          text: 'CANCEL SHOT',
+          onClick: () => {
+            removeShot(hl, shot.id);
+            pendingLie = null;
+            markWarning = null;
+            persist();
+            paint();
+            toast(`Shot ${shot.seq} removed.`);
+          },
+        }),
+        h('button', {
+          class: 'btn sm',
+          // Never a wall: he can walk on and mark the next shot. The shot list
+          // shows "Lie?" and the gaps gate asks before the round is saved.
+          text: 'LIE LATER',
+          onClick: () => {
+            pendingLie = null;
+            paint();
+            toast('Shot saved without a lie. Tap it in the shot list, or pick it when you finish the round.', {
+              ms: 7000,
+            });
+          },
+        })
+      )
+    );
+  }
+
+  function answerLie(hl, shot, lie) {
+    setShotLie(shot, lie);
+    pendingLie = null;
+    if (lie === 'green') learnGreen(ctx.app, round, hl.number, shot.mark);
+    persist();
+    noteMark(`Shot ${shot.seq} marked (${LIE_LABELS[lie] ?? lie}).`);
+    paint();
+    if (lie === 'green') afterGreenMark(hl);
   }
 
   /** Commit once both halves are in: a reduced position and (for shots) a lie. */
@@ -833,16 +1016,44 @@ export function playScreen(ctx) {
     commit();
   }
 
+  /**
+   * How close to the tee a cup fix has to be before it is questioned.
+   *
+   * The hole-8 error from field test 3 — a cup marked 3.2 s after the tee shot,
+   * from the same spot — used to be prevented by hiding the cup control until
+   * a ball was marked on the green, which also hid it on the fringe. The guard
+   * lives here now, on the one thing that is unambiguously wrong: a cup at the
+   * tee. 30 yd is a fraction of any par 3 and several times the GPS error, so a
+   * real cup never trips it and a mis-tap on the tee always does. It asks
+   * rather than refuses — he is the source of truth about where he is.
+   */
+  const CUP_AT_TEE_M = 30 * 0.9144;
+
+  function saveCup(hl, reduced, reopenPutts) {
+    setCup(hl, reduced);
+    const { warning } = learnCup(ctx.app, round, hl.number, hl.cup);
+    persist();
+    // Named, not just "marked". On hole 8 the thing that went unnoticed was
+    // *which* mark had been taken, so the banner says the word "cup".
+    noteMark('Cup marked here.');
+    if (warning) markWarning = { kind: 'bad', text: warning, action: 'OK' };
+    else if (reduced.quality === 'poor') markWarning = poorMarkWarning('cup');
+    else markWarning = null;
+    paint();
+    /*
+     * Back to the sheet, however the cup was reached — from inside it, or
+     * from the footer. Nothing should ever have to be tapped to bring the
+     * putting menu back once the ball is on the green.
+     */
+    if (!hl.manual && (reopenPutts || hl.shots.some((s) => s.lie === 'green'))) openGreenEntry(hl);
+  }
+
   function commit() {
     const { kind, chosenLie, reduced, club } = capture;
     capture = null;
 
     if (!reduced) {
-      markWarning = {
-        kind: 'bad',
-        text: 'No GPS fix arrived — nothing was saved. Wait for the accuracy reading, or hand-enter the hole.',
-        action: 'Dismiss',
-      };
+      noFixWarning();
       paint();
       return;
     }
@@ -850,23 +1061,25 @@ export function playScreen(ctx) {
     const hl = hole();
 
     if (kind === 'cup') {
-      setCup(hl, reduced);
-      const { warning } = learnCup(ctx.app, round, hl.number, hl.cup);
-      persist();
-      // Named, not just "marked". On hole 8 the thing that went unnoticed was
-      // *which* mark had been taken, so the banner says the word "cup".
-      noteMark('Cup marked here.');
-      if (warning) markWarning = { kind: 'bad', text: warning, action: 'OK' };
-      else if (reduced.quality === 'poor') markWarning = poorMarkWarning('cup');
-      else markWarning = null;
-      paint();
-      /*
-       * Back to the sheet, however the cup was reached — from inside it, or
-       * from the footer. Nothing should ever have to be tapped to bring the
-       * putting menu back once the ball is on the green.
-       */
+      const reopenPutts = reopenPuttsAfterCup;
       reopenPuttsAfterCup = false;
-      if (!hl.manual && hl.shots.some((s) => s.lie === 'green')) openGreenEntry(hl);
+      const tee = teeShot(hl)?.mark;
+      const fromTeeM = tee ? distanceM(tee, reduced) : Infinity;
+      if (fromTeeM < CUP_AT_TEE_M) {
+        paint();
+        // If the lock screen is up this sits under it (scrim z 50, lock 200),
+        // so a pocket cannot answer it; he sees it on unlocking.
+        confirmSheet(
+          'Cup at the tee?',
+          `That fix is ${Math.round(toYards(fromTeeM))} yd from where you teed off. Mark the cup here anyway?`,
+          { confirmLabel: 'MARK CUP HERE' }
+        ).then((ok) => {
+          if (ok) saveCup(hl, reduced, reopenPutts);
+          else toast('Cup not marked.');
+        });
+        return;
+      }
+      saveCup(hl, reduced, reopenPutts);
       return;
     }
 
@@ -882,19 +1095,15 @@ export function playScreen(ctx) {
     persist();
     markWarning = reduced.quality === 'poor' ? poorMarkWarning('shot') : null;
     /*
-     * Names the shot that just FINISHED, matching the button that was pressed.
-     *
-     * The stored `seq` is the shot about to be played from this position, so a
-     * mark taken by "MARK SHOT 1 LANDING" is saved as shot 2. Echoing the
-     * stored number back would re-open the exact ambiguity that cost field test
-     * 3 a round — "Mark shot 1 is the spot where I am teeing off from or where
-     * shot one landed?" — with the app now giving two different numbers for one
-     * tap. The button's language wins.
+     * Names the shot the button named: the one about to be played from here,
+     * which is the stored `seq`. Button, banner, shot list and data now all say
+     * one number for one tap — the landing wording said `seq - 1` here, and he
+     * called it the most confusing thing on the screen.
      */
     noteMark(
       chosenLie === 'tee' && shot.seq === 1
         ? 'Tee shot marked.'
-        : `Shot ${shot.seq - 1} landing marked (${LIE_LABELS[chosenLie] ?? chosenLie}).`
+        : `Shot ${shot.seq} marked (${LIE_LABELS[chosenLie] ?? chosenLie}).`
     );
     paint();
 
@@ -909,13 +1118,16 @@ export function playScreen(ctx) {
      * and it survives the pocket lock — phone away for the putt, phone out
      * again and it is exactly where he left it.
      */
-    if (chosenLie === 'green') {
-      openGreenEntry(hl);
-      // Once a round, on the first hole. Seventeen repetitions of something
-      // known by the second hole is how a prompt gets dismissed unread.
-      if (!hl.cup && round.currentHoleIndex === 0) {
-        toast('Mark the cup from here when you walk behind the hole.', { ms: 8000 });
-      }
+    if (chosenLie === 'green') afterGreenMark(hl);
+  }
+
+  /** Shared by the lie tapped during the burst and the lie answered after it. */
+  function afterGreenMark(hl) {
+    openGreenEntry(hl);
+    // Once a round, on the first hole. Seventeen repetitions of something
+    // known by the second hole is how a prompt gets dismissed unread.
+    if (!hl.cup && round.currentHoleIndex === 0) {
+      toast('Mark the cup from here when you walk behind the hole.', { ms: 8000 });
     }
   }
 
@@ -1156,9 +1368,10 @@ export function playScreen(ctx) {
                     // Primary, not dim: marking the cup from behind the hole is
                     // part of the routine on every green, and it is what makes
                     // every distance on the hole exact rather than approximate.
-                    class: 'btn primary',
-                    text: 'MARK CUP',
-                    disabled: !ballMark,
+                    // No longer disabled until a ball is marked on the green —
+                    // the ball on the fringe is exactly when he wants it.
+                    class: hl.cup ? 'btn sm dim' : 'btn primary',
+                    text: hl.cup ? 'RE-MARK CUP' : 'MARK CUP',
                     onClick: () => {
                       done('markcup');
                       // Reopens this sheet once the cup is captured.
@@ -1490,8 +1703,13 @@ export function playScreen(ctx) {
    * off from or where shot one landed? Do you see the confusion this created".
    *
    * Fixed by naming rather than explaining. The tee shot gets its own button,
-   * so there is nothing to interpret, and every button after it names the shot
-   * that has already finished — which is the ball he is standing over.
+   * so there is nothing to interpret. The buttons after it then named the shot
+   * that had just finished — "MARK SHOT 1 LANDING" — and that became the most
+   * confusing thing on the screen. His words, 2026-09-11: "It should be Mark
+   * Tee shot at the tee location, Mark shot 2 from where I hit shot 2 which is
+   * exactly where the last shot finished, then mark shot 3, then mark shot 4."
+   * So every button now names the shot about to be played from where he is
+   * standing, which is also the number the data has always stored.
    */
   function nextStepHint(hl) {
     if (hl.manual) return 'Hand-entered hole. Re-enter it from the menu, or move on.';
@@ -1509,7 +1727,7 @@ export function playScreen(ctx) {
     // wrong place in the first place.
     return hl.shots.some((x) => x.lie === 'green')
       ? `On the green: MARK CUP when you walk behind the hole, then enter the putts.`
-      : `At your ball: MARK SHOT ${n} LANDING.`;
+      : `At your ball: MARK SHOT ${hl.shots.length + 1}.`;
   }
 
   function paintActions(hl) {
@@ -1573,8 +1791,10 @@ export function playScreen(ctx) {
         h('button', {
           class: `${pri('mark')} huge`,
           // The tee shot is named, not numbered. Every later mark names the shot
-          // that just finished — you are standing on where it landed.
-          text: n === 0 ? 'MARK TEE SHOT' : `MARK SHOT ${n} LANDING`,
+          // about to be played from here — the `seq` that `addShot` will store.
+          // Penalty strokes are not in it: "If there is a penalty I will log it
+          // when it occurs and the score is adjusted after holing out".
+          text: n === 0 ? 'MARK TEE SHOT' : `MARK SHOT ${hl.shots.length + 1}`,
           disabled: Boolean(hl.manual),
           onClick: () => beginCapture('shot'),
         })
@@ -1610,7 +1830,7 @@ export function playScreen(ctx) {
     }
 
     /*
-     * THE CUP CONTROL, AND WHY IT IS NOT HERE MOST OF THE TIME
+     * THE CUP CONTROL, AND THE TAP IT MUST NOT CATCH
      *
      * Hole 8 of field test 3: the cup was marked on the tee, 3.2 s after the
      * tee shot, from the same spot — a clean 1.8 m fix, quality "good". Not a
@@ -1632,8 +1852,19 @@ export function playScreen(ctx) {
      * chipped in. Even when it does appear it is below ENTER PUTTS and
      * YARDAGES, so it is never adjacent to the shot button again.
      */
-    const onGreen = hl.shots.some((x) => x.lie === 'green');
-    if (onGreen) {
+    /*
+     * Rev 3 answered that by not rendering the control until a ball was marked
+     * with lie GREEN — which hid it every time the ball stopped on the fringe.
+     * His words, 2026-09-11: "i had multiple times where my ball is on the
+     * fringe of near the green and I have gone behind the hole to read the line
+     * and wanted to mark but couldn't."
+     *
+     * So it is back from the first mark of the hole onward, and the hole-8
+     * guard has moved to where the error actually is: a cup fix within
+     * CUP_AT_TEE_M of the tee mark is questioned before it is saved (`commit`).
+     * It still sits below ENTER PUTTS and YARDAGES, never next to MARK SHOT.
+     */
+    if (hl.shots.length) {
       footer.appendChild(
         h('button', {
           class: pri('cup'),
@@ -1947,7 +2178,9 @@ export function playScreen(ctx) {
             LIES.map((l) => ({ value: l, label: LIE_LABELS[l] })),
             shot.lie,
             (v) => {
-              shot.lie = v;
+              // His answer, so any "guessed" or "not chosen" flag goes with it.
+              setShotLie(shot, v);
+              if (pendingLie?.shotId === shot.id) pendingLie = null;
               persist();
               paint();
               done('lie');
@@ -2985,9 +3218,16 @@ export function playScreen(ctx) {
       }
 
       // Silent, so arriving at the hole to fix it does not also offer to undo
-      // the arrival. Both gap kinds are fixed in the putts sheet.
+      // the arrival. A missing lie is fixed on the shot itself; the other two
+      // kinds in the putts sheet.
       goToHole(idx, { silent: true });
-      openGreenEntry(round.holes[idx]);
+      const target = round.holes[idx];
+      if (choice.kind === 'lie') {
+        const i = target.shots.findIndex((s) => s.id === choice.shotId);
+        if (i >= 0) openShotEditor(target, target.shots[i], i);
+        return false;
+      }
+      openGreenEntry(target);
       return false;
     }
   }

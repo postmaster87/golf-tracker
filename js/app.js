@@ -159,7 +159,11 @@ pocketLock.configure({
    * every interaction, so an actively-used sheet never locks; one left open and
    * untouched for the idle period should.
    */
-  canLock: () => !document.querySelector('.capture'),
+  //
+  // A burst still running, and nothing else. Once it ends the shot is saved
+  // even if its lie has not been tapped, so a panel waiting on a lie is no
+  // reason to leave the phone unlocked in a pocket with the lie grid live.
+  canLock: () => !document.querySelector('.capture[data-burst="running"]'),
   status: () => {
     const hole = ctx.round?.holes?.[ctx.round.currentHoleIndex];
     const fix = ctx.gps.current;

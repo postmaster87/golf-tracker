@@ -88,6 +88,47 @@ export function addShot(hole, { lie, reduced, source = 'gps', club = null }) {
 }
 
 /**
+ * Save a marked shot whose lie has not been given yet.
+ *
+ * Matt, 2026-09-11: "I need the ability to use the app lock screen as soon as
+ * marking the cup or a shot but still have it log the shot there was an issue
+ * before of me hitting the lock button before a shot was fully logged and it
+ * missed." Every shot after the tee used to be saved BY the lie tap, so LOCK
+ * straight after MARK SHOT left the position sitting in memory one tap from
+ * saved, and leaving the screen threw it away. Now the position is saved the
+ * moment the burst ends and the lie follows it.
+ *
+ * Stored as `fairway` with `lieInferred` — the same flagged placeholder the
+ * end-of-hole entry already writes when he answers "don't remember" — so the
+ * record never takes a shape it could not already have. The difference is that
+ * he has not been asked yet, which `lieUnanswered` tells apart by source: only
+ * a GPS mark arrives here, only the track path writes a track shot. The gaps
+ * gate asks for every unanswered one before the round is saved, so the
+ * placeholder never reaches a finished round without him seeing it.
+ */
+export function addShotLieLater(hole, { reduced, club = null }) {
+  const shot = addShot(hole, { lie: 'fairway', reduced, club });
+  shot.lieInferred = true;
+  return shot;
+}
+
+/** A GPS-marked shot still waiting for its lie (see `addShotLieLater`). */
+export const lieUnanswered = (shot) => Boolean(shot?.lieInferred && shot.source === 'gps');
+
+/**
+ * His answer to a shot's lie. Clears the inferred flag whatever set it — a lie
+ * he chose is what he saw, not the app's guess. A shot from the green is a
+ * putt, so the putter follows the lie in both directions.
+ */
+export function setShotLie(shot, lie) {
+  shot.lie = lie;
+  delete shot.lieInferred;
+  if (lie === 'green') shot.club = PUTTER;
+  else if (shot.club === PUTTER) shot.club = null;
+  return shot;
+}
+
+/**
  * Put a tee shot back on a hole that was played without one.
  *
  * The tee is the one position on a golf course that cannot really be lost. A
@@ -774,6 +815,20 @@ export function roundGaps(round) {
   const gaps = [];
   for (const hole of round?.holes ?? []) {
     if (!isHoleStarted(hole)) continue;
+
+    // A lie saved for later is asked for here, whatever else the hole is
+    // missing. A hand-entered hole supersedes its marks, so it is not asked.
+    if (!hole.manual) {
+      for (const s of hole.shots) {
+        if (!lieUnanswered(s)) continue;
+        gaps.push({
+          holeNumber: hole.number,
+          kind: 'lie',
+          shotId: s.id,
+          label: `Hole ${hole.number}: lie for shot ${s.seq} not chosen`,
+        });
+      }
+    }
 
     if (!isHoleComplete(hole)) {
       gaps.push({

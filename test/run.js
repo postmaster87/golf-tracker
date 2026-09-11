@@ -16,6 +16,10 @@ import {
   createRound,
   addShot,
   addTrackShot,
+  addShotLieLater,
+  setShotLie,
+  lieUnanswered,
+  roundGaps,
   insertTeeShot,
   setCupFromPaces,
   cupIsPaced,
@@ -3758,7 +3762,7 @@ export async function runCaptureUiTests() {
   press(/MARK TEE SHOT/);
   await new Promise((r) => setTimeout(r, 80));
 
-  // A landing mark is the case that waits for a lie.
+  // Shot 2 is the case that asks for a lie.
   press(/MARK SHOT/);
   await new Promise((r) => setTimeout(r, 80));
   const afterBurst = meta();
@@ -3793,9 +3797,9 @@ export async function runCaptureUiTests() {
     assert(barWidth !== '', 'the bar was never given a width');
   });
 
-  test('a finished burst still waits on the lie, and says so', () => {
-    // The shot is one tap from saved. That was always true; the screen simply
-    // never admitted the burst was over.
+  test('a finished burst still asks for the lie, and says so', () => {
+    // Since v23 the shot is already saved at this point (see the mark-flow
+    // group); the lie grid stays up to finish it.
     assert(lieOffered, 'the lie grid should be on screen waiting');
   });
 
@@ -3806,6 +3810,253 @@ export async function runCaptureUiTests() {
       afterRepaint == null || afterRepaint !== 'Capturing…',
       `a repaint reverted the panel to the placeholder (${JSON.stringify(afterRepaint)})`
     );
+  });
+}
+
+/* ------------------------------ marks name the shot, and LOCK never loses one */
+
+/**
+ * THREE ASKS FROM ONE MESSAGE, 2026-09-11.
+ *
+ * "Okay lets add the ability to mark the cup on any screen i had multiple
+ * times where my ball is on the fringe of near the green and I have gone
+ * behind the hole to read the line and wanted to mark but couldn't. I need the
+ * ability to use the app lock screen as soon as marking the cup or a shot but
+ * still have it log the shot there was an issue before of me hitting the lock
+ * button before a shot was fully logged and it missed."
+ *
+ * And the words on the button: "It should be Mark Tee shot at the tee
+ * location, Mark shot 2 from where I hit shot 2 which is exactly where the last
+ * shot finished, then mark shot 3, then mark shot 4."
+ *
+ * Drives the real screen with a receiver whose burst ends only when the test
+ * says so, because the whole bug lived between MARK SHOT and the end of the
+ * burst — a receiver that resolves instantly can never put LOCK in that gap.
+ */
+function heldGps(start) {
+  let finish = null;
+  const gps = {
+    running: true,
+    error: null,
+    fixCount: 4,
+    at: start,
+    // Pinned at the tee so the missing-tee nudge never fires mid-test.
+    last: { lat: start.lat, lon: start.lon, acc: 2.5, ts: Date.now() },
+    get current() {
+      return this.last;
+    },
+    staleSinceMs: () => 0,
+    subscribe: () => () => {},
+    captureBurst() {
+      return new Promise((resolve) => {
+        finish = () => resolve(fakeReduced(gps.at, 1.53));
+      });
+    },
+    endBurst() {
+      const f = finish;
+      finish = null;
+      f?.();
+    },
+  };
+  return gps;
+}
+
+export async function runMarkFlowTests() {
+  group('marks name the shot, and LOCK never loses one');
+
+  const wait = (ms = 30) => new Promise((r) => setTimeout(r, ms));
+  const app = newAppState();
+  const round = par4Round();
+  const hl = round.holes[0];
+  const gps = heldGps(TEE);
+  const screen = playScreen({
+    app,
+    round,
+    gps,
+    params: {},
+    go() {},
+    persistRound() {},
+    persistApp() {},
+    startGps() {},
+    stopGps() {},
+    trackStats: () => null,
+  });
+  document.body.appendChild(screen.el);
+
+  const footerButtons = () => [...screen.el.querySelectorAll('.footer button')];
+  const buttons = () => footerButtons().map((b) => b.textContent.trim());
+  const press = (re) => footerButtons().find((b) => re.test(b.textContent.trim()))?.click();
+  const tapLie = (re) => [...screen.el.querySelectorAll('.lie-grid .seg-btn')].find((b) => re.test(b.textContent))?.click();
+  const said = () => screen.el.querySelector('.banner[data-kind="ok"] span')?.textContent ?? null;
+  const running = () => Boolean(document.querySelector('.capture[data-burst="running"]'));
+  const lieGaps = () => roundGaps(round).filter((g) => g.kind === 'lie');
+  const openSheet = () => document.querySelector('.scrim .sheet');
+  const sheetButton = (re) => [...(openSheet()?.querySelectorAll('button') ?? [])].find((b) => re.test(b.textContent.trim()));
+
+  const onTee = buttons();
+
+  // The tee shot commits itself.
+  press(/^MARK TEE SHOT$/);
+  gps.endBurst();
+  await wait();
+  const afterTee = { buttons: buttons(), said: said() };
+
+  // Shot 2: MARK SHOT, then LOCK before any lie — the failure he described.
+  gps.at = offsetM(TEE, 240, 5);
+  press(/^MARK SHOT 2$/);
+  const runningDuringBurst = running();
+  pocketLock.lock();
+  gps.endBurst();
+  await wait();
+  const whileLocked = {
+    locked: pocketLock.isLocked(),
+    count: hl.shots.length,
+    seq: hl.shots[1]?.seq,
+    unanswered: lieUnanswered(hl.shots[1]),
+    running: running(),
+    panel: Boolean(screen.el.querySelector('.capture[data-burst="done"] .lie-grid')),
+    gaps: lieGaps().length,
+  };
+  pocketLock.unlock();
+  tapLie(/^ROUGH$/);
+  await wait();
+  // Optional chaining throughout: against the old behaviour there is no shot 2,
+  // and that has to read as a failed test, not a crashed run.
+  const answered = {
+    lie: hl.shots[1]?.lie,
+    unanswered: lieUnanswered(hl.shots[1]),
+    said: said(),
+    buttons: buttons(),
+    gaps: lieGaps().length,
+  };
+
+  // Shot 3: the lie tapped during the burst, then LOCK — the path that always worked.
+  gps.at = offsetM(TEE, 340, 2);
+  press(/^MARK SHOT 3$/);
+  tapLie(/^FAIRWAY$/);
+  pocketLock.lock();
+  gps.endBurst();
+  await wait();
+  const lieFirst = { lie: hl.shots[2]?.lie, unanswered: lieUnanswered(hl.shots[2]), said: said() };
+  pocketLock.unlock();
+
+  // The ball is not on the green (no GREEN mark), and the cup control is there anyway.
+  const cupOffered = buttons().includes('MARK CUP');
+
+  // A cup fix at the tee is questioned, and declining it saves nothing.
+  gps.at = offsetM(TEE, 8, 0);
+  press(/^MARK CUP$/);
+  gps.endBurst();
+  await wait();
+  const atTee = { asked: /tee/i.test(openSheet()?.textContent ?? ''), cup: hl.cup };
+  sheetButton(/^Close$/)?.click();
+  await wait();
+  const declined = hl.cup;
+
+  // Confirming saves it — he is the source of truth about where he is.
+  press(/^MARK CUP$/);
+  gps.endBurst();
+  await wait();
+  sheetButton(/^MARK CUP HERE$/)?.click();
+  await wait();
+  const confirmedM = hl.cup ? distanceM(hl.cup, TEE) : null;
+
+  // A real cup is never questioned.
+  gps.at = offsetM(TEE, 380, 0);
+  press(/^RE-MARK CUP$/);
+  gps.endBurst();
+  await wait();
+  const farAsked = /tee/i.test(openSheet()?.textContent ?? '');
+  const farM = hl.cup ? distanceM(hl.cup, TEE) : null;
+
+  screen.el.remove();
+  for (const s of document.querySelectorAll('.scrim')) s.remove();
+  if (pocketLock.isLocked()) pocketLock.unlock();
+
+  test('on the tee it says MARK TEE SHOT, and there is no cup control to mis-tap', () => {
+    assert(onTee.includes('MARK TEE SHOT'), `buttons: ${JSON.stringify(onTee)}`);
+    assert(!onTee.some((t) => /CUP/.test(t)), `a cup control on the tee: ${JSON.stringify(onTee)}`);
+  });
+
+  test('after the tee shot the button names shot 2, not a landing', () => {
+    assert(afterTee.buttons.includes('MARK SHOT 2'), `buttons: ${JSON.stringify(afterTee.buttons)}`);
+    assert(!afterTee.buttons.some((t) => /LANDING/.test(t)), 'the landing wording is back');
+    eq(afterTee.said, 'Tee shot marked.');
+  });
+
+  test('LOCK straight after MARK SHOT still saves the shot', () => {
+    assert(runningDuringBurst, 'the burst never showed as running');
+    eq(whileLocked.locked, true, 'the lock was not up when the burst ended');
+    eq(whileLocked.count, 2, 'the shot was not saved');
+    eq(whileLocked.seq, 2, 'saved under the wrong shot number');
+  });
+
+  test('it is saved without a lie, flagged, and the gaps gate asks for it', () => {
+    eq(whileLocked.unanswered, true, 'the lie was filled in without asking');
+    eq(whileLocked.gaps, 1, 'the unanswered lie is not in the gaps gate');
+  });
+
+  test('once the burst is over the auto-lock is no longer held off', () => {
+    // app.js locks unless a `.capture[data-burst="running"]` exists.
+    eq(whileLocked.running, false, 'a finished burst still reads as running');
+    assert(whileLocked.panel, 'no lie panel for the saved shot');
+  });
+
+  test('unlocking and tapping the lie finishes the shot', () => {
+    eq(answered.lie, 'rough');
+    eq(answered.unanswered, false, 'still flagged after he answered');
+    eq(answered.said, 'Shot 2 marked (Rough).');
+    eq(answered.gaps, 0, 'the gap outlived the answer');
+    assert(answered.buttons.includes('MARK SHOT 3'), `buttons: ${JSON.stringify(answered.buttons)}`);
+  });
+
+  test('a lie tapped during the burst saves with it, locked or not', () => {
+    eq(lieFirst.lie, 'fairway');
+    eq(lieFirst.unanswered, false);
+    eq(lieFirst.said, 'Shot 3 marked (Fairway).');
+  });
+
+  test('the cup can be marked with the ball off the green', () => {
+    assert(cupOffered, 'no MARK CUP without a ball marked on the green');
+  });
+
+  test('a cup fix at the tee is questioned before it is saved', () => {
+    assert(atTee.asked, 'no question raised for a cup 8 m from the tee');
+    eq(atTee.cup, null, 'saved before he answered');
+    eq(declined, null, 'saved although he declined');
+  });
+
+  test('confirming a cup at the tee saves it anyway', () => {
+    assert(confirmedM != null && confirmedM < 12, `cup ${confirmedM} m from the tee`);
+  });
+
+  test('a real cup is never questioned', () => {
+    eq(farAsked, false, 'a cup 380 m out was questioned');
+    assert(farM != null && Math.abs(farM - 380) < 2, `cup ${farM} m from the tee`);
+  });
+
+  test('a lie answered "don\'t remember" at end-of-hole is not asked for again', () => {
+    const r = par4Round();
+    const hole = r.holes[0];
+    addShot(hole, { lie: 'tee', reduced: fakeReduced(TEE) });
+    const guessed = addShot(hole, { lie: 'fairway', reduced: fakeReduced(offsetM(TEE, 200, 0)), source: 'track' });
+    guessed.lieInferred = true;
+    eq(lieUnanswered(guessed), false);
+    eq(roundGaps(r).filter((g) => g.kind === 'lie').length, 0);
+  });
+
+  test('a shot saved for later reads as unanswered until the lie is set', () => {
+    const r = par4Round();
+    const hole = r.holes[0];
+    addShot(hole, { lie: 'tee', reduced: fakeReduced(TEE) });
+    const later = addShotLieLater(hole, { reduced: fakeReduced(offsetM(TEE, 380, 0)) });
+    eq(later.seq, 2);
+    eq(lieUnanswered(later), true);
+    const gap = roundGaps(r).find((g) => g.kind === 'lie');
+    assert(gap && /shot 2/.test(gap.label), `gap: ${JSON.stringify(gap)}`);
+    setShotLie(later, 'green');
+    eq(lieUnanswered(later), false);
+    eq(later.club, 'putter', 'a shot from the green is a putt');
   });
 }
 

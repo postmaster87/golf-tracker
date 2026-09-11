@@ -17,9 +17,9 @@
  */
 export const BUILD = {
   /** Matches the `gt-shell-<id>` cache name in sw.js. Enforced by the suite. */
-  id: 'v22',
+  id: 'v23',
   /** When it was pushed. Only ever read by a human deciding if it looks stale. */
-  date: '2026-09-10',
+  date: '2026-09-11',
 };
 
 /** Display form, e.g. "v16 · 23 Aug 2026". */
