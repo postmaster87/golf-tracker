@@ -631,6 +631,19 @@ the real screen with a receiver whose burst ends only when the test says so.
 Suite 493/493 on 2026-09-11 — the intermittent "the deliberate gesture
 unlocks" passed on that run, which is not evidence it is fixed.
 
+**Tested by Fable before the course, 2026-09-11** (`docs/handoff/REPORT_2.1.md`).
+The claim above that the panel swaps in with "same grids in the same place"
+did not hold on the sim: at 375x812 with club tracking on, the lie grid moved
++60 px the instant the burst ended — not because of the panel, but because the
+new "Lie?" row in the shot list grew the page past the viewport and pushed the
+footer down (`#app` was `min-height`, every screen assumed `.body` scrolls).
+Fixed by bounding `#app` to the viewport and pinning the CANCEL SHOT · LIE LATER
+row to one line; 1 px after, at 375x812 and 360x780. Also fixed: the previous
+mark's "marked · UNDO" banner (20 s) took the just-saved shot under the earlier
+shot's name (`clearLastMark()` in `saveLieLater`, test added). The placeholder
+is not a schema revision (0 of 763 logged shots carry `lieInferred`). Suite
+495/495; the intermittent passed on all six runs.
+
 ### The shot ranking was inverted — build v22
 
 Matt's call, 2026-09-10: *"let's drop it and rebuild"*.

@@ -870,6 +870,11 @@ export function playScreen(ctx) {
     const hl = hole();
     const shot = addShotLieLater(hl, { reduced, club });
     persist();
+    // The previous mark's "marked · UNDO" banner lives 20 s, and its UNDO
+    // takes the newest thing on the hole — which from this line is THIS shot.
+    // On the sim "Shot 4 marked (Fairway). UNDO" removed shot 5. The panel
+    // below is this shot's own statement, and CANCEL SHOT is its undo.
+    clearLastMark();
     pendingLie = { holeNumber: hl.number, shotId: shot.id };
     markWarning = reduced.quality === 'poor' ? poorMarkWarning('shot') : null;
     paint();
@@ -967,7 +972,13 @@ export function playScreen(ctx) {
     footer.appendChild(
       h(
         'div',
-        { class: 'btn-row' },
+        // `cap-row`: pinned to the single CANCEL button's height. The footer
+        // is anchored at the bottom, so anything below the lie grid that is
+        // taller here than in the capture panel moves the grid at the moment
+        // the panels swap. With the lock tab's strip taken off the width,
+        // "CANCEL SHOT" wrapped to two lines and lifted every lie 22 px
+        // (measured at 375 px, 2026-09-11).
+        { class: 'btn-row cap-row' },
         h('button', {
           class: 'btn sm',
           // What CANCEL always did — nothing kept — now that there is

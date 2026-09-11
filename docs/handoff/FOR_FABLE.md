@@ -61,4 +61,4 @@ in the commit message).
 
 ## Answered by Fable (one line each, dated; Opus moves them to the log)
 
-*(none yet)*
+- 2026-09-11 · 2.1 · PASS for the course with two fixes committed alongside this line: the lie grid moved 60-62 px under the thumb the instant a burst ended (page grew past the viewport; `#app` now bounded, CANCEL SHOT row pinned - 1 px after), and the previous mark's UNDO banner removed the freshly saved shot (banner now cleared, test added and proven). The `lie: 'fairway', lieInferred: true` placeholder is not a schema revision - not xhigh (0 of 763 logged shots carry `lieInferred`). Suite 495/495 x3, the intermittent passed on all six runs. `docs/handoff/REPORT_2.1.md`.

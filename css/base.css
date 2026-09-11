@@ -59,10 +59,24 @@ button {
   -webkit-user-select: none;
 }
 
+/*
+ * Bounded to the viewport, not merely filled to it.
+ *
+ * With `min-height` the app grew past the screen whenever the shot list and
+ * the footer together outran it, and every screen below is built on the
+ * opposite assumption: `.body` scrolls (`overflow-y: auto`) and the footer
+ * stays put. Measured on the sim at 375x812 with club tracking on, 2026-09-11:
+ * the third shot row of a hole pushed the footer down 60-62 px — and since
+ * build v23 that row appears the instant a burst ends, so the lie grid moved
+ * exactly when a thumb was on its way to it (SAND landed on TEE, RECOVERY on
+ * FAIRWAY, GREEN on ROUGH). Bounding the app makes the body absorb its own
+ * growth. Left as `height` rather than adding `overflow: hidden`, so anything
+ * rendered outside a `.body` still degrades to the old page scroll.
+ */
 #app {
   display: flex;
   flex-direction: column;
-  min-height: 100dvh;
+  height: 100dvh;
 }
 
 /* ------------------------------------------------------------------ layout */
@@ -601,6 +615,22 @@ input[type='text'] {
   min-height: 66px;
   font-size: 16px;
   letter-spacing: 0.02em;
+}
+
+/*
+ * The row under the saved-shot lie panel (CANCEL SHOT · LIE LATER) must be
+ * exactly as tall as the single CANCEL under the capture panel it replaces.
+ * The footer is bottom-anchored, so a taller row lifts the lie grid at the
+ * instant the burst ends — when a thumb may already be on its way down. With
+ * the lock tab's strip taken off the width, "CANCEL SHOT" wrapped and lifted
+ * every lie 22 px (375 px wide, 2026-09-11). One line, whatever the width.
+ */
+.footer .cap-row .btn {
+  white-space: nowrap;
+  padding-left: 4px;
+  padding-right: 4px;
+  font-size: 15px;
+  letter-spacing: 0;
 }
 
 /* ------------------------------------------------------------------ clubs */

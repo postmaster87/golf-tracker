@@ -3940,6 +3940,20 @@ export async function runMarkFlowTests() {
   const lieFirst = { lie: hl.shots[2]?.lie, unanswered: lieUnanswered(hl.shots[2]), said: said() };
   pocketLock.unlock();
 
+  // Shot 4, marked while shot 3's "marked · UNDO" banner is still up (it lives
+  // 20 s), and no lie tapped. The moment the burst ends shot 4 is the newest
+  // thing on the hole, so that banner's UNDO would take shot 4 while naming
+  // shot 3. Found on the sim, 2026-09-11: "Shot 4 marked (Fairway). UNDO"
+  // removed shot 5.
+  gps.at = offsetM(TEE, 360, 1);
+  press(/^MARK SHOT 4$/);
+  gps.endBurst();
+  await wait();
+  const staleBanner = { said: said(), count: hl.shots.length, panel: Boolean(screen.el.querySelector('.capture[data-burst="done"]')) };
+  press(/^CANCEL SHOT$/);
+  await wait();
+  const cancelled = { count: hl.shots.length, buttons: buttons() };
+
   // The ball is not on the green (no GREEN mark), and the cup control is there anyway.
   const cupOffered = buttons().includes('MARK CUP');
 
@@ -4014,6 +4028,17 @@ export async function runMarkFlowTests() {
     eq(lieFirst.lie, 'fairway');
     eq(lieFirst.unanswered, false);
     eq(lieFirst.said, 'Shot 3 marked (Fairway).');
+  });
+
+  test('a shot saved for its lie clears the previous mark\'s UNDO banner', () => {
+    assert(staleBanner.panel, 'no lie panel for shot 4');
+    eq(staleBanner.count, 4, 'shot 4 was not saved');
+    eq(staleBanner.said, null, `shot 3's banner is still offering UNDO over the saved shot 4: ${JSON.stringify(staleBanner.said)}`);
+  });
+
+  test('CANCEL SHOT takes back only the shot it is under', () => {
+    eq(cancelled.count, 3, 'CANCEL SHOT removed the wrong number of shots');
+    assert(cancelled.buttons.includes('MARK SHOT 4'), `buttons: ${JSON.stringify(cancelled.buttons)}`);
   });
 
   test('the cup can be marked with the ball off the green', () => {
