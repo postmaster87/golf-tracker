@@ -9,6 +9,27 @@ never "Fable decided".
 
 Opus's solo decisions are logged here too, marked (Opus).
 
+## 2026-09-13 - bake-off: Claude drives the phone from the desktop; a store export is scored only against sessions it holds (Opus)
+- **Decision:** `bakeoff.ps1` does every phone step over adb:
+  - install both apps, grant permissions and read every grant back
+  - put both on the Doze whitelist and allow `RUN_ANY_IN_BACKGROUND`
+  - read each app's own checklist through uiautomator
+  - add both to Samsung's never-sleeping list by driving Settings
+  - START, STOP and EXPORT, then pull and score
+
+  A screen step whose label is not on screen stops the task with a
+  screenshot, and nothing further is tapped. `track-coverage.py` scores a T
+  session against the store export holding the most of its rows. When no
+  export has any, it reports that and does not score one.
+- **Why:** his words, 2026-09-13: "we have been through this numerous times
+  Code you are going to do all the work. I plug in my phone, enable USB
+  debugging and turn off the blocker get that all ready". The script's
+  emulator pass then pulled an old session beside a store export made after a
+  reinstall. The old rule (always the newest export) scored that session a
+  false FAIL.
+- **Changed:** `android/bakeoff/bakeoff.ps1`, `tools/track-coverage.py`,
+  `android/bakeoff/README.md`. **Report:** `android/bakeoff/README.md`.
+
 ## 2026-09-13 - bake-off: two apps, not one app with two recorders (Opus)
 - **Decision:** the bake-off is one Gradle project with two product flavors,
   `handwritten` (Bake-off K, `...golfbakeoff.k`) and `transistor` (Bake-off T,

@@ -168,11 +168,11 @@ def read_events(path):
     return out
 
 
-def find_sdk_store(session_dir):
-    """The newest sdk-store-*.json beside a T session (Exporter writes it one level up)."""
+def find_sdk_stores(session_dir):
+    """Every sdk-store-*.json beside a T session (Exporter writes them one level up)."""
     parent = os.path.dirname(os.path.normpath(session_dir))
-    stores = sorted(f for f in os.listdir(parent) if f.startswith('sdk-store-') and f.endswith('.json'))
-    return os.path.join(parent, stores[-1]) if stores else None
+    return [os.path.join(parent, f) for f in sorted(os.listdir(parent))
+            if f.startswith('sdk-store-') and f.endswith('.json')]
 
 
 def read_sdk_store(path):
@@ -249,16 +249,25 @@ def report_session(dirpath, exclude_samples):
 
     c = with_edges(coverage(ts, accs), edge_gaps(ts, start, end))
     label = os.path.basename(os.path.normpath(dirpath))
-    store = find_sdk_store(dirpath)
+
+    # T keeps its own SQLite record, and a production app on T would read that, so it
+    # is scored too, over the same START-to-STOP window. Each export is a snapshot of
+    # the whole store; the one holding the most rows from this window is scored. An
+    # export with none of them says nothing about this session (it may predate it, or
+    # follow a reinstall), so it is reported, never scored as a gap.
+    stores = find_sdk_stores(dirpath)
+    store, pts = None, []
+    if start is not None and end is not None:
+        for candidate in stores:
+            rows = [(t, a) for (t, a) in read_sdk_store(candidate) if start <= t <= end]
+            if len(rows) > len(pts):
+                store, pts = candidate, rows
 
     print(HEADER)
     print(RULE)
-    print(row(label + (' - app log' if store else ''), c, session_verdict(c)))
+    print(row(label + (' - app log' if stores else ''), c, session_verdict(c)))
+    sts = [t for t, _ in pts]
     if store:
-        # T keeps its own SQLite record, and a production app on T would read that, so it
-        # is scored too, over the same START-to-STOP window.
-        pts = [(t, a) for (t, a) in read_sdk_store(store) if start is not None and start <= t <= end]
-        sts = [t for t, _ in pts]
         sc = with_edges(coverage(sts, [a for _, a in pts]), edge_gaps(sts, start, end))
         print(row('%s - SDK store (%s)' % (label, os.path.basename(store)), sc, session_verdict(sc)))
     print()
@@ -273,6 +282,8 @@ def report_session(dirpath, exclude_samples):
         skipped, len(ts) - len(set(ts)), samples, ' (excluded)' if exclude_samples and samples else ''))
     if store:
         print('SDK store: %d rows in the session window; repeated fix times: %d' % (len(sts), len(sts) - len(set(sts))))
+    elif stores:
+        print('SDK store: none of the %d exported store file(s) has rows from this session; not scored' % len(stores))
     kinds = {}
     for _, k, _ in events:
         kinds[k] = kinds.get(k, 0) + 1
