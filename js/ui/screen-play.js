@@ -473,13 +473,37 @@ export function playScreen(ctx) {
     }
 
 
+    /*
+     * THE CAPTURE AND THE LIE LIVE IN THE BODY. THE FOOTER NEVER CHANGES.
+     *
+     * Field test 7, hole 1: when the burst ended, the lie panel replaced the
+     * whole action stack, so MARK SHOT was not on screen and the only ways out
+     * were tapping a lie or finding LIE LATER. His read of it: *"I think you
+     * made selecting a lie required so I couldn't figure out why I couldn't
+     * mark my 3rd shot at the ball on 1 so I ended up deleting the shot marking
+     * twice"*. A panel that removes the primary action is the app blocking him
+     * from logging reality, which is the one thing it may never do.
+     *
+     * So the footer is a constant now — the same controls in the same places
+     * for the whole hole — and the burst and the lie question are a card at the
+     * top of the scrolling body. That also retires the 60-62 px lie-grid jump
+     * Fable measured in v23: a footer that is never rebuilt cannot shift
+     * anything under a thumb.
+     */
+    const waiting = capture ? null : pendingLieShot(hl);
+    if (capture) body.appendChild(captureCard());
+    else if (waiting) body.appendChild(pendingLieCard(hl, waiting));
+
     if (showScoring()) body.appendChild(tally(hl));
     body.appendChild(shotList(hl));
+    paintActions(hl);
 
-    const waiting = capture ? null : pendingLieShot(hl);
-    if (capture) paintCapture();
-    else if (waiting) paintPendingLie(hl, waiting);
-    else paintActions(hl);
+    /*
+     * A card that has just appeared must not be scrolled off the top. The body
+     * is the only scroller on this screen, so this is the whole of "make sure
+     * he sees it" — and it costs nothing when there is no card.
+     */
+    if (capture || waiting) body.scrollTop = 0;
   }
 
   let lastMarkTimer = null;
@@ -670,10 +694,10 @@ export function playScreen(ctx) {
 
   /* ------------------------------------------------------------- capture */
 
-  function paintCapture() {
+  function captureCard() {
     const isShot = capture.kind === 'shot';
     // `data-burst` is what the auto-lock reads: only a running burst holds it off.
-    const wrap = h('div', { class: 'capture', dataset: { burst: 'running' } });
+    const wrap = h('div', { class: 'capture card-block', dataset: { burst: 'running' } });
 
     wrap.appendChild(
       h(
@@ -694,6 +718,13 @@ export function playScreen(ctx) {
      * optional — tapping a lie commits with whatever is selected, including
      * nothing, so the extra step can always be skipped mid-round.
      */
+    /*
+     * Club is built here but appended AFTER the lie, because the lie is the tap
+     * that matters and the club grid is three rows tall. With club first, the
+     * lie grid sat below the fold of the body card (measured at 375x812 on the
+     * sim, 2026-09-13) — the required thing hidden under the optional one.
+     */
+    let clubBlock = null;
     if (isShot && ctx.app.settings.trackClubs) {
       const clubGrid = h('div', { class: 'club-grid' });
       for (const c of SELECTABLE_CLUBS) {
@@ -713,16 +744,14 @@ export function playScreen(ctx) {
           })
         );
       }
-      wrap.appendChild(
-        h(
-          'div',
-          { class: 'field-optional' },
-          h('div', {
-            class: 'cap-label',
-            text: capture.club ? `Club · ${clubFull(capture.club)}` : 'Club — optional',
-          }),
-          clubGrid
-        )
+      clubBlock = h(
+        'div',
+        { class: 'field-optional' },
+        h('div', {
+          class: 'cap-label',
+          text: capture.club ? `Club · ${clubFull(capture.club)}` : 'Club — optional',
+        }),
+        clubGrid
       );
     }
 
@@ -773,14 +802,9 @@ export function playScreen(ctx) {
       );
     }
 
-    footer.appendChild(wrap);
-    /*
-     * Handed over by reference rather than looked up later. A repaint builds a
-     * fresh panel, so these are refreshed every time — and nothing downstream
-     * has to know which container the panel ended up in.
-     */
-    capture.ui = { bar: wrap.querySelector('.cap-bar span'), meta: wrap.querySelector('.cap-meta') };
-    footer.appendChild(
+    if (clubBlock) wrap.appendChild(clubBlock);
+
+    wrap.appendChild(
       h('button', {
         class: 'btn sm',
         text: 'CANCEL',
@@ -791,7 +815,14 @@ export function playScreen(ctx) {
         },
       })
     );
+    /*
+     * Handed over by reference rather than looked up later. A repaint builds a
+     * fresh panel, so these are refreshed every time — and nothing downstream
+     * has to know which container the panel ended up in.
+     */
+    capture.ui = { bar: wrap.querySelector('.cap-bar span'), meta: wrap.querySelector('.cap-meta') };
     updateCaptureUI();
+    return wrap;
   }
 
   function beginCapture(kind) {
@@ -890,17 +921,15 @@ export function playScreen(ctx) {
   /**
    * The lie, asked for on a shot that is already saved.
    *
-   * Laid out exactly like the capture panel it replaces — same head, same bar,
-   * same club and lie grids, one button row where CANCEL sat — because it swaps
-   * in the instant the burst ends, three seconds after MARK SHOT, which is
-   * exactly when a thumb may be on its way to a lie. The footer is anchored at
-   * the bottom, so keeping everything from the lie grid down the same height
-   * keeps every lie button under the same spot on the glass.
+   * Sits in the body, in the same place the capture card just occupied, so the
+   * only thing that changes when the burst ends is the wording — nothing moves
+   * and nothing disappears. The action stack below is untouched throughout, so
+   * MARK SHOT is always there to walk on with.
    *
    * Carries `data-burst="done"`, so the auto-lock is free to fire over it.
    */
-  function paintPendingLie(hl, shot) {
-    const wrap = h('div', { class: 'capture', dataset: { burst: 'done' } });
+  function pendingLieCard(hl, shot) {
+    const wrap = h('div', { class: 'capture card-block', dataset: { burst: 'done' } });
     const m = shot.mark;
     wrap.appendChild(
       h(
@@ -919,6 +948,8 @@ export function playScreen(ctx) {
     );
     wrap.appendChild(h('div', { class: 'cap-bar' }, h('span', { style: { width: '100%' } })));
 
+    // Same ordering as the capture card: the lie first, club under it.
+    let clubBlock = null;
     if (ctx.app.settings.trackClubs) {
       const clubGrid = h('div', { class: 'club-grid' });
       for (const c of SELECTABLE_CLUBS) {
@@ -937,13 +968,11 @@ export function playScreen(ctx) {
           })
         );
       }
-      wrap.appendChild(
-        h(
-          'div',
-          { class: 'field-optional' },
-          h('div', { class: 'cap-label', text: shot.club ? `Club · ${clubFull(shot.club)}` : 'Club — optional' }),
-          clubGrid
-        )
+      clubBlock = h(
+        'div',
+        { class: 'field-optional' },
+        h('div', { class: 'cap-label', text: shot.club ? `Club · ${clubFull(shot.club)}` : 'Club — optional' }),
+        clubGrid
       );
     }
 
@@ -967,17 +996,14 @@ export function playScreen(ctx) {
         grid
       )
     );
-    footer.appendChild(wrap);
+    if (clubBlock) wrap.appendChild(clubBlock);
 
-    footer.appendChild(
+    wrap.appendChild(
       h(
         'div',
-        // `cap-row`: pinned to the single CANCEL button's height. The footer
-        // is anchored at the bottom, so anything below the lie grid that is
-        // taller here than in the capture panel moves the grid at the moment
-        // the panels swap. With the lock tab's strip taken off the width,
-        // "CANCEL SHOT" wrapped to two lines and lifted every lie 22 px
-        // (measured at 375 px, 2026-09-11).
+        // `cap-row`: one line whatever the width. It no longer decides where
+        // the lie grid sits — the card grows downward in the body now — but a
+        // wrapped "CANCEL SHOT" still pushes the card taller for no reason.
         { class: 'btn-row cap-row' },
         h('button', {
           class: 'btn sm',
@@ -1008,6 +1034,7 @@ export function playScreen(ctx) {
         })
       )
     );
+    return wrap;
   }
 
   function answerLie(hl, shot, lie) {
@@ -1806,7 +1833,11 @@ export function playScreen(ctx) {
           // Penalty strokes are not in it: "If there is a penalty I will log it
           // when it occurs and the score is adjusted after holing out".
           text: n === 0 ? 'MARK TEE SHOT' : `MARK SHOT ${hl.shots.length + 1}`,
-          disabled: Boolean(hl.manual),
+          // Only while the three seconds of burst are actually running, and
+          // never because a lie is outstanding. `beginCapture` refuses a second
+          // capture anyway, and a button that silently does nothing is how the
+          // last one read as broken.
+          disabled: Boolean(hl.manual) || Boolean(capture),
           onClick: () => beginCapture('shot'),
         })
       );
@@ -1880,7 +1911,7 @@ export function playScreen(ctx) {
         h('button', {
           class: pri('cup'),
           text: hl.cup ? 'RE-MARK CUP' : 'MARK CUP',
-          disabled: Boolean(hl.manual),
+          disabled: Boolean(hl.manual) || Boolean(capture),
           onClick: () => beginCapture('cup'),
         })
       );

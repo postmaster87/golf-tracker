@@ -108,6 +108,7 @@ import {
   DEFAULT_SHORT_GAME_YARDS,
 } from '../js/analysis/strokes-gained.js';
 import * as pocketLock from '../js/ui/lock.js';
+import { sheet, closeSheet } from '../js/ui/dom.js';
 import { playScreen } from '../js/ui/screen-play.js';
 import { settingsScreen } from '../js/ui/screen-settings.js';
 import {
@@ -1826,8 +1827,20 @@ const lockTap = async (y, { id = 1, holdMs = 0, dx = 0 } = {}) => {
   fire('pointerup', 100 + dx);
 };
 
-const TOP = () => window.innerHeight * 0.2;
-const BOTTOM = () => window.innerHeight * 0.8;
+/*
+ * Zones come off the overlay, matching what `zoneOf` measures. A hidden test
+ * pane reports `window.innerHeight: 0`, which used to collapse every zone into
+ * the dead band and fail "the deliberate gesture unlocks" — the long-standing
+ * "intermittent" in this group. The overlay is given an explicit height below
+ * so the geometry is the same whether or not anyone is looking at the pane.
+ */
+const zoneH = () => {
+  const ov = document.querySelector('.lock-screen');
+  const h = ov?.getBoundingClientRect().height || window.innerHeight;
+  return h;
+};
+const TOP = () => zoneH() * 0.2;
+const BOTTOM = () => zoneH() * 0.8;
 const pause = (ms) => new Promise((r) => setTimeout(r, ms));
 
 export async function runLockTests() {
@@ -1846,6 +1859,9 @@ export async function runLockTests() {
   await (async () => {
     try {
       pocketLock.lock();
+      // A real height, so the zones exist even when the pane is hidden and the
+      // viewport measures zero. In production `inset: 0` supplies this.
+      document.querySelector('.lock-screen').style.height = '800px';
       test('locking shows an overlay carrying hole and GPS status', () => {
         const ov = document.querySelector('.lock-screen');
         assert(ov, 'overlay present');
@@ -1876,7 +1892,7 @@ export async function runLockTests() {
 
       await lockTap(TOP());
       await pause(80);
-      await lockTap(window.innerHeight * 0.25);
+      await lockTap(zoneH() * 0.25);
       test('two taps in the same half do not unlock', () => {
         eq(pocketLock.isLocked(), true, 'still locked');
       });
@@ -3886,6 +3902,9 @@ export async function runMarkFlowTests() {
   const footerButtons = () => [...screen.el.querySelectorAll('.footer button')];
   const buttons = () => footerButtons().map((b) => b.textContent.trim());
   const press = (re) => footerButtons().find((b) => re.test(b.textContent.trim()))?.click();
+  // Anywhere on the screen. Since v24 the capture and lie card is in the body,
+  // so its own buttons are not in the footer.
+  const tap = (re) => [...screen.el.querySelectorAll('button')].find((b) => re.test(b.textContent.trim()))?.click();
   const tapLie = (re) => [...screen.el.querySelectorAll('.lie-grid .seg-btn')].find((b) => re.test(b.textContent))?.click();
   const said = () => screen.el.querySelector('.banner[data-kind="ok"] span')?.textContent ?? null;
   const running = () => Boolean(document.querySelector('.capture[data-burst="running"]'));
@@ -3905,6 +3924,13 @@ export async function runMarkFlowTests() {
   gps.at = offsetM(TEE, 240, 5);
   press(/^MARK SHOT 2$/);
   const runningDuringBurst = running();
+  // v24: the action stack survives the capture. MARK SHOT is disabled only for
+  // the three seconds the burst is actually running.
+  const duringBurst = {
+    cardInBody: Boolean(screen.el.querySelector('.body > .capture[data-burst="running"]')),
+    cardInFooter: Boolean(screen.el.querySelector('.footer .capture')),
+    markShot: footerButtons().find((b) => /MARK SHOT/.test(b.textContent)) ?? null,
+  };
   pocketLock.lock();
   gps.endBurst();
   await wait();
@@ -3916,6 +3942,11 @@ export async function runMarkFlowTests() {
     running: running(),
     panel: Boolean(screen.el.querySelector('.capture[data-burst="done"] .lie-grid')),
     gaps: lieGaps().length,
+    // v24: with a lie outstanding, the next shot is still one tap away.
+    cardInBody: Boolean(screen.el.querySelector('.body > .capture[data-burst="done"]')),
+    cardInFooter: Boolean(screen.el.querySelector('.footer .capture')),
+    markShot: buttons().find((t) => /^MARK SHOT/.test(t)) ?? null,
+    markShotEnabled: !(footerButtons().find((b) => /MARK SHOT/.test(b.textContent))?.disabled ?? true),
   };
   pocketLock.unlock();
   tapLie(/^ROUGH$/);
@@ -3950,7 +3981,7 @@ export async function runMarkFlowTests() {
   gps.endBurst();
   await wait();
   const staleBanner = { said: said(), count: hl.shots.length, panel: Boolean(screen.el.querySelector('.capture[data-burst="done"]')) };
-  press(/^CANCEL SHOT$/);
+  tap(/^CANCEL SHOT$/);
   await wait();
   const cancelled = { count: hl.shots.length, buttons: buttons() };
 
@@ -4008,6 +4039,22 @@ export async function runMarkFlowTests() {
   test('it is saved without a lie, flagged, and the gaps gate asks for it', () => {
     eq(whileLocked.unanswered, true, 'the lie was filled in without asking');
     eq(whileLocked.gaps, 1, 'the unanswered lie is not in the gaps gate');
+  });
+
+  test('the action stack survives the capture — MARK SHOT never leaves the screen', () => {
+    // Field test 7, hole 1: the lie panel replaced the footer, so there was no
+    // MARK SHOT and it read as "a lie is required". He deleted marks to escape.
+    assert(duringBurst.cardInBody, 'the capture card is not in the body');
+    eq(duringBurst.cardInFooter, false, 'the capture is still taking over the footer');
+    assert(duringBurst.markShot, 'MARK SHOT disappeared while the burst ran');
+    eq(duringBurst.markShot.disabled, true, 'MARK SHOT should be inert for the 3 s of the burst');
+  });
+
+  test('with a lie outstanding the next shot is still one tap away', () => {
+    assert(whileLocked.cardInBody, 'the lie card is not in the body');
+    eq(whileLocked.cardInFooter, false, 'the lie panel is still taking over the footer');
+    eq(whileLocked.markShot, 'MARK SHOT 3', `footer offered ${JSON.stringify(whileLocked.markShot)}`);
+    eq(whileLocked.markShotEnabled, true, 'MARK SHOT is disabled while a lie is outstanding');
   });
 
   test('once the burst is over the auto-lock is no longer held off', () => {
@@ -4082,6 +4129,97 @@ export async function runMarkFlowTests() {
     setShotLie(later, 'green');
     eq(lieUnanswered(later), false);
     eq(later.club, 'putter', 'a shot from the green is a putt');
+  });
+}
+
+/* ----------------------------------------- the lock is reachable everywhere */
+
+/**
+ * His instruction, 2026-09-13: "We need the lock button bigger and available at
+ * all times".
+ *
+ * Until v24 the tab sat BELOW the sheet scrim, so the putt sheet — the one
+ * place on the green where he wants to pocket the phone — had no lock control
+ * at all. Field test 7: "trying to lock the phone because you cant lock it on
+ * the putting screen". Raising it above the scrim reopens the overlap that
+ * z-index was avoiding, so the sheet now reserves the tab's strip exactly as
+ * the play screen does.
+ *
+ * These measure the real CSS in a real layout rather than matching source text,
+ * because "the rule exists" and "nothing tappable is under the tab" are
+ * different claims.
+ */
+export async function runLockReachTests() {
+  group('the lock tab is reachable everywhere');
+
+  const css = await fetch('../css/base.css').then((r) => r.text());
+  const style = document.createElement('style');
+  style.textContent = css;
+  document.head.appendChild(style);
+
+  pocketLock.enable();
+  const tab = document.querySelector('.lock-tab');
+  const size = tab?.getBoundingClientRect() ?? null;
+  const tabZ = tab ? Number(getComputedStyle(tab).zIndex) : null;
+  const gutter = parseFloat(
+    getComputedStyle(document.documentElement).getPropertyValue('--lock-tab-gutter')
+  );
+
+  // A sheet, the way the putt entry opens one.
+  const body = document.createElement('button');
+  body.className = 'btn';
+  body.textContent = 'A FULL WIDTH BUTTON';
+  const pending = sheet('Putts', () => body);
+  await new Promise((r) => setTimeout(r, 20));
+  const scrim = document.querySelector('.scrim');
+  const panel = document.querySelector('.scrim .sheet');
+  const scrimZ = scrim ? Number(getComputedStyle(scrim).zIndex) : null;
+  const sheetPadRight = panel ? parseFloat(getComputedStyle(panel).paddingRight) : null;
+  const tabWithSheet = Boolean(document.querySelector('.lock-tab'));
+
+  // Locking from inside the sheet, and coming back to it afterwards.
+  pocketLock.lock();
+  const lockScreen = document.querySelector('.lock-screen');
+  const lockedOverSheet = {
+    locked: pocketLock.isLocked(),
+    screenZ: lockScreen ? Number(getComputedStyle(lockScreen).zIndex) : null,
+    tabHidden: !document.querySelector('.lock-tab'),
+  };
+  pocketLock.unlock();
+  await new Promise((r) => setTimeout(r, 20));
+  const sheetSurvived = Boolean(document.querySelector('.scrim .sheet'));
+
+  // Its own Close button, because `closeSheet()` removes the element without
+  // resolving the promise `sheet()` handed back — awaiting that hangs the suite.
+  [...(document.querySelector('.scrim .sheet')?.querySelectorAll('button') ?? [])]
+    .find((b) => /^Close$/.test(b.textContent.trim()))
+    ?.click();
+  await pending;
+  closeSheet();
+  pocketLock.disable();
+  style.remove();
+
+  test('the tab is on screen while a sheet is open, and above it', () => {
+    assert(tabWithSheet, 'no lock tab while a sheet was open');
+    assert(tabZ > scrimZ, `tab z-index ${tabZ} is not above the scrim's ${scrimZ}`);
+  });
+
+  test('the sheet reserves the tab strip, so nothing tappable sits under it', () => {
+    // This is what lets the tab come above the scrim without recreating the
+    // mis-tap the old z-index was avoiding.
+    assert(sheetPadRight >= gutter, `sheet padding-right ${sheetPadRight}px against a ${gutter}px strip`);
+  });
+
+  test('it is big enough to hit without looking', () => {
+    assert(size && size.width >= 76, `tab is ${size?.width}px wide`);
+    assert(size && size.height >= 168, `tab is ${size?.height}px tall`);
+  });
+
+  test('locking from inside a sheet covers it, and the sheet is still there after', () => {
+    eq(lockedOverSheet.locked, true, 'the tab did not lock from inside a sheet');
+    assert(lockedOverSheet.screenZ > scrimZ, 'the lock screen does not cover the sheet');
+    assert(lockedOverSheet.tabHidden, 'the tab is still showing under the lock screen');
+    assert(sheetSurvived, 'unlocking lost the sheet he was in the middle of');
   });
 }
 

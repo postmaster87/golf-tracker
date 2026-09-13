@@ -15,13 +15,14 @@
  * the network is indistinguishable from being offline, so treat it as offline.
  */
 
-// v22: the shot ranking is dwell, and only dwell. Bumped because the offline
-// fallback is a whole module set, and an un-bumped cache would keep serving the
-// previous set to a phone that loses signal mid-round - internally consistent,
-// but on this one it would be the build that ranks real shots below the noise.
-// v23: MARK SHOT 2/3/4 instead of "landing", the cup from any point on a hole,
-// and a shot saved when its burst ends so LOCK straight after MARK SHOT keeps it.
-const CACHE = 'gt-shell-v23';
+// Bumped on every deploy: the offline fallback is a whole module set, and an
+// un-bumped cache would keep serving the previous set to a phone that loses
+// signal mid-round - internally consistent, but not the build that was pushed.
+//
+// v24: the footer never changes - the capture and the lie question moved into
+// the body, so MARK SHOT is on screen for the whole hole - and the LOCK tab is
+// bigger and sits above sheets, so the putt sheet can be locked from.
+const CACHE = 'gt-shell-v24';
 const NET_TIMEOUT_MS = 2500;
 const SHELL = [
   './',

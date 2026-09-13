@@ -221,11 +221,14 @@ function paintStatus() {
  * screen, so it is in the same place on the play screen, in Settings, and
  * halfway through a hole jump — "always reachable" is the whole requirement.
  *
- * It sits *below* the sheet scrim on purpose. An edge tab overlapping an open
- * sheet would put a lock target on top of the right-hand end of every
- * full-width button in that sheet, and mis-locking while entering putts trades
- * one annoyance for a worse one. Sheets are short-lived; the tab returns the
- * moment one closes.
+ * It sits ABOVE the sheet scrim since v24. It used to sit below it, so that an
+ * edge tab could never overlay the right-hand end of a sheet's full-width
+ * buttons — but that left no lock control at all while the putt sheet was open,
+ * which is precisely where he wants to pocket the phone. Field test 7: *"trying
+ * to lock the phone because you cant lock it on the putting screen"*, and then
+ * *"We need the lock button bigger and available at all times"*. The overlap is
+ * prevented the way the play screen prevents it instead — `has-lock-tab` widens
+ * the sheet's right padding by the tab's strip, so nothing tappable is under it.
  */
 function syncButton() {
   const wanted = state.enabled && !state.locked;
@@ -343,7 +346,22 @@ function wireTaps(el) {
 
   /** Which zone a point is in. Null inside the dead band. */
   const zoneOf = (y) => {
-    const h = window.innerHeight;
+    /*
+     * The OVERLAY's height, not the window's.
+     *
+     * They are the same thing in production — the overlay is `position: fixed;
+     * inset: 0` — but they part company in a test window that is hidden, where
+     * Chrome reports `window.innerHeight: 0`. A zero height puts the dead band
+     * over the whole screen, so every tap is ignored and the unlock gesture
+     * cannot be performed at all.
+     *
+     * That is the entire "known intermittent" pocket-lock failure the docs have
+     * carried since rev 3. It was never intermittent: it fails whenever the
+     * suite runs with the pane hidden and passes whenever it is visible.
+     * Measuring the element that actually receives the taps is both more honest
+     * and deterministic.
+     */
+    const h = el.getBoundingClientRect().height || window.innerHeight;
     if (y < h * (0.5 - TIMING.deadBand / 2)) return 'top';
     if (y > h * (0.5 + TIMING.deadBand / 2)) return 'bottom';
     return null;

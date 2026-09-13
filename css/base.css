@@ -578,6 +578,22 @@ input[type='text'] {
   gap: 8px;
 }
 
+/*
+ * THE CAPTURE / LIE CARD, WHICH LIVES IN THE BODY SINCE v24.
+ *
+ * It used to BE the footer's contents, and that is what made MARK SHOT vanish
+ * while a lie was outstanding — field test 7, hole 1, read by the golfer as
+ * "selecting a lie is required". In the body it carries its own edges, because
+ * it now sits above the shot list rather than inside the bordered footer.
+ */
+.body > .capture {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 12px;
+  margin-bottom: 12px;
+  background: var(--surface);
+}
+
 .cap-head {
   display: flex;
   align-items: center;
@@ -625,7 +641,7 @@ input[type='text'] {
  * the lock tab's strip taken off the width, "CANCEL SHOT" wrapped and lifted
  * every lie 22 px (375 px wide, 2026-09-11). One line, whatever the width.
  */
-.footer .cap-row .btn {
+.cap-row .btn {
   white-space: nowrap;
   padding-left: 4px;
   padding-right: 4px;
@@ -792,9 +808,13 @@ input[type='text'] {
  * below the vertical middle, which is roughly where a phone's side button falls
  * under the thumb of the hand already holding it — the control this replaces.
  *
- * z-index 40 is below the sheet scrim (50) deliberately; see the note in
- * `js/ui/lock.js`. It is above everything in the round UI, which includes the
- * footer, so it is never covered by the action stack.
+ * z-index 70 puts it ABOVE the sheet scrim (50) and the toast (60). It used to
+ * sit below the scrim so it could never overlay a sheet's buttons — which meant
+ * there was no lock control at all while the putt sheet was open, exactly where
+ * he wants to pocket the phone. His instruction, 2026-09-13: *"We need the lock
+ * button bigger and available at all times"*. The overlap it was avoiding is
+ * handled the same way the play screen handles it: the sheet reserves the
+ * strip, so nothing tappable is ever under the tab.
  */
 :root {
   /* Tab width plus the dead zone beside it. Consumed by the padding rules
@@ -802,14 +822,16 @@ input[type='text'] {
      Widened after field test 4 — "it could be a little bigger and standout
      better". Every extra pixel here is taken off the action buttons, so the
      size went up one notch and the rest of the visibility comes from contrast. */
-  --lock-tab-w: 62px;
-  --lock-tab-gutter: 70px;
+  --lock-tab-w: 76px;
+  --lock-tab-gutter: 86px;
 }
 
 /* Nothing tappable may extend under the tab. Applied while `has-lock-tab` is
-   set, which is only while a round is live and unlocked. */
+   set, which is only while a round is live and unlocked — and to the sheet as
+   well as the screen, now that the tab sits above the scrim. */
 body.has-lock-tab .body,
-body.has-lock-tab .footer {
+body.has-lock-tab .footer,
+body.has-lock-tab .sheet {
   padding-right: calc(12px + var(--lock-tab-gutter));
 }
 
@@ -827,9 +849,9 @@ body.has-lock-tab .footer {
   right: 0;
   top: 58%;
   transform: translateY(-50%);
-  z-index: 40;
+  z-index: 70;
   width: var(--lock-tab-w);
-  min-height: 116px;
+  min-height: 168px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -856,14 +878,14 @@ body.has-lock-tab .footer {
 }
 
 .lock-tab-icon {
-  font-size: 26px;
+  font-size: 32px;
   line-height: 1;
 }
 
-/* Vertical, so a 62px tab can carry a real word instead of the bare glyph that
+/* Vertical, so the tab can carry a real word instead of the bare glyph that
    went unnoticed for nine holes. */
 .lock-tab-text {
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 800;
   letter-spacing: 0.2em;
   writing-mode: vertical-rl;

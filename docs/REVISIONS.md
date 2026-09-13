@@ -552,6 +552,56 @@ the worse of the two: that screen exists so a glance at a pocketed phone answers
 "is the GPS still happy?" without unlocking, and a phone pocketed long enough to
 be worth checking is exactly the one whose page has been suspended.
 
+### The footer stops moving, and the lock is reachable everywhere — build v24
+
+His words, 2026-09-13: *"Go ahead and I'll take your recommendations. We need
+the lock button bigger and available at all times."*
+
+**What v23 got wrong.** The shot saved itself when the burst ended, but the
+panel that then asked for the lie REPLACED the footer's action stack. MARK SHOT
+was not on screen until a lie or LIE LATER was tapped. Field test 7, hole 1, in
+his words: *"I think you made selecting a lie required so I couldn't figure out
+why I couldn't mark my 3rd shot at the ball on 1 so I ended up deleting the shot
+marking twice"*. A panel that removes the primary action is the app blocking him
+from logging reality - the one thing the design rules say it may never do.
+
+**The footer is a constant now.** The capture progress and the lie question are
+a card at the top of the scrolling body; the action stack below it never
+changes. MARK SHOT is disabled only for the three seconds a burst is actually
+running, because `beginCapture` refuses a second capture anyway and a button
+that silently does nothing is how the last one read as broken. The body is
+scrolled to the top whenever the card appears.
+
+Two things fall out of that. The 60-62 px lie-grid jump Fable fixed in v23 by
+bounding `#app` cannot recur - a footer that is never rebuilt cannot move
+anything under a thumb. And the lie grid now sits ABOVE the club grid: with club
+first, the required tap sat below the fold of the card (measured at 375x812 on
+the simulator, 2026-09-13), the optional control hiding the necessary one.
+
+**The lock tab: bigger, and above sheets.** 76x168 px, up from 62x116, and
+`z-index: 70` instead of 40 - above the sheet scrim (50) rather than below it.
+Until now there was no lock control at all while a sheet was open, which is
+exactly the putt sheet, which is exactly where he wants to pocket the phone:
+*"trying to lock the phone because you cant lock it on the putting screen"*. The
+overlap the old z-index was avoiding is prevented the way the play screen
+prevents it: `has-lock-tab` widens the sheet's right padding by the tab's strip.
+Measured on the yardages sheet at 375 px: content ends at x=277, the tab starts
+at x=299 - a 22 px dead zone, nothing tappable underneath.
+
+**The "known intermittent" test was never intermittent.** "The deliberate
+gesture unlocks" has been failing on and off since rev 3 and was named in every
+report. Cause: `zoneOf` measured `window.innerHeight`, and a hidden test pane
+reports **0**, which puts the dead band over the entire screen and makes the
+unlock gesture impossible to perform. It failed whenever the suite ran with the
+pane hidden and passed whenever it was visible. `zoneOf` now measures the
+overlay that actually receives the taps - identical in production, where the
+overlay is `position: fixed; inset: 0`. **501/501 green with the pane hidden**,
+three runs.
+
+**Mutation check:** restoring the footer takeover fails exactly the two new
+tests - "the action stack survives the capture" and "with a lie outstanding the
+next shot is still one tap away" - and nothing else.
+
 ### The button says the shot, the cup from anywhere, LOCK never loses a mark — build v23
 
 His message, 2026-09-11, verbatim:
