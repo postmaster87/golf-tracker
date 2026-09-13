@@ -1,0 +1,21 @@
+{
+ "note": "Matt-confirmed Veenker corrections to OSM, 2026-09-13. Positions are from his markup tips, true image extent.",
+ "hole8": {
+  "green_osm_id": 1065750750,
+  "blue_tee_osm_id": 199418750,
+  "gold_tee_osm_id": 1065750025
+ },
+ "hole9": {
+  "tee_osm_ids_near_line_start": [
+   1065750754,
+   199289144,
+   1065727838
+  ]
+ },
+ "hole16_back_blue_tee_point": {
+  "lat": 42.04048322501589,
+  "lon": -93.65605876967625,
+  "source": "his blue leader tip; box not in OSM"
+ },
+ "hole10_blue_plays": "farther of the two blue boxes (560)"
+}

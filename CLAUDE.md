@@ -66,18 +66,23 @@ never "Fable decided".
   never on a code change (`docs/REVISIONS.md`, "How to bump it"). `BUILD.id`
   and the `gt-shell-<id>` cache in `sw.js` move together on every deploy;
   the suite enforces it.
-- **Round data never enters the repo.** Never `git add -A` here; stage by
-  name. Nothing under `docs/roundDownloads/` and no round JSON is staged -
-  the repo is public and a track is a location history of his course, his
-  office and his home. No coordinates in any doc or report.
+- **Round data and the course map may live in the public repo.** His words,
+  2026-09-13: "yes it is public knowledge I golf a lot and where I work. I am a
+  State of Iowa employee" and "the map and my data are fine in the public
+  repo". Still stage by name and never `git add -A`. `docs/roundDownloads/`
+  stays gitignored until he says to commit it; the yardage book photos in
+  `docs/Veenker/` stay ignored ("yes git ignore the images").
 - **Commits are `rusty9645@gmail.com`**, never the work email. Fable's end
   with `Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>`.
 - **No coaching.** Claude is a tool in the bag. No swing or game
   diagnosis; never second-guess his self-knowledge of his game.
-- **His agenda, in his order.** He stops work that skips ahead. Next
-  unstarted: item 3, mislogs and the forgotten phone in the cart.
-  "9 more holes" onto a nine-hole round is designed at xhigh on his word,
-  not before.
+- **His agenda, in his order.** He stops work that skips ahead. Next: the
+  native phone app, his words 2026-09-13: "We need to wrap this session up.
+  Get everything to a place I can start a new chat and get you building the
+  app." Decisions, open questions and the timeline to his 2026-10-07 surgery
+  are in `docs/HANDOFF-native-build.md`. Item 3 (mislogs, the forgotten phone
+  in the cart) and "9 more holes" remain unstarted; "9 more holes" is designed
+  at xhigh on his word, not before.
 - **Every number with n.** Detection numbers come from
   `tools/detection-scoring.html`, benchmark constants from a published
   source or badged derived in `docs/benchmark-verification.md`. Recalled
@@ -90,7 +95,9 @@ never "Fable decided".
 
 ## 4. Catch-up and tooling
 
-- Cold start: `docs/CATCHUP-rev3-rev4.md`, then the rev 4 sections of
+- **Cold start for the native build: `docs/HANDOFF-native-build.md` first**
+  (2026-09-13). The Veenker course map is `docs/course-map/veenker/`.
+- Older cold start: `docs/CATCHUP-rev3-rev4.md`, then the rev 4 sections of
   `docs/REVISIONS.md`. The catch-up doc was written at build v19 and lags;
   `git log`, `js/data/build.js` and `js/data/revision.js` are the authority
   for where the build stands.
@@ -101,6 +108,10 @@ never "Fable decided".
   shipped modules. One failure is known and intermittent - "the deliberate
   gesture unlocks" in the pocket-lock group, present on an untouched
   baseline before 2026-09-10. It is named in every report, never folded
-  into "green".
+  into "green". Build v24 (`84da7f4`, not pushed at 2026-09-13) diagnoses
+  it: `window.innerHeight` is 0 in a hidden preview pane, so the unlock
+  zones vanished; `zoneOf` now measures the overlay and the suite ran
+  501/501 with the pane hidden. Keep naming it until Fable's item 2.2
+  confirms the diagnosis.
 - Memory for this repo:
   `C:\Users\Administrator\.claude\projects\C--Temp-gitRepos-golf-tracker\memory\MEMORY.md`.

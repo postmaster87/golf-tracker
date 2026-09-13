@@ -11,18 +11,97 @@ An item carries: Matt's words on it VERBATIM, the evidence (file:line, the
 numbers with n, what was tried), and any decision he already made. The
 spawn prompt repeats the item number, his words and the commit hash.
 
+## RUN ORDER - the night of 2026-09-14, when his Fable usage resets
+
+His words, 2026-09-13: "Opus you are on your own here. Anything you want Fable
+to check make a file for it to run tomorrow night when credits reset". And:
+"Next to know is I am out of Fable Usage until tomorrow night".
+
+1. **2.2** - test build v24 before it is played (he may walk 9 on Tuesday
+   2026-09-15). Effort high.
+2. **1.1** - review the Veenker course map before it becomes app data. Effort
+   high; review only.
+
+Spawn each with `subagent_type: "fable"`, one at a time, `run_in_background:
+false`. The commit hash for the prompt is `git log -1 --format=%h` at spawn,
+with `git status` clean. After 2.2 returns DONE, **the push still waits for his
+word** in his chat.
+
+**Not queued - needs his decision or his "xhigh" first:** the native recorder
+(GPS pipeline), native storage of rounds and tracks and moving his logged
+rounds across (schema and migration), turning the course map into app course
+data (possibly schema - 1.1 classifies it), and shell vs full native rewrite
+(his call). See `docs/HANDOFF-native-build.md`.
+
 ## 1. Critical review and requests for what is Fable's (a data model or schema change; the GPS pipeline; the strokes-gained engine or a benchmark; the export format; a migration of logged rounds; a golf/Matt call Opus cannot list)
 
-*(empty)*
+### 1.1 The Veenker course map - review before it becomes app data (2026-09-13) - READY, RUN AFTER 2.2
+
+**His words, verbatim, in order:**
+
+> "Okay you have the course data now I don't want a public map. What else do we need to nail do for the phone build?"
+
+> "The OSM map is correct I looked it over - your guesses are way off. Clear all your stuff on the map and I'll mark it up. Tom has made changes to the course for the better and the OSM map is up to date. the yardages should still all be correct. ignore the bunkers, the additional blue tee on 17 across the creek is gone."
+
+> "I finished marking up the map it is in the docs>Veenker folder. It should be clear but let me know if you have questions"
+
+> "1. That is hole 8 my bad. 2. Forgot them yes they are just north of green. 3. Yes 16 has a tee boxed tucked way in the back between the 16 gold tees and 15 green. 2nd hardest tee shot the course"
+
+> "yes to 10 based off OSM"
+
+> "the map and my data are fine in the public repo"
+
+("I don't want a public map" was about adding his missing tee box to
+OpenStreetMap; the repo question was settled by the last quote.)
+
+**Decisions he already made:** OSM is the ground truth for Veenker; his
+markup's corrections (hole 8 labels, hole 9 tees, hole 16 back blue tee, hole
+10's two blue boxes with blue playing the farther one); sand lies come from
+OSM's bunkers; the map is fine in the public repo.
+
+**Where it is:** `docs/course-map/veenker/` - README, `osm_full.json`,
+`basemap.png`, `basemap_true_extent.json`, his markup
+`veenker-aerial-Matt.png`, `markup_lines.json`,
+`veenker_confirmed_corrections.json`, and the scripts that produced them.
+
+**Evidence (Opus, 2026-09-13):** OSM inside the outline has 18 hole lines, 26
+greens, 30 fairways, 43 tee boxes, 27 bunkers. His markup: 55 leader lines, all
+labelled; tip-to-feature miss median 0.0 m, 90th percentile 0.6 m; every
+miss over 1 m: SHORT GAME 81.2 m and RANGE 11.5 m (areas, not greens), hole 16
+blue 48.5 m (the box OSM lacks), hole 12 blue 4.4 m, hole-8 ("R7") gold 2.4 m -
+re-run from the committed folder at wrap-up. Hole 8: OSM's line starts on the
+tees and ends in the green he marked (0.0 m). Two traps found and fixed on the way - Overpass `around`
+dropping the course interior, and ISU `exportImage` returning a 1216 m tall
+photo for a 903 m request (square pixels in degrees). Both are in the README.
+
+**Asked of Fable (review only - do not change `js/data/courses.js` or any schema):**
+1. Reproduce: `python extract_markup.py`, `python rematch.py`,
+   `python check_answers.py` in that folder. Do not run `fetch_sources.py`
+   over the committed files; fetch into your scratchpad if you want to check
+   OSM has not changed.
+2. Check the method for any error of the kind the two traps were: the
+   tip-versus-tail rule, the colour classes, the true-extent pixel mapping,
+   the multipolygon handling.
+3. Check every hole 1-18 has exactly one green, at least one blue and one gold
+   tee box attributable to it, and say which boxes are unassigned.
+4. Say how the hole-16 back blue tee (a markup point, not a surveyed box)
+   must be carried when it becomes course data, under the rule that measured
+   and inferred are never silently mixed.
+5. Classify only: is turning this into app course data a data model / schema
+   change (xhigh on his word)? Do not design it.
 
 ## 2. Testing of a risky build (a build about to be played; anything touching the lock, the marks, the track, the hole windows or round save)
 
-### 2.2 Build v24 - the footer stops moving, the lock is reachable everywhere (2026-09-13) - STAGED, HELD
+### 2.2 Build v24 - the footer stops moving, the lock is reachable everywhere (2026-09-13) - READY, RUN FIRST
 
-**HELD ON MATT'S WORD, 2026-09-13: "Stage what Fable needs but hold it up for
-now. I want to brainstorm ideas before going further."** The item below is
-complete and ready to spawn; do not spawn it until he says so. v24 is committed
-at `84da7f4` and NOT pushed, so nothing is on his phone.
+**Released for the night of 2026-09-14.** Held earlier on his word ("Stage what
+Fable needs but hold it up for now. I want to brainstorm ideas before going
+further."), then: "Opus you are on your own here. Anything you want Fable to
+check make a file for it to run tomorrow night when credits reset". v24 is
+committed at `84da7f4` (with `9836602` and `be82cef` after it) and NOT pushed,
+so his phone still runs v23. He may play a walking 9 on Tuesday 2026-09-15:
+"I might get 9 in walking tuesday morning weather pending". A DONE verdict does
+not push; the push is his word.
 
 **His words, verbatim:**
 

@@ -84,15 +84,17 @@ course) goes back as BLOCKED with the question. A small decision does not.
   it when a round is about to be played. You may bump `BUILD.id` and the
   `gt-shell-<id>` cache in `sw.js` together, and only when the item is a
   build that will ship (the suite enforces they agree).
-- **Round data.** Never `git add -A` here. Nothing under
-  `docs/roundDownloads/` and no round JSON is ever staged - the repo is
-  public and a track is a location history of his course, his office and
-  his home. No coordinates in a report; medians, counts and offsets only.
+- **Round data.** Never `git add -A` here; stage by name. His words,
+  2026-09-13: "the map and my data are fine in the public repo" - so a
+  public repo is no longer the objection. `docs/roundDownloads/` still stays
+  gitignored, and nothing from it is staged, until he says to commit it.
 - **Coaching.** Claude is a tool in the bag, not the coach. No swing or
   game diagnosis, and never second-guess his self-knowledge of his game.
-- **His agenda.** Do not skip ahead. Item 3 (mislogs, forgotten phone in
-  the cart) is next in his order, and "9 more holes" is xhigh on his word
-  before a line is designed. Credits are his: only the item, no side quests.
+- **His agenda.** Do not skip ahead. Next in his order is the native phone
+  app (`docs/HANDOFF-native-build.md`, 2026-09-13); item 3 (mislogs,
+  forgotten phone in the cart) stays unstarted, and "9 more holes" is xhigh
+  on his word before a line is designed. Credits are his: only the item, no
+  side quests.
 - **Opus's text in FOR_FABLE.md:** you add your line under "Answered" and
   touch nothing else there.
 - **Anything outside this repo.** Look, do not touch. Scratch goes in your
@@ -111,7 +113,10 @@ course) goes back as BLOCKED with the question. A small decision does not.
   modules. Record passed/failed counts. **One failure is known and
   intermittent** - "the deliberate gesture unlocks" in the pocket-lock
   group, present on an untouched baseline before 2026-09-10 - and it is
-  named in the report every time, never folded into "green".
+  named in the report every time, never folded into "green". Build v24
+  (`84da7f4`) diagnoses it as a hidden-pane artifact
+  (`window.innerHeight` is 0, so the unlock zones vanished) and item 2.2 asks
+  you to confirm; once you have, drop this caveat here and in `CLAUDE.md`.
 - On-course flows are driven with `?sim=1` (synthetic GPS,
   `js/dev/sim.js`). A hidden preview tab throttles timers; drive long runs
   as background scripts in the page and poll.
