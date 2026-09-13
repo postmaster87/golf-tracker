@@ -17,6 +17,15 @@ docs/roundDownloads/
 golf-tracker-*.json
 *-export-*.json
 
+# Native Android builds under android/: build output, Gradle and Kotlin state,
+# machine-specific SDK paths, IDE files.
+android/**/build/
+android/**/.gradle/
+android/**/.kotlin/
+android/**/local.properties
+android/**/.idea/
+android/**/*.iml
+
 # Photos of the old Veenker yardage book - a free handout, since discontinued -
 # kept locally as a course reference. Not for a public repo.
 docs/Veenker/

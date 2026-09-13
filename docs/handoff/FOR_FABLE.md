@@ -21,6 +21,10 @@ to check make a file for it to run tomorrow night when credits reset". And:
    2026-09-15). Effort high.
 2. **1.1** - review the Veenker course map before it becomes app data. Effort
    high; review only.
+3. **2.3** - review the recorder bake-off app before it goes on the course.
+   **xhigh, and only after he types "xhigh" in the chat.** Added 2026-09-13;
+   whether it runs before 1.1 is his call (the bake-off wants rounds on
+   19-20 September; 1.1 feeds the green flow, which comes after it).
 
 Spawn each with `subagent_type: "fable"`, one at a time, `run_in_background:
 false`. The commit hash for the prompt is `git log -1 --format=%h` at spawn,
@@ -155,6 +159,97 @@ looking at the pane. Reports from here on should stop carrying that caveat.
    gesture that guards against the phone being sat on. The dead band, the zone
    split and every rejection path are unchanged; only the height source moved.
    If you judge it weakens the guard, BLOCKED with the reason.
+
+### 2.3 The recorder bake-off app - review at xhigh before it goes on the course (2026-09-13) - NEEDS HIS "xhigh"
+
+**Spawn with `subagent_type: "fable-xhigh"`, and only after he has typed
+"xhigh" in the chat for this item.** He was told, in the option he picked: *For
+that Fable review, type "xhigh" in this chat.*
+
+**His words, verbatim, 2026-09-13 (the native-build chat).** He was asked four
+questions and picked these options:
+
+> "Native shell (Recommended)"
+
+> "Kotlin vs transistorsoft (Recommended)"
+
+> "Opus builds, Fable reviews (Recommended)" - the option's text as he read
+> it: "Opus builds a throwaway test app that only measures coverage and never
+> feeds a round. Fable reviews it at xhigh before it goes on the course, and
+> gives the pass/fail verdict. The recorder your rounds actually use and its
+> storage stay Fable's. For that Fable review, type "xhigh" in this chat."
+
+> "99% coverage, no gap > 20 s (Recommended)" - asked as "What result does a
+> recorder need to pass? Same coverage measure as the handoff's Section 9
+> table, over a round-length carry with the screen locked and a music app in
+> use."
+
+And on installs: "what are you asking. You may install whatever is needed"
+
+**Decisions he already made:** native shell before 2026-10-07; the contenders
+are a hand-written Kotlin recorder and transistorsoft's Android SDK in debug
+builds; Opus builds the comparison app, Fable reviews it at xhigh and gives the
+verdict; the recorder that feeds rounds, and its storage, stay yours; the bar is
+99% covered and no gap over 20 s on the Section 9 measure.
+
+**Where it is:** `android/bakeoff/` (start with its `README.md`: the two apps,
+T's four changed defaults with the doc quotes, the measure, the files, the gap
+diagnosis) and `tools/track-coverage.py`. Opus's decisions and reasons are in
+`docs/DECISIONS_LOG.md`, entries marked (Opus), 2026-09-13.
+
+**Evidence (Opus, 2026-09-13):** the README's "Verified on the emulator"
+section has every number. In short:
+- **Tests:** unit tests 8/8 in each app; `tools/track-coverage.py --self-test`
+  14/14. Mutation check: `>` to `>=` in the gap test fails 2 of the 8 Kotlin
+  tests and 3 of the Python checks.
+- **Section 9:** the tool reproduces all 6 rows from the exports.
+- **Emulator:** three smoke runs on Android 15 with synthetic 1 Hz GPS, n = 3
+  runs of 4-9 minutes. That proves the plumbing, not the bar: no Samsung, no
+  pocket, no round-length carry.
+- **Run 1:** found T's headless rule (357 s with no fixes in the app log while
+  the SDK store kept filling) and the tool's blind spot for a recorder that
+  dies before STOP.
+- **Run 2, after both fixes:** K PASS (267 fixes, 0 gaps across background,
+  destroyed screens and `kill -9`). T PASS in both its app log (336) and its
+  store (333).
+- **Run 3:** T's repeated fix times after a kill are not caused by our
+  `changePace`. Android's restart backoff took about 57 s on a second kill
+  minutes after the first.
+
+**Asked of Fable (xhigh on his word):**
+1. **K:** fused `PRIORITY_HIGH_ACCURACY`, 1 s, `minUpdateDistance 0`,
+   `maxUpdateDelay 0`, `GRANULARITY_FINE`, a `location` foreground service,
+   `START_STICKY`, a partial wake lock, resume on process start. Name anything
+   that would lose fixes with the screen locked on a Galaxy S26.
+2. **T:** is it raw and fair? The four changed defaults are quoted in the
+   README. Is anything else in the SDK altering or dropping fixes? Do `ready()`
+   on every process start and `changePace(true)` keep it recording through a
+   five-minute wait on a tee?
+3. **The measure:** `Coverage.kt` against `tools/track-coverage.py` against
+   Section 9. The choices to check: fix time rather than receive time, T's
+   samples counted, cut rows skipped.
+4. **The gap diagnosis:** the heartbeat is a `HandlerThread` timer. Can it stall
+   during CPU sleep while the recorder is alive, and so call a live recorder
+   dead?
+5. **Data integrity:** `SessionLog`'s flush-per-row, 15 s fsync, cut-row
+   repair, and the export copy. Is there any path that loses or corrupts a row?
+6. **Verdict:** may these two APKs go on his phone for a carry and on the
+   course? If not, BLOCKED with what must change.
+7. **Classify only:** when the winner becomes the recorder that feeds rounds,
+   which of this code is reusable and which must be rebuilt under the data model
+   rules? Do not design it.
+8. **Repeated fix times:** after a `kill -9`, T re-records fixes whose times it
+   already had (run 2: 88 in the log, 93 in its store; run 3: 22 and 21; K: 0).
+   Where do they come from? Does the configuration need to change, or only the
+   analysis?
+9. **`allowIdenticalLocations`:** what does the SDK treat as identical, the same
+   fix delivered twice or a new fix at the same coordinates? The check is not in
+   the published sources. If it is only the former, `false` is the cleaner
+   setting.
+10. **Restart backoff:** T came back about 5 s after one kill (run 2) and about
+    57 s after a second kill minutes later (run 3). K was not killed twice. Can
+    either recorder do anything about Android's backoff, or is it only something
+    to watch for in the field?
 
 ## 3. Master-level fixes (failed twice, cannot reproduce, touches a design rule)
 

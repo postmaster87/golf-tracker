@@ -71,21 +71,22 @@ Every number was measured this session, with its n.
 | Veenker holes 7 and 10 tee yardages | confirmed hole by hole, committed `be82cef` |
 | Cell coverage at Veenker is fine | *"Not my network connection is actually fine on Veenker - not had issues there."* |
 | The global "no native builds" rule is gone | *"I don't remember this rule but remove it. I have had you build multiple native apps in code."* |
+| **Native shell** for the build played before 2026-10-07: the current screens inside a Kotlin app with their files on the phone, plus a native background recorder. A fully native UI waits for the offseason | Picked *"Native shell (Recommended)"*, 2026-09-13, native-build chat |
+| **Bake-off contenders:** a hand-written Kotlin recorder against transistorsoft's Android SDK (`tslocationmanager`), both debug builds, no Node | Picked *"Kotlin vs transistorsoft (Recommended)"*, 2026-09-13 |
+| **Opus builds the bake-off app** (it measures coverage and never feeds a round). Fable reviews it at xhigh before it goes on the course and gives the pass/fail verdict. The recorder that feeds rounds, and its storage, stay Fable's | Picked *"Opus builds, Fable reviews (Recommended)"*, 2026-09-13 |
+| **Pass bar:** 99% coverage and no gap over 20 s, on the Section 9 measure, across a round-length carry with the screen locked and a music app in use | Picked *"99% coverage, no gap > 20 s (Recommended)"*, 2026-09-13 |
+| Installs for the build | *"You may install whatever is needed"*, 2026-09-13 |
 
 ## 4. Still open - his call
 
 Recommendations below are Opus's, not his.
 
-1. **Native shell or full native rewrite for the build before 2026-10-07.**
-   His words: *"Once my credits reset we will move to the full build."* Do not
-   read that as choosing the rewrite - ask. *Opus's recommendation:* a native
-   shell (the existing app code running inside a native app, assets bundled
-   locally) plus a native background recorder now; a fully native UI in the
-   offseason alongside the clicker.
-2. **Recorder bake-off contenders and pass bar.** *Recommendation:* a
-   hand-written Kotlin foreground service against transistorsoft's plugin in a
-   debug build. Pass: at least 99% track coverage and no gap over 60 s across
-   a round-length carry, screen locked, music app used.
+1. ~~Native shell or full native rewrite~~ - **decided 2026-09-13**, Section 3.
+2. ~~Recorder bake-off contenders and pass bar~~ - **decided 2026-09-13**,
+   Section 3. The bar he picked is 20 s, not the 60 s first recommended here:
+   the median stand at a real shot is 62.9 s, so a 60 s gap can hide one.
+   Under the Section 9 measure, no gap over 20 s means 100% covered, so the
+   gap clause is the one that decides.
 3. **Typed first-putt distance threshold:** 15 ft (*recommendation*) or 20 ft.
 4. **Retire the in-app pocket lock** once the recorder is native, and use the
    phone's power button (*recommendation*: yes).
@@ -110,6 +111,10 @@ Recommendations below are Opus's, not his.
   just the weekend"*.
 - **Order of work Opus proposed:** recorder bake-off harness -> bake-off on
   the next rounds -> the green flow -> real data before 2026-10-07.
+- **2026-09-13, native-build chat:** the bake-off harness is built and
+  smoke-tested on the emulator (`android/bakeoff/`, README first). Next:
+  Fable's item 2.3 at xhigh (it needs his "xhigh" in the chat first), then a
+  carry, then rounds.
 
 ## 6. Architecture notes
 
@@ -120,6 +125,10 @@ Recommendations below are Opus's, not his.
 - **Toolchain on this PC** (checked 2026-09-13): OpenJDK 17.0.20; Android SDK
   at `%LOCALAPPDATA%\Android\Sdk`; Android Studio; `adb` (WinGet
   platform-tools). Node/npm not installed (needed only for Capacitor).
+  transistorsoft also ships a plain Android SDK (`com.transistorsoft:tslocationmanager`
+  4.5.1 on Maven Central, published 2026-09-04), so neither bake-off contender
+  needs Node. Added for the bake-off on 2026-09-13: SDK Platform 36, Gradle
+  8.13, and the `golf-bakeoff` emulator (Android 35 image).
 - **His phone:** Samsung Galaxy S26 (camera EXIF on 2026-09-13).
   Samsung's aggressive app sleeping is the known risk to a background recorder.
 - **Recorder candidates**, re-read from their own README and API docs on

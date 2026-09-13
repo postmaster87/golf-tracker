@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- The SDK's motion detection. Its AAR merges its own permissions too;
+         declared here so the checklist's runtime request is always legal. -->
+    <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
+</manifest>

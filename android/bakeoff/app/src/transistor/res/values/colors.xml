@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- K is teal, T is orange: tell the two icons apart at a glance. -->
+    <color name="launcher_bg">#C2410C</color>
+</resources>

@@ -7,6 +7,127 @@ decision, the reason, what it changed, the commit, the report. Opus answers
 his "why" from here, quoting the entry with its links - never a paraphrase,
 never "Fable decided".
 
+Opus's solo decisions are logged here too, marked (Opus).
+
+## 2026-09-13 - bake-off: two apps, not one app with two recorders (Opus)
+- **Decision:** the bake-off is one Gradle project with two product flavors,
+  `handwritten` (Bake-off K, `...golfbakeoff.k`) and `transistor` (Bake-off T,
+  `...golfbakeoff.t`), installed side by side.
+- **Why:** each recorder needs its own process, foreground service,
+  notification and battery state. In one app, whichever recorder held a
+  foreground service would keep the other one's process alive, and a
+  survival test would measure nothing. Carried together, both face the same
+  phone, pocket and sky on the same round.
+- **Changed:** `android/bakeoff/app/build.gradle.kts`.
+  **Report:** `android/bakeoff/README.md`.
+
+## 2026-09-13 - bake-off: K takes fused location and holds a wake lock; T gets no extra help (Opus)
+- **Decision:** K uses the fused provider (`PRIORITY_HIGH_ACCURACY`, 1 s, no
+  distance filter) inside a location foreground service holding a partial wake
+  lock. T gets no wake lock or other help from our code.
+- **Why:** fused is what Chrome handed the web app, and the web app's accuracy
+  (median 3.0-3.2 m, FT3-FT6) is the field-validated number; both apps pin
+  play-services-location 21.3.0, the version transistorsoft 4.5.1 pins. The
+  comparison is each recorder at its best: K is ours to harden, T is the SDK as
+  shipped plus the four defaults its own docs say are wrong for golf.
+- **Changed:** `app/src/handwritten/.../RecorderService.kt`.
+  **Report:** `android/bakeoff/README.md`.
+
+## 2026-09-13 - bake-off: T runs with four defaults changed and nothing else (Opus)
+- **Decision:** `filter.policy = PassThrough`, `useKalman = false`,
+  `trackingAccuracyThreshold = 0`; `disableStopDetection = true` plus
+  `changePace(true)`; `allowIdenticalLocations = true`; `distanceFilter = 0`
+  with `locationUpdateInterval = 1000`.
+- **Why:** read in the 4.5.1 source, not only the web docs. `LocationFilter.evaluate`
+  keeps an accepted fix's coordinates but rejects whole fixes: worse than the
+  100 m accuracy gate, or (under `Conservative`) an implied-speed or outlier
+  fix. Kalman smooths the distance between fixes, not positions. The web docs
+  call `Conservative` the default; the source's table says `Adjust`. The
+  config source also says "Location services will never turn OFF" only with
+  `disableStopDetection` (otherwise GPS stops when he stands still: the shot),
+  and "By default, the Android plugin will ignore a received location when it
+  is identical to the previous location". The docs' own example of an
+  identical location is one fix delivered twice; whether a new fix at the same
+  coordinates also counts is not stated and the check is not in the published
+  sources, so `true` is the setting that cannot drop a stand. A dropped fix is
+  a hole in the track, and dwell is the whole shot signal (62.9 s median at
+  real shots, n = 444 stops, `docs/REVISIONS.md` v22). The cost, seen on the
+  emulator: after a `kill -9`, T keeps repeats of fix times it already had
+  (run 2: 88 in the log, 93 in its store; run 3: 22 and 21). They are 0 s
+  intervals, so coverage is unchanged; the tool counts and prints them.
+  `changePace(true)` on restore is now called only if the SDK did not come
+  back moving; run 3 showed the repeats do not come from that call.
+- **Changed:** `app/src/transistor/.../Recorder.kt`.
+  **Report:** `android/bakeoff/README.md`.
+
+## 2026-09-13 - bake-off: an active session resumes after a process restart (Opus)
+- **Decision:** if the process comes back while a session is active and the
+  recorder is not running, both apps restart the recorder and log
+  `resume_on_process_start`.
+- **Why:** the golfer is the source of truth. He pressed START and has not
+  pressed STOP, so he is recording. The gap stays in the file, unfilled, and
+  `previous_exit` records Android's reason for the death.
+- **Changed:** both `Recorder.kt`. **Report:** `android/bakeoff/README.md`.
+
+## 2026-09-13 - bake-off: the measure is Section 9's, on fix time, samples counted, cut rows skipped (Opus)
+- **Decision:** coverage is computed on the fix's own time (the web app's
+  `ts`), over every fix the recorder delivered (T's SDK samples included and
+  marked; `--exclude-samples` rescores without them). A row without exactly
+  the header's columns and a whole `fix_ms` is counted as skipped, never read.
+  The PC tool gives the verdict; the phone's number is a convenience.
+- **Why:** the definition had to be the handoff's, not a recalled one.
+  `tools/track-coverage.py` reproduces all 6 Section 9 rows from the exports.
+  The phone and the PC implement it separately, and both are held to one
+  hand-worked fixture. A process killed mid-row must not become a wild
+  timestamp.
+- **Changed:** `Coverage.kt`, `tools/track-coverage.py`, the fixture.
+  **Report:** `android/bakeoff/README.md`.
+
+## 2026-09-13 - bake-off: T gets the SDK's headless task and ready() on every resume; T is also scored from its own store (Opus)
+- **Decision:** add `com.postmaster87.golfbakeoff.t.BackgroundGeolocationHeadlessTask`
+  (an EventBus `@Subscribe` on `HeadlessEvent`), call `ready()` in every
+  `onResume`, route both delivery paths through one `recordSdkLocation`, and
+  log `sdk_delivery_route` whenever the route changes. `tools/track-coverage.py`
+  scores T twice: the app log, and the SDK's exported SQLite store over the
+  same START-to-STOP window.
+- **Why:** the emulator smoke test (run 1) found it. After `kill -9`, T's own
+  database kept filling at 1 Hz (392 to 412 rows in 20 s), while the app log
+  got nothing for 357 s. logcat showed 530 "Attempted to post headless event
+  location but there are no listeners". In the 4.5.1 source,
+  `EventManager.deliver` routes events only to the headless task while no
+  screen is alive, and `isDeliverable` holds foreground events until `ready()`
+  is called again after leaving headless. Those are rules for any app built on
+  T, not recorder failures. Scoring only our listener would have failed T for
+  our own integration gap.
+- **Changed:** `app/src/transistor/.../Recorder.kt`,
+  `app/src/transistor/.../t/BackgroundGeolocationHeadlessTask.kt`,
+  `app/build.gradle.kts` (EventBus compileOnly), `MainActivity.kt`,
+  `tools/track-coverage.py`. **Report:** `android/bakeoff/README.md`.
+
+## 2026-09-13 - bake-off: a session is measured START to STOP, so a recorder that dies is a gap (Opus)
+- **Decision:** for a bake-off session, a first fix more than 20 s after START,
+  or a last fix more than 20 s before STOP (or before the last event, if there
+  is no STOP), counts as a gap: an "edge gap". The Section 9 measure between
+  fixes is unchanged, and web exports are still scored first fix to last.
+- **Why:** run 1 T's log stopped at the kill, and the first-to-last measure
+  scored it a clean 3.0 min session. A recorder that dies and never comes back
+  leaves no fixes to form a gap, which is exactly the failure the bake-off
+  exists to catch. The gap rule is still "no fix for over 20 s"; only the
+  interval's ends moved to START and STOP.
+- **Changed:** `tools/track-coverage.py` (self-test 14/14, with five edge
+  checks). **Report:** `android/bakeoff/README.md`.
+
+## 2026-09-13 - bake-off toolchain: compileSdk 36, AGP 8.13.2, Kotlin 2.3.21, Gradle 8.13 (Opus)
+- **Decision:** a newer toolchain than his other native apps (AGP 8.6.1,
+  Kotlin 2.0.20, Gradle 8.9, compileSdk 35), pinned, never "+".
+- **Why:** transistorsoft's Kotlin setup page requires compileSdk 36. AGP 8.10
+  is the first release with API 36 support (8.9 stops at 35), AGP 8.13 needs
+  Gradle 8.13, and Kotlin 2.3.20-2.3.21 is the line whose compatibility table
+  covers AGP 8.13. Gradle's download is checked against its published SHA-256.
+  His other apps are untouched.
+- **Changed:** `android/bakeoff/build.gradle.kts`, `app/build.gradle.kts`,
+  `gradle/wrapper/gradle-wrapper.properties`.
+
 ## 2026-09-11 - v23: the lie placeholder is not a schema revision (not xhigh)
 - **Decision:** a GPS shot saved before its lie, stored `lie: 'fairway',
   lieInferred: true`, is not a data model / storage schema change and does
