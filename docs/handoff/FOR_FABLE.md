@@ -17,7 +17,12 @@ spawn prompt repeats the item number, his words and the commit hash.
 
 ## 2. Testing of a risky build (a build about to be played; anything touching the lock, the marks, the track, the hole windows or round save)
 
-### 2.2 Build v24 - the footer stops moving, the lock is reachable everywhere (2026-09-13) - OPEN
+### 2.2 Build v24 - the footer stops moving, the lock is reachable everywhere (2026-09-13) - STAGED, HELD
+
+**HELD ON MATT'S WORD, 2026-09-13: "Stage what Fable needs but hold it up for
+now. I want to brainstorm ideas before going further."** The item below is
+complete and ready to spawn; do not spawn it until he says so. v24 is committed
+at `84da7f4` and NOT pushed, so nothing is on his phone.
 
 **His words, verbatim:**
 
