@@ -47,6 +47,12 @@ and MARK CUP inert only during a running burst, lie grid above club grid),
 build v24 in `js/data/build.js` + `sw.js`, tests in `test/run.js` +
 `test/index.html`. No file of yours was edited.
 
+**Added to v24 afterwards, 2026-09-13:** Veenker tee yardages corrected in
+`js/data/courses.js` on Matt's approval - hole 7 blue 570 -> 590 and gold
+513 -> 531 (midpoint of a 513-550 gold box, his choice), hole 10 blue
+540 -> 560; totals blue 6672, gold 6047. New rounds only: rounds copy yardages
+at creation and strokes gained does not read scorecard yardage.
+
 **Evidence:** 501/501 at `http://localhost:8123/test/`, three runs, with the
 browser pane HIDDEN. Six new tests (2 in the mark-flow group, 4 in "the lock tab
 is reachable everywhere"). Mutation check: restoring the footer takeover fails

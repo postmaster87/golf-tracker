@@ -2,8 +2,13 @@
  * Course templates.
  *
  * Veenker is verified against the Iowa PGA / BlueGolf detailed scorecard
- * (checked 2026-07-25). Par, per-tee yardages and stroke indices are internally
- * consistent: OUT 36 / IN 36 / par 72, blue 3351 + 3281 = 6632.
+ * (checked 2026-07-25), with holes 7 and 10 corrected by Matt on 2026-09-13
+ * against the course yardage book and his own knowledge of the tees: hole 7
+ * blue 570 -> 590 and gold 513 -> 531 (the gold box runs 513-550; 531 is its
+ * midpoint, his choice), hole 10 blue 540 -> 560. White is the senior tee and
+ * was not re-checked. The blue rating/slope stay as published. Par, per-tee
+ * yardages and stroke indices are internally consistent: OUT 36 / IN 36 /
+ * par 72, blue 3371 + 3301 = 6672.
  *
  * Ratings/slopes are only recorded where a published value was found. Nothing
  * is guessed — a null rating shows as "not set" rather than a plausible lie.
@@ -18,10 +23,10 @@ export const VEENKER = {
   shortName: 'Veenker',
   location: 'Ames, IA',
   par: 72,
-  source: 'Iowa PGA / BlueGolf detailed scorecard, verified 2026-07-25',
+  source: 'Iowa PGA / BlueGolf detailed scorecard, verified 2026-07-25; holes 7 and 10 corrected by Matt 2026-09-13',
   teeSets: {
-    blue: { label: 'Blue', yards: 6632, rating: 72.2, slope: 125 },
-    gold: { label: 'Gold', yards: 6029, rating: null, slope: null },
+    blue: { label: 'Blue', yards: 6672, rating: 72.2, slope: 125 },
+    gold: { label: 'Gold', yards: 6047, rating: null, slope: null },
     white: { label: 'White', yards: 5323, rating: null, slope: null },
     red: { label: 'Red', yards: 5233, rating: null, slope: null },
   },
@@ -32,10 +37,10 @@ export const VEENKER = {
     { number: 4, par: 4, hcp: 11, yards: { blue: 349, gold: 340, white: 335, red: 330 } },
     { number: 5, par: 4, hcp: 3, yards: { blue: 402, gold: 350, white: 324, red: 319 } },
     { number: 6, par: 3, hcp: 15, yards: { blue: 210, gold: 185, white: 137, red: 132 } },
-    { number: 7, par: 5, hcp: 1, yards: { blue: 570, gold: 513, white: 480, red: 475 } },
+    { number: 7, par: 5, hcp: 1, yards: { blue: 590, gold: 531, white: 480, red: 475 } },
     { number: 8, par: 3, hcp: 17, yards: { blue: 181, gold: 157, white: 128, red: 123 } },
     { number: 9, par: 5, hcp: 5, yards: { blue: 537, gold: 495, white: 437, red: 432 } },
-    { number: 10, par: 5, hcp: 6, yards: { blue: 540, gold: 473, white: 464, red: 459 } },
+    { number: 10, par: 5, hcp: 6, yards: { blue: 560, gold: 473, white: 464, red: 459 } },
     { number: 11, par: 3, hcp: 14, yards: { blue: 155, gold: 134, white: 103, red: 98 } },
     { number: 12, par: 4, hcp: 12, yards: { blue: 330, gold: 306, white: 295, red: 290 } },
     { number: 13, par: 3, hcp: 16, yards: { blue: 160, gold: 144, white: 130, red: 125 } },

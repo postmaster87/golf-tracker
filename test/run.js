@@ -421,11 +421,13 @@ test('per-tee yardages sum to the published totals', () => {
   }
 });
 
-test('blue nines sum to 3351 and 3281', () => {
+// Holes 7 and 10 corrected by Matt, 2026-09-13 (+20 blue each). The front nine
+// now matches the course yardage book's printed OUT of 3371.
+test('blue nines sum to 3371 and 3301', () => {
   const out = VEENKER.holes.slice(0, 9).reduce((a, h) => a + h.yards.blue, 0);
   const inn = VEENKER.holes.slice(9).reduce((a, h) => a + h.yards.blue, 0);
-  eq(out, 3351, 'blue OUT');
-  eq(inn, 3281, 'blue IN');
+  eq(out, 3371, 'blue OUT');
+  eq(inn, 3301, 'blue IN');
 });
 
 test('stroke indices are a permutation of 1..18, odd on the front', () => {
