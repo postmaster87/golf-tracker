@@ -8,7 +8,7 @@
 #   .\bakeoff.ps1 test       JVM unit tests of the measure, both apps
 #   .\bakeoff.ps1 devices    what adb sees, and the device the other tasks will use
 #   .\bakeoff.ps1 setup      install both apps, grant everything, unrestricted battery, read it all back
-#   .\bakeoff.ps1 samsung    add both apps to Samsung's never-sleeping list by driving Settings
+#   .\bakeoff.ps1 samsung    read-only: neither app on Samsung's Sleeping / Deep sleeping lists
 #   .\bakeoff.ps1 start      START both sessions
 #   .\bakeoff.ps1 status     both recording? how many fixes?
 #   .\bakeoff.ps1 stop       HOLD TO STOP and EXPORT in both apps
@@ -212,7 +212,7 @@ function Read-Checklist([string]$tag) {
 function Show-Status {
     foreach ($tag in $Apps.Keys) {
         $pkg = $Apps[$tag]
-        $prefs = (Sh "run-as $pkg cat shared_prefs/sessions.xml") -join ' '
+        $prefs = (Sh "run-as $pkg cat shared_prefs/sessions.xml 2>/dev/null") -join ' '
         $m = [regex]::Match($prefs, 'name="active">([^<]+)<')
         $fg = ((Sh "dumpsys activity services $pkg") -join "`n") -match 'isForeground=true'
         if ($m.Success) {
@@ -257,30 +257,42 @@ switch ($Task) {
     }
 
     'samsung' {
+        # Measured on the S26 (One UI 8.5), 2026-09-13: an app whose battery is Unrestricted -
+        # what setup sets - is not offered in "Never auto sleeping apps". Switched to Optimized,
+        # Bake-off K was offered and added; set back to Unrestricted, Samsung removed it from
+        # that list. The two settings exclude each other, so this task changes nothing. It
+        # reads Samsung's three lists and fails if either app is on Sleeping or Deep sleeping.
         Use-Device
-        if ("$(Sh 'getprop ro.product.manufacturer')".Trim() -ne 'samsung') { throw 'Not a Samsung phone: there is no never-sleeping list to set.' }
+        if ("$(Sh 'getprop ro.product.manufacturer')".Trim() -ne 'samsung') { throw 'Not a Samsung phone: there are no Samsung sleeping lists to check.' }
         Require-Unlocked
-        Sh 'am start -a android.settings.SETTINGS' | Out-Null
-        Start-Sleep -Seconds 3
-        $hit = Ui-Must @('Battery', 'Battery and device care') 'Battery in Settings' 10
-        if ($hit -eq 'Battery and device care') { Ui-Must @('Battery') 'Battery' 3 | Out-Null }
-        Ui-Must @('Background usage limits') 'Background usage limits' 6 | Out-Null
-        Ui-Must @('Never auto sleeping apps', 'Never sleeping apps') 'the never-sleeping list' 4 | Out-Null
         $names = @($Apps.Keys | ForEach-Object { "Bake-off $_" })
-        $onList = @(Ui-Nodes | ForEach-Object { $_.GetAttribute('text') } | Where-Object { $names -contains $_ })
-        $missing = @($names | Where-Object { $onList -notcontains $_ })
-        if ($missing.Count) {
-            Ui-Must @('Add apps', 'Add', '+') 'the add button' | Out-Null
-            foreach ($name in $missing) { Ui-Must @($name) $name 8 | Out-Null }
-            Ui-Must @('Add', 'Done') 'the confirm button' | Out-Null
-            Start-Sleep -Seconds 2
-            $onList = @(Ui-Nodes | ForEach-Object { $_.GetAttribute('text') } | Where-Object { $names -contains $_ })
+        $report = @()
+        foreach ($list in @('Never auto sleeping apps', 'Sleeping apps', 'Deep sleeping apps')) {
+            Sh 'input keyevent 3' | Out-Null
+            # Settings reopens on whatever page it was left on, so start it fresh each time.
+            Sh 'am force-stop com.android.settings' | Out-Null
+            Sh 'am start -a android.settings.SETTINGS' | Out-Null
+            Start-Sleep -Seconds 3
+            $hit = Ui-Must @('Battery', 'Battery and device care') 'Battery in Settings' 10
+            if ($hit -eq 'Battery and device care') { Ui-Must @('Battery') 'Battery' 3 | Out-Null }
+            Ui-Must @('Background usage limits') 'Background usage limits' 6 | Out-Null
+            Ui-Must @($list) $list 4 | Out-Null
+            $seen = New-Object System.Collections.Generic.List[string]
+            for ($page = 0; $page -lt 4; $page++) {
+                foreach ($l in @(Ui-Nodes | ForEach-Object { Ui-Label $_ } | Where-Object { $_ })) {
+                    if (-not $seen.Contains($l)) { $seen.Add($l) }
+                }
+                Ui-Scroll
+            }
+            $on = @($names | Where-Object { $seen.Contains($_) })
+            $shot = Save-Screen ($list -replace '[^A-Za-z]+', '-')
+            $report += ('{0}: {1} (screenshot {2})' -f $list, $(if ($on.Count) { $on -join ', ' } else { 'neither Bake-off app' }), $shot)
         }
-        $shot = Save-Screen 'never-sleeping-list'
-        $still = @($names | Where-Object { $onList -notcontains $_ })
         Sh 'input keyevent 3' | Out-Null
-        if ($still.Count) { throw "Not on the never-sleeping list: $($still -join ', '). Screenshot: $shot" }
-        Write-Host "Both apps are on the never-sleeping list. Screenshot: $shot"
+        $report | ForEach-Object { Write-Host "  $_" }
+        if ($report | Where-Object { $_ -match '^(Sleeping apps|Deep sleeping apps): Bake-off' }) {
+            throw 'A Bake-off app is on a Samsung sleeping list.'
+        }
     }
 
     'start' {

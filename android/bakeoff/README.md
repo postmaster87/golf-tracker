@@ -39,7 +39,7 @@ was tested on the emulator before it touched the phone:
 |---|---|
 | `devices` | Finds the phone and reads its model, Android version and One UI build |
 | `setup` | Installs both apps and grants precise location, location all the time, notifications, and physical activity (T only). Puts both on the Doze whitelist and allows background running. Then reads every grant back from the system, opens each app, and reads the app's own checklist |
-| `samsung` | Opens Settings → Battery → Background usage limits → Never auto sleeping apps, and adds both apps. If a menu label on the S26 reads differently, it stops with a screenshot and the labels it saw, without tapping anything it was not sent to |
+| `samsung` | Read-only. Opens Settings → Battery → Background usage limits and reads three lists: Never auto sleeping apps, Sleeping apps and Deep sleeping apps. It fails if either app is on Sleeping or Deep sleeping. It adds nothing. On the S26 (One UI 8.5, measured 2026-09-13), an Unrestricted app is not offered for Never auto sleeping apps, and switching Bake-off K back to Unrestricted removed it from that list. The two settings exclude each other, and `setup` sets Unrestricted |
 | `start` | Taps START in both apps |
 | `status` | Reports whether both are recording, whether their foreground services are running, and how many fixes each has |
 | `stop` | Holds HOLD TO STOP, then taps EXPORT, in both apps |
@@ -249,6 +249,19 @@ The pull also caught a scoring bug. An old session was scored against a newer
 store export that did not contain it, which showed a false FAIL. The tool now
 scores each session against the export holding the most of its rows. When no
 export has any, it says so and does not score one.
+
+**On his S26, 2026-09-13 (SM-S942U, Android 16, One UI 8.5):**
+
+- `devices` and `setup` passed. Both apps installed, every grant read back as
+  granted, both were set Unrestricted, and both checklists read OK except the
+  Samsung row.
+- The first `samsung` run was then written to add the apps to Never auto
+  sleeping apps. It reached Samsung's picker and stopped, as designed, when
+  neither app was offered.
+- The Optimized/Unrestricted test on Bake-off K (in the table above) found why.
+  `samsung` became a read-only check, and it found neither app on Never auto
+  sleeping, Sleeping or Deep sleeping.
+- Nothing has been recorded on the phone yet.
 
 **What only the phone can answer:** Samsung's app sleeping, a round-length
 carry, the sky at Veenker, and whether Android's restart backoff ever bites when

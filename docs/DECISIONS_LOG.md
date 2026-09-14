@@ -9,6 +9,31 @@ never "Fable decided".
 
 Opus's solo decisions are logged here too, marked (Opus).
 
+## 2026-09-13 - bake-off on the S26: Unrestricted battery, not Samsung's never-sleeping list (Opus)
+- **Decision:** both apps stay Unrestricted. That is Android's battery
+  optimization exemption, which `setup` sets and each app's checklist reads.
+  `bakeoff.ps1 samsung` changes nothing. It only checks that neither app is on
+  Samsung's Sleeping or Deep sleeping lists.
+- **Why:** measured on his S26 (SM-S942U, Android 16, One UI 8.5) on
+  2026-09-13.
+  - With both apps Unrestricted, Samsung's "Never auto sleeping apps" picker
+    listed every other app, from Ad It Up to Weather, but not the two Bake-off
+    apps.
+  - With Bake-off K switched to Optimized, the picker offered it, and it was
+    added ("Newly added").
+  - Switched back to Unrestricted, K was removed from that list by Samsung.
+
+  So an app gets one setting or the other, not both. Unrestricted is the
+  exemption the apps can read. Android also lists it as a case where a
+  foreground service may start from the background, which K's restart after a
+  kill needs. That Samsung's app sleeping treats Unrestricted as covering
+  never-sleeping is inferred from the two settings excluding each other; it is
+  not documented. The carry is what tests it. Afterwards, neither app was on
+  the Never auto sleeping, Sleeping or Deep sleeping lists, and both were
+  still on the Doze whitelist.
+- **Changed:** `android/bakeoff/bakeoff.ps1` (the `samsung` task),
+  `android/bakeoff/README.md`. **Report:** `android/bakeoff/README.md`.
+
 ## 2026-09-13 - bake-off: Claude drives the phone from the desktop; a store export is scored only against sessions it holds (Opus)
 - **Decision:** `bakeoff.ps1` does every phone step over adb:
   - install both apps, grant permissions and read every grant back
