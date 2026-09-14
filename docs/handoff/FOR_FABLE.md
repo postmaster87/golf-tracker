@@ -22,7 +22,9 @@ to check make a file for it to run tomorrow night when credits reset". And:
 2. **1.1** - review the Veenker course map before it becomes app data. Effort
    high; review only.
 3. **2.3** - review the recorder bake-off app before it goes on the course.
-   **xhigh, and only after he types "xhigh" in the chat.** Added 2026-09-13;
+   **xhigh, and only after he types "xhigh" in the chat.** Before spawning it,
+   pull and score Monday's carry (`bakeoff.ps1 stop` then `pull`) and add the
+   numbers to the item: the week's plan is `docs/bakeoff-test-week.md`. Added 2026-09-13;
    whether it runs before 1.1 is his call (the bake-off wants rounds on
    19-20 September; 1.1 feeds the green flow, which comes after it).
 

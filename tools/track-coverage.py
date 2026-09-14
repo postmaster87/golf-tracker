@@ -276,6 +276,19 @@ def report_session(dirpath, exclude_samples):
     if start is not None and end is not None:
         print('session: START %s -> %s %s (%.1f min); fixes cover %.1f min of it' % (
             clock(start), ended, clock(end), (end - start) / 60000, c['covered_ms'] / 60000))
+    # The heartbeat carries the phone's battery level. It is the whole phone's drain -
+    # both bake-off apps, golf-tracker, music - not this app's share.
+    import re
+    battery = []
+    for (w, k, d) in events:
+        m = re.search(r'battery_pct=(\d+)', d) if k == 'hb' else None
+        if m:
+            battery.append((w, int(m.group(1)), 'charging=1' in d))
+    if len(battery) >= 2:
+        hours = (battery[-1][0] - battery[0][0]) / 3.6e6
+        print('phone battery (whole phone): %d%% -> %d%% over %.1f h%s' % (
+            battery[0][1], battery[-1][1], hours,
+            '; charging for part of it, so not a drain figure' if any(ch for _, _, ch in battery) else ''))
     # A repeated fix time is an interval of 0 s: it cannot change coverage, but it inflates
     # the fix count, so it is shown rather than silently dropped.
     print('rows skipped: %d; repeated fix times: %d; SDK samples: %d%s' % (
