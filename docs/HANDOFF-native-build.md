@@ -69,6 +69,7 @@ Every number was measured this session, with its n.
 | The repo stays public; his round data and the course map are fine in it | *"it can stay public this is not sensitive data"* / *"yes it is public knowledge I golf a lot and where I work. I am a State of Iowa employee"* / *"the map and my data are fine in the public repo"* |
 | The Veenker course map is OSM plus his markup | see `docs/course-map/veenker/README.md` |
 | Veenker holes 7 and 10 tee yardages | confirmed hole by hole, committed `be82cef` |
+| Veenker hole 9: OSM's back box is blue (537 yd along the line), the next box gold (491 yd). Hole 12: one mapped box, golds toward the center, blues at the back | *"yes to 9 I already confirmed that with you. 12 is a single long tee box. Golds towards the center blues at the back - like I said the map is correct."*, 2026-09-15, answering Fable's 1.1 (`docs/handoff/REPORT_1.1.md`) |
 | Cell coverage at Veenker is fine | *"Not my network connection is actually fine on Veenker - not had issues there."* |
 | The global "no native builds" rule is gone | *"I don't remember this rule but remove it. I have had you build multiple native apps in code."* |
 | **Native shell** for the build played before 2026-10-07: the current screens inside a Kotlin app with their files on the phone, plus a native background recorder. A fully native UI waits for the offseason | Picked *"Native shell (Recommended)"*, 2026-09-13, native-build chat |

@@ -53,6 +53,10 @@ rewrites `veenker_confirmed_corrections.json`; the re-run was byte-identical.
 - *"The yardages marked up for approaches into the green carries off the tee,
   layup numbers. The book has a few tee numbers wrong and so does our app"* -
   about the old yardage book photographed in `docs/Veenker/` (gitignored).
+- *"yes to 9 I already confirmed that with you. 12 is a single long tee box.
+  Golds towards the center blues at the back - like I said the map is
+  correct."* - 2026-09-15, answering Fable's item 1.1
+  (`docs/handoff/REPORT_1.1.md`).
 
 ## Confirmed facts
 
@@ -60,7 +64,14 @@ rewrites `veenker_confirmed_corrections.json`; the re-run was byte-identical.
 - The right-hand "7 GREEN" and "7 TEES" labels on his markup are **hole 8**
   (OSM's hole-8 line starts on those tees and ends in that green, 0.0 m).
 - **Hole 9 tees** are OSM's, just north of the 8 green (the line starts in a
-  box about 58 m northeast of it).
+  box about 58 m northeast of it). The back box is **blue** (537 yd along the
+  hole line) and the next box **gold** (491 yd): his "yes to 9", 2026-09-15.
+- **Hole 12** is one long mapped tee box: golds toward its center, blues at
+  the back (his words, 2026-09-15). His blue markup tip sits 4.4 m past the
+  box's back edge (Fable, 1.1); the mapped box is the tee.
+- **Holes 11 and 18 share one mapped tee box** (517 m2; Fable, 1.1). Which
+  hole a tee in it belongs to comes from the round's play order, never from
+  the polygon.
 - **Hole 16 has a back blue tee OSM does not map**, between the 16 gold tees
   and the 15 green. Its position is his markup tip only - carry it as his
   markup, never as a measured position.
