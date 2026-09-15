@@ -20,6 +20,7 @@ his phone stays on golf-tracker v23.
 | `score-golf-tracker-export.txt` | `tools/track-coverage.py` run on the golf-tracker export (every track in it) |
 | `web-gaps-vs-native.txt` | Output of `compare-web-gaps.py` (next row) |
 | `compare-web-gaps.py` | Lists each golf-tracker gap on today's round, with the K and T fixes and phone events in the same window |
+| `scorecard-2026-09-14.jpg` | His paper scorecard, sent in chat on 2026-09-14. Holes 10-18: 5, 3, 5, 3, 5, 4, 4, 5, 5 = 39 (par 36). Strokes only; no putts or penalties are written on it |
 
 **Provenance.**
 
