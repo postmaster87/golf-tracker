@@ -552,6 +552,77 @@ the worse of the two: that screen exists so a glance at a pocketed phone answers
 "is the GPS still happy?" without unlocking, and a phone pocketed long enough to
 be worth checking is exactly the one whose page has been suspended.
 
+### The lie grid above the fold, and still when the burst ends — build v25
+
+His words, 2026-09-15: *"fix the lie card and yes the conformation when in question is needed when I am entering the score at the end of the hole. Workflow on the green mark the cup or my ball first whatever is easiest. Hole out - record the putt length for short putts, double check GPS for long putts, enter hole score (once this is entered the app needs to compute the shots and ask me questions about the lie. Shot 2 rough or fairway, shot 3 green or fairway, etc..."* The end-of-hole workflow in that
+message is recorded in `docs/HANDOFF-native-build.md`, Sections 3 and 7; this
+build is its first four words.
+
+**What v24 got wrong** (Fable, item 2.2, `docs/handoff/REPORT_2.2.md`: FAIL for
+the course on this one defect). The lie card sat at the top of the body, above a
+footer that never changes, with its head and progress bar above the lie field.
+At 360x780 the body shows 219 px (131-350; hud 61, hole nav 70, footer 430, lock
+tab up), and the lower row of lies ended at 428: 78 px below the fold. RECOVERY
+was 10 px wider than its button.
+
+**A second defect, found while measuring the first** (sim, 360x780,
+2026-09-15). When two marks come within 20 s, the last mark's "marked · UNDO"
+banner sat above the card, and it is cleared the instant the new shot saves. The
+whole lie grid jumped 78 px up at burst end, under a thumb already on its way
+down.
+
+**What changed.**
+
+- The card is the first thing in the body, above every banner
+  (`js/ui/screen-play.js`, `paint`). Nothing above it can appear or vanish when
+  the burst ends.
+- The lie field is first in the card, above the head and the progress bar, in
+  both the running card and the saved-shot card, so the grid sits at the same
+  height in both.
+- The label is one line: "Tap a lie to save" while capturing, "Tap a lie to
+  finish" once saved. It was "Lie — tap one to save the shot", which wrapped.
+- In the card the required box is slimmer (2 px border, 6/2/8 px padding), the
+  label 13 px, the lie labels 14 px at -0.02em, the card's side padding 4 px.
+  The lie buttons stay 66 px tall with 8 px between them.
+- The card's own grid column is pinned (`minmax(0, 1fr)`). A one-line label
+  longer than the card widened it and took CANCEL SHOT and LIE LATER into the
+  LOCK strip; the mutation run below found it.
+- Settings: "Show scoring and distances" is one option per row. ALWAYS ended
+  57 px into the LOCK strip at 360 px wide mid-round (named by Fable in 2.2).
+- `BUILD.id` v25 and the `gt-shell-v25` cache. `REVISION` is unchanged; that is
+  his call.
+
+**Measured on the sim**, lock tab up, the lie asked while the previous mark's
+banner was showing (n = 1 run per size):
+
+| | 360x780 | 375x812 |
+|---|---|---|
+| Lie grid, top to bottom | 187-327 | 187-327 |
+| Body's bottom edge | 350 | 382 |
+| Room below the grid | 23 px | 55 px |
+| Grid movement at burst end | 0 px | 0 px |
+| Lie labels wider than their buttons | none | none |
+| Rightmost card button vs the strip | 257 vs 274 | 272 vs 289 |
+| Page taller than the viewport | no | no |
+
+Before, at 360x780: the grid at 288-428 after the burst, 78 px below the fold,
+and 78 px of movement with the banner up.
+
+**Tests.** 511/511 at `http://localhost:8123/test/`: the 509 before, plus "the
+lie grid does not move when the burst ends" at both sizes. Fable's two
+acceptance tests (label fit, lie grid above the fold) pass. **Mutation:** with
+v24's `screen-play.js` under these styles the suite is 509/511, and exactly the
+two new tests fail ("the lie grid moved -57 px when the burst ended"). The strip
+group now hides `.body` scrollbars in its injected style: without viewport
+emulation a desktop runner draws a 15 px classic scrollbar that a phone does
+not, and that failed the 360 px label test by 5 px.
+
+**Not measured: his phone.** The app's font is `system-ui`, which is Segoe UI
+on the PC and Samsung's own font on the S26. The export records his screen as
+360x780 (`screen.width` x `screen.height`); the height the page actually gets
+on the phone, with Chrome's bars, has not been measured. The 23 px of room is a
+margin for those two unknowns, not a proof.
+
 ### The footer stops moving, and the lock is reachable everywhere — build v24
 
 His words, 2026-09-13: *"Go ahead and I'll take your recommendations. We need

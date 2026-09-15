@@ -113,9 +113,9 @@ never "Fable decided".
   viewport emulation reports `window.innerHeight` 0, `zoneOf` at
   `window.innerHeight` fails exactly that test every time, `zoneOf` at the
   overlay's height passes it every time. A failure in that test is a real
-  failure now. Two tests in "the capture card stays out of the lock strip"
-  are RED on purpose since 2.2 (label fit, lie grid above the fold): they
-  are the acceptance bar for the rework of the v24 lie card and are named
-  in every report until Opus's rework clears them.
+  failure now. The two lie-card acceptance tests Fable left RED in 2.2
+  (label fit, lie grid above the fold) pass from build v25, and so does the
+  v25 test that the lie grid does not move when the burst ends: a failure in
+  any of them is real too.
 - Memory for this repo:
   `C:\Users\Administrator\.claude\projects\C--Temp-gitRepos-golf-tracker\memory\MEMORY.md`.

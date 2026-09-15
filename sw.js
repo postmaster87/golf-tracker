@@ -22,7 +22,11 @@
 // v24: the footer never changes - the capture and the lie question moved into
 // the body, so MARK SHOT is on screen for the whole hole - and the LOCK tab is
 // bigger and sits above sheets, so the putt sheet can be locked from.
-const CACHE = 'gt-shell-v24';
+//
+// v25: the lie field is first in the capture card and the card is first in the
+// body, so the whole lie grid sits above the footer at 360x780 and does not move
+// when the burst ends.
+const CACHE = 'gt-shell-v25';
 const NET_TIMEOUT_MS = 2500;
 const SHELL = [
   './',

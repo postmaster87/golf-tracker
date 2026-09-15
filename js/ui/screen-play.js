@@ -383,6 +383,34 @@ export function playScreen(ctx) {
     if (!editing) tick();
 
     /*
+     * THE CAPTURE AND THE LIE LIVE IN THE BODY, FIRST. THE FOOTER NEVER CHANGES.
+     *
+     * Field test 7, hole 1: when the burst ended, the lie panel replaced the
+     * whole action stack, so MARK SHOT was not on screen and the only ways out
+     * were tapping a lie or finding LIE LATER. His read of it: *"I think you
+     * made selecting a lie required so I couldn't figure out why I couldn't
+     * mark my 3rd shot at the ball on 1 so I ended up deleting the shot marking
+     * twice"*. A panel that removes the primary action is the app blocking him
+     * from logging reality, which is the one thing it may never do.
+     *
+     * So the footer is a constant now — the same controls in the same places
+     * for the whole hole — and the burst and the lie question are a card at the
+     * top of the scrolling body. That also retires the 60-62 px lie-grid jump
+     * Fable measured in v23: a footer that is never rebuilt cannot shift
+     * anything under a thumb.
+     *
+     * FIRST IN THE BODY, ABOVE EVERY BANNER (build v25). The banners keep their
+     * own clocks: the last mark's "marked · UNDO" is cleared the instant the
+     * next shot saves, and a poor-fix warning appears at that same instant. A
+     * card under them moved when the burst ended - measured on the sim at
+     * 360x780, 2026-09-15, the lie grid jumped 78 px up with the tee's banner
+     * still showing. With the card first, nothing above it can change.
+     */
+    const waiting = capture ? null : pendingLieShot(hl);
+    if (capture) body.appendChild(captureCard());
+    else if (waiting) body.appendChild(pendingLieCard(hl, waiting));
+
+    /*
      * Every hole change is one tap from being reversed, however it happened —
      * a deliberate NEXT HOLE, an arrow, a jump, or a phantom touch. On round 1
      * an accidental advance made the rest of the round unloggable; now the way
@@ -473,26 +501,6 @@ export function playScreen(ctx) {
     }
 
 
-    /*
-     * THE CAPTURE AND THE LIE LIVE IN THE BODY. THE FOOTER NEVER CHANGES.
-     *
-     * Field test 7, hole 1: when the burst ended, the lie panel replaced the
-     * whole action stack, so MARK SHOT was not on screen and the only ways out
-     * were tapping a lie or finding LIE LATER. His read of it: *"I think you
-     * made selecting a lie required so I couldn't figure out why I couldn't
-     * mark my 3rd shot at the ball on 1 so I ended up deleting the shot marking
-     * twice"*. A panel that removes the primary action is the app blocking him
-     * from logging reality, which is the one thing it may never do.
-     *
-     * So the footer is a constant now — the same controls in the same places
-     * for the whole hole — and the burst and the lie question are a card at the
-     * top of the scrolling body. That also retires the 60-62 px lie-grid jump
-     * Fable measured in v23: a footer that is never rebuilt cannot shift
-     * anything under a thumb.
-     */
-    const waiting = capture ? null : pendingLieShot(hl);
-    if (capture) body.appendChild(captureCard());
-    else if (waiting) body.appendChild(pendingLieCard(hl, waiting));
 
     if (showScoring()) body.appendChild(tally(hl));
     body.appendChild(shotList(hl));
@@ -699,17 +707,16 @@ export function playScreen(ctx) {
     // `data-burst` is what the auto-lock reads: only a running burst holds it off.
     const wrap = h('div', { class: 'capture card-block', dataset: { burst: 'running' } });
 
-    wrap.appendChild(
-      h(
-        'div',
-        { class: 'cap-head' },
-        h({ shot: 'span', putt: 'span', cup: 'span' }[capture.kind] ?? 'span', {
-          text: isShot ? 'Marking shot' : capture.kind === 'putt' ? 'Marking putt' : 'Marking cup',
-        }),
-        h('span', { class: 'val cap-meta', text: 'Capturing…' })
-      )
+    const head = h(
+      'div',
+      { class: 'cap-head' },
+      h({ shot: 'span', putt: 'span', cup: 'span' }[capture.kind] ?? 'span', {
+        text: isShot ? 'Marking shot' : capture.kind === 'putt' ? 'Marking putt' : 'Marking cup',
+      }),
+      h('span', { class: 'val cap-meta', text: 'Capturing…' })
     );
-    wrap.appendChild(h('div', { class: 'cap-bar' }, h('span')));
+    const bar = h('div', { class: 'cap-bar' }, h('span'));
+    // Where these two go depends on whether there is a lie to ask for; see below.
 
     /*
      * Club sits in the same panel as the lie rather than behind a dropdown.
@@ -755,6 +762,11 @@ export function playScreen(ctx) {
       );
     }
 
+    if (!isShot || capture.firstShot) {
+      wrap.appendChild(head);
+      wrap.appendChild(bar);
+    }
+
     if (isShot && capture.firstShot) {
       // Nothing to choose — say what is being saved and let the burst finish.
       wrap.appendChild(
@@ -791,15 +803,25 @@ export function playScreen(ctx) {
        * The required field, boxed and labelled as such. The label says what the
        * tap actually DOES rather than naming the field, because tapping a lie
        * is what saves the shot — that was not obvious from "Select the lie".
+       *
+       * FIRST IN THE CARD, above its own head and progress bar (build v25). The
+       * body shows 219 px above the constant footer at 360x780, and with the
+       * head and bar on top the lower row of lies ended 78 px below the body's
+       * bottom edge: a required tap that needed a scroll (Fable, item 2.2). The
+       * progress is something to glance at; the lie is the tap that saves the
+       * shot. The label is one line for the same reason - the old wording
+       * wrapped at that width and took a second line.
        */
       wrap.appendChild(
         h(
           'div',
           { class: 'field-required' },
-          h('div', { class: 'req-label' }, h('span', { class: 'req-dot' }), 'Lie — tap one to save the shot'),
+          h('div', { class: 'req-label' }, h('span', { class: 'req-dot' }), 'Tap a lie to save'),
           grid
         )
       );
+      wrap.appendChild(head);
+      wrap.appendChild(bar);
     }
 
     if (clubBlock) wrap.appendChild(clubBlock);
@@ -931,24 +953,23 @@ export function playScreen(ctx) {
   function pendingLieCard(hl, shot) {
     const wrap = h('div', { class: 'capture card-block', dataset: { burst: 'done' } });
     const m = shot.mark;
-    wrap.appendChild(
-      h(
-        'div',
-        { class: 'cap-head' },
-        h('span', { text: `Shot ${shot.seq} saved` }),
-        h('span', {
-          class: 'val cap-meta',
-          // The words the capture panel ended on, so the only thing that
-          // changes on screen is that the shot is now safe.
-          text: m
-            ? `Captured · ${m.usedCount}/${m.sampleCount} fixes · ±${Math.round(toFeet(m.accuracyM))} ft`
-            : 'Captured',
-        })
-      )
+    const head = h(
+      'div',
+      { class: 'cap-head' },
+      h('span', { text: `Shot ${shot.seq} saved` }),
+      h('span', {
+        class: 'val cap-meta',
+        // The words the capture panel ended on, so the only thing that
+        // changes on screen is that the shot is now safe.
+        text: m
+          ? `Captured · ${m.usedCount}/${m.sampleCount} fixes · ±${Math.round(toFeet(m.accuracyM))} ft`
+          : 'Captured',
+      })
     );
-    wrap.appendChild(h('div', { class: 'cap-bar' }, h('span', { style: { width: '100%' } })));
+    const bar = h('div', { class: 'cap-bar' }, h('span', { style: { width: '100%' } }));
 
-    // Same ordering as the capture card: the lie first, club under it.
+    // Same ordering as the capture card: the lie first, then the head and bar,
+    // then club. Any other order moves the lie grid the instant the burst ends.
     let clubBlock = null;
     if (ctx.app.settings.trackClubs) {
       const clubGrid = h('div', { class: 'club-grid' });
@@ -992,10 +1013,12 @@ export function playScreen(ctx) {
       h(
         'div',
         { class: 'field-required' },
-        h('div', { class: 'req-label' }, h('span', { class: 'req-dot' }), 'Lie — tap one to finish the shot'),
+        h('div', { class: 'req-label' }, h('span', { class: 'req-dot' }), 'Tap a lie to finish'),
         grid
       )
     );
+    wrap.appendChild(head);
+    wrap.appendChild(bar);
     if (clubBlock) wrap.appendChild(clubBlock);
 
     wrap.appendChild(

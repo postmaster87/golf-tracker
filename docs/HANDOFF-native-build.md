@@ -80,6 +80,7 @@ Every number was measured this session, with its n.
 | Test app names: Bake-off K becomes GPS Custom, Bake-off T becomes GPS Transistor | Picked *"GPS Custom / GPS Transistor"*, 2026-09-14 |
 | Fable's run order: 2.2, then 2.3, then 1.1 | Picked *"2.2 → 2.3 → 1.1 (Recommended)"*, 2026-09-14 |
 | Fable's 2.3 reviews the 2026-09-14 round, with no carry | Picked *"The round only (Recommended)"*, 2026-09-14 |
+| Lies in question are confirmed at the end of the hole, when he enters the score; the app computes the shots and asks about each lie in question | *"fix the lie card and yes the conformation when in question is needed when I am entering the score at the end of the hole. Workflow on the green mark the cup or my ball first whatever is easiest. Hole out - record the putt length for short putts, double check GPS for long putts, enter hole score (once this is entered the app needs to compute the shots and ask me questions about the lie. Shot 2 rough or fairway, shot 3 green or fairway, etc..."*, 2026-09-15 |
 | Fable's usage here is capped at 10% a week, and he picks whenever usage has to be chosen | *"Yes but Fable is restricted 10% weekly usage on this project so plan accordingly and let me pick if a usage choice needs made"*, 2026-09-14 |
 
 ## 4. Still open - his call
@@ -98,8 +99,12 @@ Recommendations below are Opus's, not his.
 5. **Penalties logged when they occur.** His earlier words: *"If there is a
    penalty I will log it when it occurs and the score is adjusted after holing
    out on that hole."* Confirm it still holds.
-6. **Auto-lie edge rule:** a shot within about 4 m of a fairway, green or
-   bunker edge gets a one-tap confirm instead of a guess (*recommendation*).
+6. ~~**Auto-lie edge rule**~~ - **decided 2026-09-15**, Section 3: a lie in
+   question is confirmed when he enters the score at the end of the hole. The
+   4 m band is still Opus's recommendation for what "in question" means; he
+   has not set a number. Evidence behind it, 2026-09-14 round (n = 5 lies he
+   gave): the course map matched all 5, and two sat within 4 m of an edge
+   (0.6 m and 3.0 m).
 7. **Push v24** after Fable's 2.2 verdict - he may walk 9 on Tuesday
    2026-09-15: *"I might get 9 in walking tuesday morning weather pending"*.
    **Answered 2026-09-14:** *"Yes but Fable is restricted 10% weekly usage on
@@ -177,6 +182,8 @@ Recommendations below are Opus's, not his.
 - **At the green:** MARK CUP, MARK PUTT 1, a typed distance only when the putt
   is short (threshold open), and the score. Putts = score minus confirmed full
   shots.
+- **His workflow, 2026-09-15, verbatim:** "fix the lie card and yes the conformation when in question is needed when I am entering the score at the end of the hole. Workflow on the green mark the cup or my ball first whatever is easiest. Hole out - record the putt length for short putts, double check GPS for long putts, enter hole score (once this is entered the app needs to compute the shots and ask me questions about the lie. Shot 2 rough or fairway, shot 3 green or fairway, etc..." The typed-putt
+  threshold (Section 4, item 3) is still open.
 - **The app:** proposes where each shot was played from out of the track's
   stops (it knows how many from the score), fills distances from the track and
   the cup, fills lies from the course map, flags edge cases, and he taps

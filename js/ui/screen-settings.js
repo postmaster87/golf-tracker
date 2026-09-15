@@ -365,7 +365,11 @@ export function settingsScreen(ctx) {
             s.showScoring = v;
             ctx.persistApp();
             paint();
-          }
+          },
+          // One per row. TOURNAMENT does not fit a third of the field beside the
+          // LOCK strip, and a grid column grows to its label: ALWAYS ended 57 px
+          // into the strip at 360 px wide, mid-round (sim, 2026-09-15).
+          { columns: 1 }
         )
       )
     );

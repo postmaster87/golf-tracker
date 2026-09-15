@@ -9,6 +9,33 @@ never "Fable decided".
 
 Opus's solo decisions are logged here too, marked (Opus).
 
+## 2026-09-15 - build v25: the lie field first, the card above the banners, a one-line label, Settings one per row (Opus)
+- **Decision:** his words, "fix the lie card", after Opus's recommendation in
+  the chat to move the lie grid to the top of the card and trim the box around
+  it (`docs/handoff/REPORT_2.2.md`, Section 7). Made: the lie field first in
+  both cards; the card first in the body, above every banner; a one-line label;
+  a slimmer box; the card's column pinned; Settings "Show scoring and
+  distances" one option per row; build v25.
+- **Why these, and not the other levers in Section 7:**
+  - The lie buttons stay 66 px tall and 8 px apart. Section 7 also offered
+    56 px buttons; the room came from above the grid instead, so the target
+    size and the dead zone a wet thumb relies on are unchanged.
+  - The club grid stays below the lie. It never sat above the grid, so putting
+    it behind a toggle would not have raised the lie.
+  - The card above the banners is the only order in which nothing above the
+    grid can change at burst end: the banners run on their own clocks.
+  - The label keeps what the tap does - "save" while capturing, "finish" once
+    saved - shortened to one line at 360 px.
+  - Settings one per row rather than shorter labels: TOURNAMENT is the mode's
+    name, and one per row changes no text.
+  - The strip tests hide scrollbars in their own injected style, not in the
+    app: the phone already draws overlay scrollbars; only the desktop runner
+    differed.
+- **Changed:** `js/ui/screen-play.js`, `css/base.css`, `js/ui/screen-settings.js`,
+  `test/run.js`, `js/data/build.js`, `sw.js`, `CLAUDE.md`,
+  `.claude/agents/fable.md`, `docs/REVISIONS.md`, `docs/handoff/FOR_FABLE.md`.
+  **Report:** `docs/REVISIONS.md`, build v25.
+
 ## 2026-09-14 - Item 2.2: v24 FAILS for the course on the lie fold; the lock strip fixed here; zoneOf approved
 - **Decision:** verdict FAIL, on one defect only - at burst end the lie grid
   is below `.body`'s bottom edge (360 x 780: row 1 by 39 px, row 2 entirely;

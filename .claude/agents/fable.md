@@ -114,8 +114,8 @@ course) goes back as BLOCKED with the question. A small decision does not.
   pocket-lock failure is closed (item 2.2, 2026-09-14: a hidden pane with no
   viewport emulation reports `window.innerHeight` 0; `zoneOf` now measures
   the overlay); a failure there is real. Any test left RED on purpose as an
-  acceptance bar for Opus (the two lie-card tests from 2.2, until the card is
-  reworked) is named in every report, never folded into "green".
+  acceptance bar is named in every report, never folded into "green". (The
+  two lie-card tests from 2.2 pass from build v25.)
 - On-course flows are driven with `?sim=1` (synthetic GPS,
   `js/dev/sim.js`). A hidden preview tab throttles timers; drive long runs
   as background scripts in the page and poll.

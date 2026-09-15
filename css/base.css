@@ -589,13 +589,21 @@ input[type='text'] {
 .body > .capture {
   border: 1px solid var(--line);
   border-radius: 14px;
-  /* 6 px at the sides, not 12: every pixel here comes off the lie buttons. */
-  padding: 12px 6px;
+  /* 4 px at the sides, not 12: every pixel here comes off the lie buttons. */
+  padding: 10px 4px;
   margin-bottom: 12px;
   background: var(--surface);
   /* The card fits the body; it never widens to its contents. */
   min-width: 0;
   max-width: 100%;
+  /*
+   * Its one column too. `.capture` is a grid, and an `auto` track grows to its
+   * widest child's min-content: a one-line label longer than the card widened
+   * the column and took CANCEL SHOT and LIE LATER into the LOCK strip (the v24
+   * label under the v25 styles, suite, 2026-09-15). Pinned, a long label is
+   * clipped instead.
+   */
+  grid-template-columns: minmax(0, 1fr);
 }
 
 /*
@@ -615,8 +623,12 @@ input[type='text'] {
  * `minmax(0, 1fr)` pins the columns to their share whatever the labels
  * measure, so the strip is protected by construction. Three lie columns stay:
  * two would put the third row below the footer and need a scroll to reach
- * RECOVERY and GREEN. The labels drop from 16 to 14 px with no tracking so
- * RECOVERY (the widest) fits its 74 px column at 360 px wide.
+ * RECOVERY and GREEN. The labels drop from 16 to 14 px. That alone did not fit
+ * RECOVERY (the widest) at 360 px: it measured 10 px wider than its button on
+ * the sim, 2026-09-15. So the card's side padding and the field's box are
+ * slimmer too (below), and the lie labels close up by two hundredths of an em.
+ * The dead zone between lie buttons stays at 8 px; width comes from padding,
+ * never from the gaps a wet thumb relies on.
  */
 .body > .capture .lie-grid {
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -624,7 +636,7 @@ input[type='text'] {
 
 .body > .capture .lie-grid .seg-btn {
   font-size: 14px;
-  letter-spacing: 0;
+  letter-spacing: -0.02em;
   padding-inline: 0;
   min-width: 0;
 }
@@ -636,6 +648,30 @@ input[type='text'] {
 .body > .capture .club-grid > button {
   padding-inline: 2px;
   min-width: 0;
+}
+
+/*
+ * THE WHOLE LIE GRID ABOVE THE FOOTER (build v25).
+ *
+ * The lie field is first in the card and the card first in the body
+ * (js/ui/screen-play.js). In the card its box and label are slimmer than
+ * elsewhere, because the body above the constant footer is only 219 px tall at
+ * 360x780 (hud 61, hole nav 70, footer 430; sim, lock tab up, 2026-09-15). The
+ * amber border stays - it is what says "input needed" - at 2 px, not 3. The
+ * label is held to one line: a second line is a second row of height.
+ */
+.body > .capture .field-required {
+  border-width: 2px;
+  padding: 6px 2px 8px;
+}
+
+.body > .capture .req-label {
+  margin-bottom: 6px;
+  font-size: 13px;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .cap-head {

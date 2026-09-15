@@ -37,7 +37,9 @@ tool calls and 368,352 subagent tokens; 2.2 (effort high, 2026-09-14) took 33.8
 min, 102 tool calls and 278,405 subagent tokens. What share of his 10% any of
 them was cannot be seen from here.
 
-1. **1.1** - review the Veenker course map before it becomes app data. Effort
+1. **2.4** - test build v25 before it is played. Effort high. Waits for his
+   pick; whether it runs before 1.1 is his call too.
+2. **1.1** - review the Veenker course map before it becomes app data. Effort
    high; review only.
 
 2.3 ran first, at xhigh, and returned DONE `d892a39` (PASS,
@@ -46,7 +48,7 @@ run 2.2" and returned DONE `0a863a2`: FAIL for the course on one defect, the lie
 grid below the fold at burst end (`docs/handoff/REPORT_2.2.md`). v24 stays off
 the phone. Both lines are in `FOR_FABLE_LOG.md`.
 
-Spawn 1.1 with `subagent_type: "fable"`, one at a time, `run_in_background: false`. The commit hash for the prompt is
+Spawn 2.4 and 1.1 with `subagent_type: "fable"`, one at a time, `run_in_background: false`. The commit hash for the prompt is
 `git log -1 --format=%h` at spawn, with `git status` clean. A re-test of a
 reworked v24 is a new item, priced for him first, and **the push still waits
 for his word** in his chat.
@@ -115,6 +117,33 @@ photo for a 903 m request (square pixels in degrees). Both are in the README.
    change (xhigh on his word)? Do not design it.
 
 ## 2. Testing of a risky build (a build about to be played; anything touching the lock, the marks, the track, the hole windows or round save)
+
+### 2.4 Build v25 - the lie grid above the fold, and still when the burst ends (2026-09-15) - READY, WAITS FOR HIS PICK
+
+**His words, verbatim, 2026-09-15:** "fix the lie card and yes the conformation when in question is needed when I am entering the score at the end of the hole. Workflow on the green mark the cup or my ball first whatever is easiest. Hole out - record the putt length for short putts, double check GPS for long putts, enter hole score (once this is entered the app needs to compute the shots and ask me questions about the lie. Shot 2 rough or fairway, shot 3 green or fairway, etc..."
+
+Before that: item 2.2 ran on his "make the four changes, then run 2.2" and
+returned FAIL for the course on the lie fold (`docs/handoff/REPORT_2.2.md`);
+v24 stays off the phone.
+
+**Decisions he already made:** v24 does not go on the phone; the push waits for
+his word; Fable's usage here is capped at 10% a week and he picks each spawn
+("let me pick if a usage choice needs made").
+
+**What changed, and the evidence:** `docs/REVISIONS.md`, "The lie grid above
+the fold, and still when the burst ends - build v25". Suite 511/511; mutation
+509/511, exactly the two new tests failing; measured on the sim at 360x780 and
+375x812 (23 px and 55 px below the grid, 0 px of movement).
+
+**Asked of Fable (effort high):**
+1. Testing verdict before it is played: the lie card at burst end (Fable's two
+   acceptance tests and the new movement test are the bar), and the marks and
+   round save as in 2.2, at 375x812 and 360x780.
+2. The card now sits above every banner. Check that nothing he needs at burst
+   end is hidden by that: the hole-change banner and its BACK control, the
+   missing-tee nudge, a poor-fix warning.
+3. Anything in v25 that weakens what 2.2 passed: the LOCK tab over every sheet,
+   the marks, round save, `zoneOf`.
 
 *(2.2 answered 2026-09-14 and moved to FOR_FABLE_LOG.md)*
 

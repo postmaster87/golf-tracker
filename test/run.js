@@ -4249,7 +4249,11 @@ export async function runCaptureReachTests() {
 
   const css = await fetch('../css/base.css').then((r) => r.text());
   const style = document.createElement('style');
-  style.textContent = css;
+  // A phone draws overlay scrollbars, which take no width. A desktop runner
+  // draws a classic one inside the scrolling body (15 px in Chrome on Windows,
+  // measured 2026-09-15): 5 px off each lie button, and a label test that
+  // failed for a reason no phone has. So the layout measured is a phone's.
+  style.textContent = `${css}\n.body { scrollbar-width: none; }\n.body::-webkit-scrollbar { display: none; }`;
   document.head.appendChild(style);
 
   const wait = (ms = 30) => new Promise((r) => setTimeout(r, ms));
@@ -4291,8 +4295,11 @@ export async function runCaptureReachTests() {
       // The fold: the body is the only scroller, so a lie button below its
       // bottom edge needs a scroll before it can be tapped.
       const bodyBottom = screen.el.querySelector('.body').getBoundingClientRect().bottom;
-      const lieBottom = Math.max(...[...(card?.querySelectorAll('.lie-grid .seg-btn') ?? [])].map((b) => b.getBoundingClientRect().bottom), -Infinity);
-      return { n: items.length, card: card?.dataset.burst ?? null, worst: w, spill: s, cardRight: card?.getBoundingClientRect().right ?? null, bodyBottom, lieBottom };
+      const lieButtons = [...(card?.querySelectorAll('.lie-grid .seg-btn') ?? [])];
+      const lieBottom = Math.max(...lieButtons.map((b) => b.getBoundingClientRect().bottom), -Infinity);
+      // Where the grid starts, so the running card can be held to the saved one.
+      const lieTop = Math.min(...lieButtons.map((b) => b.getBoundingClientRect().top), Infinity);
+      return { n: items.length, card: card?.dataset.burst ?? null, worst: w, spill: s, cardRight: card?.getBoundingClientRect().right ?? null, bodyBottom, lieBottom, lieTop };
     };
     await wait();
     press(/^MARK TEE SHOT$/);
@@ -4339,7 +4346,8 @@ export async function runCaptureReachTests() {
      * The two below FAIL on v24 (Fable, item 2.2, 2026-09-14) and are left in
      * as the acceptance bar for the rework of the card - a test written for a
      * defect is proven to fail against it. Both are layout-agnostic: they say
-     * what the golfer must be able to do, not how the card is built.
+     * what the golfer must be able to do, not how the card is built. Build v25
+     * puts the lie field first in the card and is held to them.
      */
     test(`at ${r.width} px every label in the lie card fits its button`, () => {
       // A pinned column with a label wider than it is the strip defect moved
@@ -4358,6 +4366,20 @@ export async function runCaptureReachTests() {
       assert(
         r.pending.lieBottom <= r.pending.bodyBottom,
         `the lowest lie button ends at ${Math.round(r.pending.lieBottom)} px, the body at ${Math.round(r.pending.bodyBottom)} px (${Math.round(r.pending.lieBottom - r.pending.bodyBottom)} px below the fold)`
+      );
+    });
+    test(`at ${r.width}x${r.height} the lie grid does not move when the burst ends`, () => {
+      // Measured on the sim at 360x780 (2026-09-15): shot 2 marked while the
+      // tee's "marked · UNDO" banner was still up, and the grid jumped 78 px at
+      // burst end, because that banner sat above the card and is cleared the
+      // moment the shot saves. The same press sequence runs here.
+      assert(
+        Number.isFinite(r.burst.lieTop) && Number.isFinite(r.pending.lieTop),
+        `no lie grid in the ${Number.isFinite(r.burst.lieTop) ? 'saved' : 'running'} card`
+      );
+      assert(
+        Math.abs(r.pending.lieTop - r.burst.lieTop) <= 1,
+        `the lie grid moved ${Math.round(r.pending.lieTop - r.burst.lieTop)} px when the burst ended`
       );
     });
   }
