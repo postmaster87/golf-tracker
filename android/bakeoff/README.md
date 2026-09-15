@@ -88,7 +88,7 @@ Debug builds are "fully functional… without a License Key" (licence Section 3.
 [licence](https://docs.transistorsoft.com/license/)). If T wins, whether to buy a
 licence for his own rounds is his call.
 
-### T: two integration rules any app on T needs
+### T: three integration rules any app on T needs
 
 These are not tuning. They come from the SDK's `EventManager` in the 4.5.1
 source, and the emulator smoke test found them the hard way (run 1, below):
@@ -100,6 +100,16 @@ source, and the emulator smoke test found them the hard way (run 1, below):
 2. **Back on a screen, delivery is buffered until `ready()` is called again**
    (`EventManager.isDeliverable`, "headless -> foreground … MUST buffer until
    the client calls ready() again"). Fixed: `ready()` runs on every `onResume`.
+3. **Destroying the app's screen while its process lives removes every
+   listener.** Read from the 4.5.1 binary: `LifecycleManager`'s
+   `onActivityDestroyed` calls `BackgroundGeolocation.onActivityDestroy`, which
+   runs the same method as `removeListeners()`. Found on his S26, 2026-09-15
+   (session `20260915-075447-T`, n = 1): "Close all" in recent apps destroyed the
+   screen, the listeners were added only once per process, and after the app
+   was reopened `ready()` took delivery off the headless route with nothing
+   listening. 342 s of fixes reached the SDK's store but not the app log.
+   Fixed: the listeners are closed and added again on every resume, before
+   `ready()`; the event log records `sdk_listeners` each time.
 
 Both routes write through one `recordSdkLocation`. The event log records
 `sdk_delivery_route` (`listener` or `headless`) each time the route changes. On

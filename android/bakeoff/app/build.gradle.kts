@@ -15,8 +15,10 @@ android {
         targetSdk = 36
         // 2 = renamed to GPS Custom / GPS Transistor (his pick, 2026-09-14); the
         // recorders are unchanged. meta.json's app_version tells the builds apart.
-        versionCode = 2
-        versionName = "bakeoff-2"
+        // 3 = GPS Transistor adds its SDK listeners again on every resume: "Close
+        // all" had removed them, and the app log lost 342 s (2026-09-15).
+        versionCode = 3
+        versionName = "bakeoff-3"
     }
 
     // TWO APPS, NOT ONE. Each recorder gets its own application id, so its own

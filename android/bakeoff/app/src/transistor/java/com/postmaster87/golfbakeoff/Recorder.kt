@@ -6,6 +6,7 @@ import android.app.Application
 import android.content.Context
 import android.location.Location
 import com.transistorsoft.locationmanager.kotlin.BGGeo
+import com.transistorsoft.locationmanager.kotlin.EventSubscription
 import com.transistorsoft.locationmanager.kotlin.config.DesiredAccuracy
 import com.transistorsoft.locationmanager.kotlin.config.LogLevel
 import com.transistorsoft.locationmanager.location.filter.LocationFilterPolicy
@@ -42,12 +43,14 @@ import java.util.Locale
  *    fastest interval set to match ("If not configured, the default fastest
  *    interval is 30000 ms").
  *
- * Two integration rules come from the SDK's EventManager, not from tuning, and
- * a production app on T would need them too:
+ * Three integration rules come from the SDK, not from tuning, and a production
+ * app on T would need them too:
  *  - With no live screen (headless) it delivers only to
  *    t/BackgroundGeolocationHeadlessTask, never to listeners.
  *  - Coming back to a screen, delivery waits until ready() is called again,
  *    so it is called on every resume.
+ *  - Destroying the activity while the process lives removes every listener,
+ *    so the listeners are added again on every resume, before ready().
  * Both routes hand fixes to recordSdkLocation, which writes the same row.
  */
 object Recorder {
@@ -59,7 +62,21 @@ object Recorder {
     )
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
-    private var subscribed = false
+
+    /**
+     * Every listener this app holds on the SDK, so they can be closed and added
+     * again.
+     *
+     * The SDK removes ALL listeners when the activity is destroyed while the
+     * process lives. Read from the 4.5.1 binary: LifecycleManager's
+     * onActivityDestroyed calls BackgroundGeolocation.onActivityDestroy, which
+     * runs the same method as removeListeners(). Found on his S26, 2026-09-15:
+     * "Close all" in recent apps destroyed the activity; subscribing once per
+     * process left nothing listening after he reopened the app; ready() on
+     * resume took delivery off the headless route; and 342 s of fixes (08:10:37
+     * to 08:16:19) reached the SDK's store but not this log.
+     */
+    private val subscriptions = mutableSetOf<EventSubscription>()
     @Volatile private var commanded = false
     @Volatile private var lastRoute: String? = null
 
@@ -70,6 +87,8 @@ object Recorder {
     /** Leaving headless, the SDK buffers events until ready() is called again (EventManager.isDeliverable). */
     fun onActivityResumed(activity: Activity) {
         BGGeo.instance.setActivity(activity)
+        // Before ready(): whatever it releases must find a listener.
+        subscribe("resume")
         scope.launch {
             try {
                 configure()
@@ -82,7 +101,7 @@ object Recorder {
 
     fun onProcessStart(app: Application) {
         BGGeo.init(app)
-        subscribe()
+        subscribe("process_start")
         if (Sessions.active(app) == null) return
         scope.launch {
             try {
@@ -196,9 +215,15 @@ object Recorder {
         }
     }
 
-    private fun subscribe() {
-        if (subscribed) return
-        subscribed = true
+    /**
+     * Closes this app's listeners, if any are left, and adds them again - never
+     * zero listeners after a resume, and never two of each (which would write
+     * every fix twice).
+     */
+    @Synchronized
+    private fun subscribe(reason: String) {
+        for (s in subscriptions) runCatching { s.close() }
+        subscriptions.clear()
         val geo = BGGeo.instance
         geo.onLocation { e ->
             recordSdkLocation(
@@ -209,9 +234,13 @@ object Recorder {
                 route = "listener",
                 timestamp = runCatching { e.timestamp }.getOrNull(),
             )
-        }
+        }.storeIn(subscriptions)
         geo.onMotionChange { e -> SessionLog.event("sdk_motionchange", "moving=${e.isMoving};route=listener") }
+            .storeIn(subscriptions)
         geo.onProviderChange { e -> SessionLog.event("sdk_providerchange", "status=${e.status};route=listener") }
+            .storeIn(subscriptions)
         geo.onPowerSaveChange { e -> SessionLog.event("sdk_battery_saver", "on=${e.isPowerSaveMode};route=listener") }
+            .storeIn(subscriptions)
+        SessionLog.event("sdk_listeners", "subscribed=${subscriptions.size};on=$reason")
     }
 }
