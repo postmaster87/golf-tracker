@@ -9,6 +9,36 @@ never "Fable decided".
 
 Opus's solo decisions are logged here too, marked (Opus).
 
+## 2026-09-15 - Item 1.1: the Veenker course map reviewed; it holds, three things go to Matt, app course data is xhigh
+- **Decision:** the map holds up for app data. The three scripts reproduce
+  byte for byte (55 lines, 20/18/17, 0 unlabelled, miss median 0.0 m, 90th
+  0.6 m, max 81.2 m, n = 55); OSM unchanged since the pull (191 of 191
+  elements, 0 changes, mirror state 2026-07-24); no third trap in the method
+  (tip/tail margin at least 39 px, classes disjoint, extent square in degrees
+  and used everywhere, all 22 fairway/rough relations and the creek close).
+  18 of 18 hole lines end in exactly one green; every hole has a blue and a
+  gold box except 12 blue and 16 blue (unmapped, his marks) and hole 9
+  (unmarked by him). Turning it into app course data is a data model change:
+  xhigh on his word.
+- **Made alone:** (1) attribution by OSM hole-line start/end plus his tips
+  with card yardage along the line as the check, not the rematch table alone
+  (the table cannot see a shared box or an unmarked hole - it found 11 and 18
+  sharing one 517 m2 box); (2) hole 9's blue/gold split (537 / 491 yd vs card
+  537 / 495) and the forward-tee identities reported as yardage inferences at
+  n = 1 and put to him, never written as facts - "nothing is guessed into
+  course data"; (3) 12 blue carried like 16 blue (a markup point, his tip 4.4 m
+  outside the only box) until he answers; (4) the 16 back blue tee carried as
+  a point with `source`, a stated 5 m radius (basis: 50 of 52 tips inside the
+  feature, worst 4.4 m; not a measured accuracy) and n = 1, never a polygon,
+  never in `courseLearning.tees`, anything taken from it inferred and confirmed
+  at the end of the hole; (5) `overpass-api.de` not retried after one 504 (his
+  10% cap); (6) the detection-check page's outer-only relation read (21 of 30
+  fairways have inner rings) reported as a caution, not fixed - Opus's page;
+  (7) nothing changed in `docs/course-map/veenker/` or `js/`.
+- **Changed:** `docs/handoff/REPORT_1.1.md` (+ PDF), this entry, the Answered
+  line in `docs/handoff/FOR_FABLE.md`, Fable's memory. **Report:**
+  `docs/handoff/REPORT_1.1.md`.
+
 ## 2026-09-15 - Item 2.4: v25 PASSES for the course; the poor-fix warning behind the card accepted
 - **Decision:** verdict PASS. At burst end the six lies are above the fold at
   both sizes (360x780: grid 186-326, body bottom 350, 24 px spare; 375x812:
