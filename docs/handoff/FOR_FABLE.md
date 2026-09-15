@@ -34,21 +34,22 @@ effort and the cost of the last comparable run, and he picks. Completed runs to
 price from: 2.1 (effort high, 2026-09-11) took 29.2 min, 138 tool calls and
 294,843 tokens reported at return; 2.3 (xhigh, 2026-09-14) took 33.4 min, 81
 tool calls and 368,352 subagent tokens; 2.2 (effort high, 2026-09-14) took 33.8
-min, 102 tool calls and 278,405 subagent tokens. What share of his 10% any of
+min, 102 tool calls and 278,405 subagent tokens; 2.4 (effort high, 2026-09-15) took 17.4 min, 47 tool
+calls and 193,922 subagent tokens. What share of his 10% any of
 them was cannot be seen from here.
 
-1. **2.4** - test build v25 before it is played. Effort high. Waits for his
-   pick; whether it runs before 1.1 is his call too.
-2. **1.1** - review the Veenker course map before it becomes app data. Effort
+1. **1.1** - review the Veenker course map before it becomes app data. Effort
    high; review only.
 
 2.3 ran first, at xhigh, and returned DONE `d892a39` (PASS,
 `docs/handoff/REPORT_2.3.md`). 2.2 followed on his "make the four changes, then
 run 2.2" and returned DONE `0a863a2`: FAIL for the course on one defect, the lie
 grid below the fold at burst end (`docs/handoff/REPORT_2.2.md`). v24 stays off
-the phone. Both lines are in `FOR_FABLE_LOG.md`.
+the phone. Both lines are in `FOR_FABLE_LOG.md`. 2.4 (test build v25) ran on
+his "Yes, run 2.4" and returned DONE `cb3ee9b`: PASS for the course
+(`docs/handoff/REPORT_2.4.md`); its line is in the log too.
 
-Spawn 2.4 and 1.1 with `subagent_type: "fable"`, one at a time, `run_in_background: false`. The commit hash for the prompt is
+Spawn 1.1 with `subagent_type: "fable"`, one at a time, `run_in_background: false`. The commit hash for the prompt is
 `git log -1 --format=%h` at spawn, with `git status` clean. A re-test of a
 reworked v24 is a new item, priced for him first, and **the push still waits
 for his word** in his chat.
@@ -118,32 +119,7 @@ photo for a 903 m request (square pixels in degrees). Both are in the README.
 
 ## 2. Testing of a risky build (a build about to be played; anything touching the lock, the marks, the track, the hole windows or round save)
 
-### 2.4 Build v25 - the lie grid above the fold, and still when the burst ends (2026-09-15) - READY, WAITS FOR HIS PICK
-
-**His words, verbatim, 2026-09-15:** "fix the lie card and yes the conformation when in question is needed when I am entering the score at the end of the hole. Workflow on the green mark the cup or my ball first whatever is easiest. Hole out - record the putt length for short putts, double check GPS for long putts, enter hole score (once this is entered the app needs to compute the shots and ask me questions about the lie. Shot 2 rough or fairway, shot 3 green or fairway, etc..."
-
-Before that: item 2.2 ran on his "make the four changes, then run 2.2" and
-returned FAIL for the course on the lie fold (`docs/handoff/REPORT_2.2.md`);
-v24 stays off the phone.
-
-**Decisions he already made:** v24 does not go on the phone; the push waits for
-his word; Fable's usage here is capped at 10% a week and he picks each spawn
-("let me pick if a usage choice needs made").
-
-**What changed, and the evidence:** `docs/REVISIONS.md`, "The lie grid above
-the fold, and still when the burst ends - build v25". Suite 511/511; mutation
-509/511, exactly the two new tests failing; measured on the sim at 360x780 and
-375x812 (23 px and 55 px below the grid, 0 px of movement).
-
-**Asked of Fable (effort high):**
-1. Testing verdict before it is played: the lie card at burst end (Fable's two
-   acceptance tests and the new movement test are the bar), and the marks and
-   round save as in 2.2, at 375x812 and 360x780.
-2. The card now sits above every banner. Check that nothing he needs at burst
-   end is hidden by that: the hole-change banner and its BACK control, the
-   missing-tee nudge, a poor-fix warning.
-3. Anything in v25 that weakens what 2.2 passed: the LOCK tab over every sheet,
-   the marks, round save, `zoneOf`.
+*(2.4 answered 2026-09-15 and moved to FOR_FABLE_LOG.md)*
 
 *(2.2 answered 2026-09-14 and moved to FOR_FABLE_LOG.md)*
 
@@ -155,4 +131,4 @@ the fold, and still when the burst ends - build v25". Suite 511/511; mutation
 
 ## Answered by Fable (one line each, dated; Opus moves them to the log)
 
-- 2026-09-15 · 2.4 · **PASS for the course; v25 may go on the phone on his go (the push is Opus's).** At burst end all six lies are above the fold at both sizes - 360x780: grid 186-326 against the body's bottom edge 350 (24 px spare); 375x812: 187-327 vs 382 (55 px) - with 0.0 px of movement when the burst ends, measured with the previous mark's banner up (n = 1 run per size), 0 px label spill, rightmost button 257 / 272 against the strips at 274 / 289. The marks (tee, shots 2-4 on two holes, a poor mark and its RE-MARK, the cup; n = 9 + 1 + 1) and the round save (gaps gate, finish, `status completed`, key present after reload; n = 1) land as tapped. The LOCK tab, `zoneOf`, the sheets and the marks code are not in the v25 diff; 5 sheets re-measured, 0 tappables under the tab; Settings "Show scoring" is 37 px clear of the tab at 360. Suite 511/511 twice (hidden pane, no emulation and 375x812); mutation with v24's `screen-play.js` under the v25 CSS 509/511, exactly the two movement tests - proven to bite. Nothing RED on purpose now. What the card hides (question 2): the hole-change banner and BACK are first and visible when a lie is pending (155-199) and the pending lie survives the round trip; the tee nudge cannot coexist with a card by construction; the poor-fix warning is behind the card at burst end (344 px below the fold) and surfaces the instant a lie is tapped, RE-MARK at 207-251, no timer, so it is seen one tap later, not lost - accepted, his preference if he wants it before the lie tap. Pre-existing and his item 3, not v25: an arrow tapped during a 3 s burst saves the shot on the hole being viewed. One phone check before play in the report (his font and page height are unmeasured; 24 px is the margin at 360x780). No code changed. `docs/handoff/REPORT_2.4.md`. *(Item: build v25. Opus `028993e`, Fable this commit.)*
+*(none - 2.3, 2.2 and 2.4 moved to FOR_FABLE_LOG.md)*
