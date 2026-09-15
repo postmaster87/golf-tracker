@@ -9,6 +9,35 @@ never "Fable decided".
 
 Opus's solo decisions are logged here too, marked (Opus).
 
+## 2026-09-15 - Item 2.4: v25 PASSES for the course; the poor-fix warning behind the card accepted
+- **Decision:** verdict PASS. At burst end the six lies are above the fold at
+  both sizes (360x780: grid 186-326, body bottom 350, 24 px spare; 375x812:
+  187-327 vs 382, 55 px), 0.0 px of movement with the previous mark's banner
+  up (n = 1 run per size), 0 px label spill, rightmost button 257 / 272 against
+  strips 274 / 289. Marks (n = 9 + 1 re-mark + 1 cup) and the round save
+  (n = 1) as tapped. Suite 511/511 twice; mutation (v24 `screen-play.js` under
+  v25 CSS) 509/511, exactly the two movement tests. v25 may go on the phone on
+  his go; the push is Opus's.
+- **Made alone:** (1) PASS with the poor-fix warning behind the card - at
+  burst end it is 344 px below the fold and surfaces the instant a lie is
+  tapped, with RE-MARK at 207-251; `markWarning` has no timer so nothing is
+  lost, RE-MARK works from there (undo, re-burst, lie asked again), and a
+  banner above the card is what moved the grid 78 px in v24; whether he wants
+  it before the lie tap is offered as a preference, not decided; (2) the
+  arrow-during-a-burst case (BACK 357 px below the running card; the shot then
+  saves on the hole being viewed) not held against v25 - `goToHole` has never
+  touched a running capture, a 3 s window, his item 3 by name; (3) the tee
+  nudge reasoned from the code (it cannot coexist with a card: `checkTeeNudge`
+  returns during a capture, a pending card needs a tee shot, the nudge needs
+  none), not driven on a static sim; (4) Opus's live sim round continued on
+  holes 2-4 and finished, rather than a fresh round; (5) no code or CSS
+  changed, no `BUILD.id` bump; (6) `idleMs` 600 s in the sim page for the
+  measurements; (7) one mutation run (the new movement test), not the
+  column-pin one - the four strip tests cover that property.
+- **Changed:** `docs/handoff/REPORT_2.4.md` (+ PDF), this entry, the Answered
+  line in `docs/handoff/FOR_FABLE.md`, Fable's memory. **Report:**
+  `docs/handoff/REPORT_2.4.md`.
+
 ## 2026-09-15 - build v25: the lie field first, the card above the banners, a one-line label, Settings one per row (Opus)
 - **Decision:** his words, "fix the lie card", after Opus's recommendation in
   the chat to move the lie grid to the top of the card and trim the box around
