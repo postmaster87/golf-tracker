@@ -9,6 +9,55 @@ never "Fable decided".
 
 Opus's solo decisions are logged here too, marked (Opus).
 
+## 2026-09-14 - Fable's four small changes from 2.3, made (Opus)
+- **Decision:** his words, "make the four changes, then run 2.2". The four
+  changes `docs/handoff/REPORT_2.3.md` recommends (Sections 4, 7, 8 and 11) are
+  in:
+  1. **Gap wording** (`tools/track-coverage.py`, `diagnose_gap`). The tool no
+     longer prints "the app was not running" from missing heartbeats. Unless a
+     `recorder=1` beat came at least every 15 s, it describes the gap: no
+     heartbeat, or `recorder=0` at N of M beats; the longest beat spacing on
+     `elapsed_rt_ms`; and whether the process died.
+  2. **Light Doze** (`DeviceState.snapshot`): `light_doze` from
+     `PowerManager.isDeviceLightIdleMode`, read on API 33 and up, `?` below.
+  3. **Repeats split** (the tool): the same fix handed over again (identical
+     `fix_ms`, `elapsed_rt_ms`, latitude and longitude; in T's store, which
+     keeps no elapsed time, identical time, latitude and longitude), apart from
+     different fixes that share a time. The Fixes column and the measure are
+     unchanged.
+  4. **`meta.json` synced** (`Sessions.begin`) before START returns.
+- **Why these choices:**
+  - A death is read only from what a new process writes. `log_open` with
+    `reason=process_start` comes only from `BakeoffApp.onCreate`; a second open
+    in the same process is `log_reopen` (`SessionLog.open`). `previous_exit`
+    carries Android's exit time. `fixes_this_process` starts again from 0 in a
+    new process, so a count still climbing across the gap, with neither record,
+    is reported as the same process. All three are already in every log, so no
+    app change was needed to tell a late beat from a death.
+  - `isDeviceLightIdleMode` is `since="33"` in the SDK's
+    `platforms/android-36/data/api-versions.xml`; the apps' minSdk is 30.
+- **Checked:**
+  - Self-test 22/22: the 14 checks from before, the repeats split, and seven
+    gap cases (running; no beats, with the wall clock stepped 20 s; a new
+    process; late beats; `recorder=0`; an exit record alone; a `log_open` that
+    is not a process start).
+  - Mutation, 6 of 6 caught: the same-process test reversed (3 checks fail);
+    the old "not running" wording (1); identical rows keyed on time alone (1);
+    spacing on the wall clock (1); the exit record ignored (1); any `log_open`
+    taken as a new process (1).
+  - Re-running the 2026-09-14 round changes only the repeats lines: T's log
+    has 10 repeats, all the same fix; its store 4, all the same fix; K 0. The
+    golf-tracker export output is identical to the committed file.
+  - Unit tests 8/8 in each app; both APKs build.
+- **Not checked:** the two app changes have not run on a device. The only
+  emulator attached, `emulator-5554`, belongs to another session and was left
+  alone. The APKs now differ from the `645355a` build Fable passed by these two
+  changes.
+- **Changed:** `tools/track-coverage.py`, `DeviceState.kt`, `Sessions.kt`,
+  `SessionLog.kt` (comment), `android/bakeoff/README.md`,
+  `docs/bakeoff-data/2026-09-14-veenker-walking/README.md` (and its PDF).
+  **Report:** this entry.
+
 ## 2026-09-14 - 2.3: the round counts as the on-course pass, not as the bar's locked-screen clause; the fair test has thresholds
 - **Decision:** the 2026-09-14 round is evidence that both apps run on the
   course (PASS to carry and to play), and is not evidence for the clause in

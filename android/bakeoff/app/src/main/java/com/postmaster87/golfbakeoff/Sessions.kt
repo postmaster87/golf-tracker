@@ -29,7 +29,13 @@ object Sessions {
         val id = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date()) +
             "-" + BuildConfig.RECORDER_TAG
         val d = dir(ctx, id).apply { mkdirs() }
-        File(d, "meta.json").writeText(DeviceState.meta(ctx, id).toString(2))
+        // Synced before START returns. Unsynced, a power loss in the seconds after
+        // START could leave meta.json empty, and without started_wall_ms the PC tool
+        // cannot see a leading edge gap.
+        File(d, "meta.json").outputStream().use { out ->
+            out.write(DeviceState.meta(ctx, id).toString(2).toByteArray())
+            runCatching { out.fd.sync() }
+        }
         // Process deaths from before this session are not this session's news.
         ctx.getSharedPreferences(BakeoffApp.EXIT_PREFS, Context.MODE_PRIVATE).edit()
             .putLong(BakeoffApp.KEY_LAST_EXIT, System.currentTimeMillis()).commit()

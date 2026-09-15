@@ -146,7 +146,12 @@ production app on T would read the store. The app log shows whether our
 integration received what the SDK recorded.
 
 **Repeated fix times** are 0 s intervals. They cannot change coverage, but they
-inflate the fix count, so the tool prints how many there are.
+inflate the fix count, so the tool prints how many there are, split in two: the
+same fix handed over again (identical fix time, `elapsed_rt_ms`, latitude and
+longitude; in T's store, which keeps no elapsed time, identical time, latitude
+and longitude), which T's SDK does on its own state events
+(`docs/handoff/REPORT_2.3.md`, Section 11); and different fixes that share a
+time.
 
 The phone (`Coverage.kt`) and the PC (`tools/track-coverage.py`) implement the
 core measure separately and are held to one hand-worked fixture,
@@ -154,7 +159,8 @@ core measure separately and are held to one hand-worked fixture,
 fixture includes an interval of exactly 20 s, a 20.001 s gap, a repeated time,
 rows out of order, and two broken rows. **Mutation-checked:** changing `>` to
 `>=` in the gap test fails 2 of the 8 Kotlin tests and 3 of the Python checks.
-The PC tool's self-test (14 checks) also covers the edge gaps. **The PC tool
+The PC tool's self-test (22 checks) also covers the edge gaps, the gap wording
+and the split of repeated fix times. **The PC tool
 gives the verdict.** The phone's numbers are a glance on the course.
 
 ## What a session records
@@ -173,9 +179,9 @@ storage, and EXPORT copies it to `Download/golf-bakeoff/<K|T>/<session>/`.
   rescores without them.
 - **`events.csv`**: `wall_ms, elapsed_rt_ms, kind, detail`.
   - `hb`, every 5 s: whether the recorder reports itself running, time since
-    the last fix, and the phone's state (screen on, Doze, battery saver,
-    unrestricted, background-restricted, standby bucket, heat, battery,
-    charging, music playing, location on).
+    the last fix, and the phone's state (screen on, Doze, light Doze from
+    Android 13, battery saver, unrestricted, background-restricted, standby
+    bucket, heat, battery, charging, music playing, location on).
   - `previous_exit`: Android's own reason the previous process died (low
     memory, freezer, signaled, swiped, crash…).
   - `screen_off` / `screen_on` / `unlocked` / `doze_changed` /
@@ -189,20 +195,37 @@ storage, and EXPORT copies it to `Download/golf-bakeoff/<K|T>/<session>/`.
   up from the sessions.
 
 **A gap is described, never explained by a guess.** For every gap, including
-edge gaps, the PC tool reads the heartbeats inside it:
+edge gaps, the PC tool reads the heartbeats around it. The heartbeat timer runs
+on uptime, which stops while the CPU sleeps, so a live app's beats can arrive
+late: a missing beat is not by itself a dead app (`docs/handoff/REPORT_2.3.md`,
+Section 7).
 
-| Heartbeats in the gap | The tool says |
+| Heartbeats | The tool says |
 |---|---|
-| `recorder=1` all the way through | *recorder reported running throughout; no fixes reached the log* |
-| None at all | *the app was not running* |
-| Some, but none from a running recorder for more than 15 s | *recorder not reported running for up to N s* |
+| A `recorder=1` beat at least every 15 s across the gap | *recorder reported running throughout; no fixes reached the log* |
+| Otherwise, none inside the gap | *no heartbeat in the gap* |
+| Otherwise, some inside saying `recorder=0` | *recorder=0 at N of M heartbeats in the gap* |
+
+Except in the first case, it adds the longest spacing between beats, from the
+last beat before the gap to the first after it, on `elapsed_rt_ms` (which keeps
+counting while the CPU sleeps): *heartbeats up to N s apart on the elapsed
+clock (5 s when on time)*. And it says whether the process died, from what only
+a new process writes:
+
+| Evidence | The tool says |
+|---|---|
+| A `previous_exit` whose exit time falls within 5 s of the gap | *the process died at HH:MM:SS (previous_exit, reason=...)* |
+| A `log_open` with `reason=process_start` between the beats either side | *a new process started at HH:MM:SS* |
+| Neither, and `fixes_this_process` kept counting from the beat before to the beat after | *the same process wrote the heartbeats before and after it* |
+| Anything else | *these logs cannot say whether the app was running* |
 
 It then lists every other event within 5 s of the gap: location turned off, a
 process death, Doze, a delivery-route change. Those events are the evidence for
 why no fix arrived; the heartbeat alone cannot say.
 
 **Write posture.** Each row is flushed to the OS as it is written, so a killed
-process loses nothing it had handed over, and fsync runs every 15 s. A process
+process loses nothing it had handed over, and fsync runs every 15 s (START
+syncs `meta.json` as it writes it). A process
 killed mid-row leaves a cut row. The next process ends that line before
 appending, and the reader counts the cut row as skipped instead of reading a
 wild timestamp.

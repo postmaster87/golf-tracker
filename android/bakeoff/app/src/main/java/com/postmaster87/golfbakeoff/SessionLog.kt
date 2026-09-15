@@ -28,11 +28,12 @@ import java.io.RandomAccessFile
  *
  * THE HEARTBEAT. Every 5 s an `hb` event records whether the recorder is
  * running, how long since the last fix, and the phone's state (screen, Doze,
- * battery saver, standby bucket, heat, music). A gap in fixes with heartbeats
- * saying recorder=1 is the GPS going quiet; a gap with no heartbeats is the app
- * not running. The timer dies with the process and can run late while the CPU
- * sleeps, so tools/track-coverage.py only calls it "not running" after 15 s
- * without a beat.
+ * light Doze, battery saver, standby bucket, heat, music). A gap in fixes with
+ * heartbeats saying recorder=1 is the GPS going quiet. The timer dies with the
+ * process, and it runs on uptime, so it runs late while the CPU sleeps: a gap
+ * with no heartbeats is not by itself the app not running. tools/track-coverage.py
+ * reads a death from log_open (reason=process_start), previous_exit and
+ * fixes_this_process instead, and measures beat spacing on elapsed_rt_ms.
  */
 object SessionLog {
     private const val HEARTBEAT_MS = 5_000L

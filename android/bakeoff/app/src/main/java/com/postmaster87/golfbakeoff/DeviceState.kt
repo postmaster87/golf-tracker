@@ -26,7 +26,10 @@ object DeviceState {
         val lm = ctx.getSystemService(LocationManager::class.java)
         val readings: List<Pair<String, () -> String>> = listOf(
             "screen_on" to { bit(pm.isInteractive) },
+            // Deep idle only. Light Doze is read on its own below; Android can read it
+            // from API 33, so it is "?" on older phones.
             "doze" to { bit(pm.isDeviceIdleMode) },
+            "light_doze" to { if (Build.VERSION.SDK_INT >= 33) bit(pm.isDeviceLightIdleMode) else "?" },
             "battery_saver" to { bit(pm.isPowerSaveMode) },
             "unrestricted" to { bit(pm.isIgnoringBatteryOptimizations(ctx.packageName)) },
             "bg_restricted" to { bit(am.isBackgroundRestricted) },

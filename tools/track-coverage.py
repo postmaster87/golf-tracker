@@ -33,15 +33,21 @@ import argparse
 import csv
 import json
 import os
+import re
 import statistics
 import sys
 from datetime import datetime, timezone
 
 GAP_MS = 20_000
 PASS_COVERED_PCT = 99.0
-# Heartbeats are written every 5 s. With none from a running recorder for 15 s,
-# the recorder was not running.
+# Heartbeats are written every 5 s while the CPU is awake. A beat saying recorder=1 at
+# least every 15 s across a gap means the recorder reported itself running. Anything
+# less is described, not explained: the ticker runs on uptime, which stops while the
+# CPU sleeps, so a live app's beats can be late (docs/handoff/REPORT_2.3.md, Section 7).
 HB_ALIVE_MS = 15_000
+# Only a new process opens the log with this reason (BakeoffApp.onCreate); within one
+# process a second open of the same session is logged as log_reopen.
+NEW_PROCESS_OPEN = 'reason=process_start'
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FIXTURE_DIR = os.path.join(REPO, 'android', 'bakeoff', 'app', 'src', 'test', 'resources')
@@ -115,20 +121,35 @@ def session_verdict(c):
         len(c['gaps']), '' if len(c['gaps']) == 1 else 's')
 
 
+def split_repeats(keys):
+    """Repeated fix times, split in two. keys[i] starts with the row's fix time and
+    holds the cells that identify one fix. A row whose key matches an earlier row is
+    the same fix handed over again (T's SDK does this on its own state events,
+    docs/handoff/REPORT_2.3.md Section 11); the rest of the repeats are different
+    fixes that share a time. Neither changes coverage; both inflate the fix count."""
+    repeated = len(keys) - len({k[0] for k in keys})
+    identical = len(keys) - len(set(keys))
+    return repeated, identical, repeated - identical
+
+
 # ---- readers ----------------------------------------------------------------
 
 def read_fixes_csv(path, exclude_samples=False):
     """Same rule as Coverage.ofCsvLines: a row counts only with exactly the
     header's columns and a whole number in fix_ms; anything else is counted as
-    skipped, never guessed at."""
-    ts, accs, skipped, samples = [], [], 0, 0
+    skipped, never guessed at.
+
+    Also returns each counted row's (fix_ms, elapsed_rt_ms, lat, lon), as the cells
+    were written, for split_repeats."""
+    ts, accs, keys, skipped, samples = [], [], [], 0, 0
     with open(path, newline='', encoding='utf-8') as f:
         reader = csv.reader(f)
         header = next(reader, None)
         if not header:
-            return ts, accs, skipped, samples
+            return ts, accs, skipped, samples, keys
         i_fix, i_acc = header.index('fix_ms'), header.index('acc_m')
         i_sample = header.index('sample') if 'sample' in header else -1
+        i_key = [header.index(c) if c in header else -1 for c in ('elapsed_rt_ms', 'lat', 'lon')]
         for cells in reader:
             if not cells:
                 continue
@@ -144,14 +165,16 @@ def read_fixes_csv(path, exclude_samples=False):
                 if exclude_samples:
                     continue
             ts.append(t)
+            keys.append(tuple([t] + [cells[i] if i >= 0 else '' for i in i_key]))
             try:
                 accs.append(float(cells[i_acc]) if cells[i_acc] else None)
             except ValueError:
                 accs.append(None)
-    return ts, accs, skipped, samples
+    return ts, accs, skipped, samples, keys
 
 
 def read_events(path):
+    """(wall_ms, elapsed_rt_ms or None, kind, detail) for every whole row."""
     out = []
     if not os.path.exists(path):
         return out
@@ -162,9 +185,14 @@ def read_events(path):
             if len(cells) != 4:
                 continue
             try:
-                out.append((int(cells[0]), cells[2], cells[3]))
+                wall = int(cells[0])
             except ValueError:
                 continue
+            try:
+                rt = int(cells[1])
+            except ValueError:
+                rt = None
+            out.append((wall, rt, cells[2], cells[3]))
     return out
 
 
@@ -176,8 +204,10 @@ def find_sdk_stores(session_dir):
 
 
 def read_sdk_store(path):
-    """(fix time ms, accuracy m) for every row in transistorsoft's exported SQLite store.
-    A row whose timestamp cannot be read is skipped, never given one."""
+    """(fix time ms, accuracy m, (time, latitude, longitude)) for every row in
+    transistorsoft's exported SQLite store. The store keeps no elapsed time, so a
+    stored fix is identified by its time and position. A row whose timestamp cannot
+    be read is skipped, never given one."""
     with open(path, encoding='utf-8') as f:
         rows = json.load(f)
     out = []
@@ -186,8 +216,10 @@ def read_sdk_store(path):
             t = int(round(datetime.fromisoformat(str(r['timestamp']).replace('Z', '+00:00')).timestamp() * 1000))
         except (KeyError, ValueError):
             continue
-        acc = (r.get('coords') or {}).get('accuracy')
-        out.append((t, float(acc) if isinstance(acc, (int, float)) else None))
+        coords = r.get('coords') or {}
+        acc = coords.get('accuracy')
+        out.append((t, float(acc) if isinstance(acc, (int, float)) else None,
+                    (t, coords.get('latitude'), coords.get('longitude'))))
     return out
 
 
@@ -210,27 +242,92 @@ def clock(ms):
     return datetime.fromtimestamp(ms / 1000, tz=timezone.utc).astimezone().strftime('%H:%M:%S')
 
 
+def beats_around(gap, events):
+    """The last heartbeat at or before a gap, those inside it, and the first at or after it."""
+    a, b = gap
+    hb = sorted((w, rt, d) for (w, rt, k, d) in events if k == 'hb')
+    before = [x for x in hb if x[0] <= a][-1:]
+    inside = [x for x in hb if a < x[0] < b]
+    after = [x for x in hb if x[0] >= b][:1]
+    return before, inside, after
+
+
+def beat_spacing_ms(gap, events):
+    """Longest interval between consecutive heartbeats from the last one before a gap to
+    the first one after it, on elapsed_rt_ms: that clock keeps counting while the CPU
+    sleeps and never jumps with the wall clock. None without two beats to measure."""
+    before, inside, after = beats_around(gap, events)
+    rts = [rt for (_, rt, _) in before + inside + after if rt is not None]
+    if len(rts) < 2:
+        return None
+    return max(y - x for x, y in zip(rts, rts[1:]))
+
+
+def process_across(gap, events):
+    """Whether the process died across a gap, from what only a new process writes: a
+    log_open with reason=process_start, and previous_exit, Android's record of the
+    death. Without either, fixes_this_process, which a new process counts again from
+    0, still counting up from the beat before to the beat after says the same process
+    wrote both."""
+    a, b = gap
+    before, _, after = beats_around(gap, events)
+    lo = before[0][0] if before else a
+    hi = after[0][0] if after else b
+    notes = []
+    for (w, _, k, d) in events:
+        m = re.search(r'exit_wall_ms=(\d+)', d) if k == 'previous_exit' else None
+        if m and a - 5000 <= int(m.group(1)) <= b + 5000:
+            reason = re.search(r'reason=([^;]*)', d)
+            notes.append('the process died at %s (previous_exit, reason=%s)' % (
+                clock(int(m.group(1))), reason.group(1) if reason else '?'))
+            break
+    for (w, _, k, d) in events:
+        if k == 'log_open' and NEW_PROCESS_OPEN in d and lo < w < hi:
+            notes.append('a new process started at %s (log_open, %s)' % (clock(w), NEW_PROCESS_OPEN))
+            break
+    if notes:
+        return '; '.join(notes)
+    if before and after:
+        n0 = re.search(r'fixes_this_process=(\d+)', before[0][2])
+        n1 = re.search(r'fixes_this_process=(\d+)', after[0][2])
+        if n0 and n1 and int(n1.group(1)) >= int(n0.group(1)):
+            return ('the same process wrote the heartbeats before and after it '
+                    '(no new log_open; fixes_this_process %s -> %s)' % (n0.group(1), n1.group(1)))
+    return 'these logs cannot say whether the app was running'
+
+
 def diagnose_gap(gap, events):
     """Fix clock versus phone clock: both are the phone's, a second or so apart at most.
     The heartbeat says whether the recorder reported itself running; it cannot say why no
-    fix arrived. The events listed under each gap are the evidence for that."""
+    fix arrived. A missing beat is not by itself a dead app, so beyond the first case the
+    gap is described - which beats there were, how far apart, and whether a new process
+    started - and the events listed under it are the evidence for why."""
     a, b = gap
-    beats = [(w, d) for (w, k, d) in events if k == 'hb' and a < w < b]
-    alive = [w for (w, d) in beats if 'recorder=1' in d]
+    _, inside, _ = beats_around(gap, events)
+    alive = [w for (w, _, d) in inside if 'recorder=1' in d]
     points = [a] + alive + [b]
     worst = max(y - x for x, y in zip(points, points[1:]))
     if worst <= HB_ALIVE_MS:
         why = 'recorder reported running throughout; no fixes reached the log'
-    elif not beats:
-        why = 'no heartbeat at all: the app was not running'
     else:
-        why = 'recorder not reported running for up to %.0f s of it' % (worst / 1000)
-    notable = [(w, k, d) for (w, k, d) in events if k != 'hb' and a - 5000 <= w <= b + 5000]
+        parts = []
+        if not inside:
+            parts.append('no heartbeat in the gap')
+        else:
+            off = sum(1 for (_, _, d) in inside if 'recorder=0' in d)
+            if off:
+                parts.append('recorder=0 at %d of %d heartbeats in the gap' % (off, len(inside)))
+        spacing = beat_spacing_ms(gap, events)
+        if spacing is not None:
+            parts.append('heartbeats up to %.0f s apart on the elapsed clock (5 s when on time)' % (spacing / 1000))
+        parts.append(process_across(gap, events))
+        why = '; '.join(parts)
+    notable = [(w, k, d) for (w, _, k, d) in events if k != 'hb' and a - 5000 <= w <= b + 5000]
     return why, notable
 
 
 def report_session(dirpath, exclude_samples):
-    ts, accs, skipped, samples = read_fixes_csv(os.path.join(dirpath, 'fixes.csv'), exclude_samples)
+    ts, accs, skipped, samples, keys = read_fixes_csv(os.path.join(dirpath, 'fixes.csv'), exclude_samples)
     events = read_events(os.path.join(dirpath, 'events.csv'))
     meta = {}
     try:
@@ -239,11 +336,11 @@ def report_session(dirpath, exclude_samples):
     except (OSError, ValueError):
         pass
     start = meta.get('started_wall_ms')
-    stops = [w for (w, k, _) in events if k == 'stop']
+    stops = [w for (w, _, k, _) in events if k == 'stop']
     if stops:
         end, ended = max(stops), 'STOP'
     elif events:
-        end, ended = max(w for (w, _, _) in events), 'the last event (no STOP)'
+        end, ended = max(w for (w, _, _, _) in events), 'the last event (no STOP)'
     else:
         end, ended = None, None
 
@@ -259,16 +356,16 @@ def report_session(dirpath, exclude_samples):
     store, pts = None, []
     if start is not None and end is not None:
         for candidate in stores:
-            rows = [(t, a) for (t, a) in read_sdk_store(candidate) if start <= t <= end]
+            rows = [(t, a, k) for (t, a, k) in read_sdk_store(candidate) if start <= t <= end]
             if len(rows) > len(pts):
                 store, pts = candidate, rows
 
     print(HEADER)
     print(RULE)
     print(row(label + (' - app log' if stores else ''), c, session_verdict(c)))
-    sts = [t for t, _ in pts]
+    sts = [t for t, _, _ in pts]
     if store:
-        sc = with_edges(coverage(sts, [a for _, a in pts]), edge_gaps(sts, start, end))
+        sc = with_edges(coverage(sts, [a for _, a, _ in pts]), edge_gaps(sts, start, end))
         print(row('%s - SDK store (%s)' % (label, os.path.basename(store)), sc, session_verdict(sc)))
     print()
     print('recorder: %s' % meta.get('recorder', '?'))
@@ -278,9 +375,8 @@ def report_session(dirpath, exclude_samples):
             clock(start), ended, clock(end), (end - start) / 60000, c['covered_ms'] / 60000))
     # The heartbeat carries the phone's battery level. It is the whole phone's drain -
     # both bake-off apps, golf-tracker, music - not this app's share.
-    import re
     battery = []
-    for (w, k, d) in events:
+    for (w, _, k, d) in events:
         m = re.search(r'battery_pct=(\d+)', d) if k == 'hb' else None
         if m:
             battery.append((w, int(m.group(1)), 'charging=1' in d))
@@ -291,17 +387,22 @@ def report_session(dirpath, exclude_samples):
             '; charging for part of it, so not a drain figure' if any(ch for _, _, ch in battery) else ''))
     # A repeated fix time is an interval of 0 s: it cannot change coverage, but it inflates
     # the fix count, so it is shown rather than silently dropped.
-    print('rows skipped: %d; repeated fix times: %d; SDK samples: %d%s' % (
-        skipped, len(ts) - len(set(ts)), samples, ' (excluded)' if exclude_samples and samples else ''))
+    repeated, identical, distinct = split_repeats(keys)
+    print('rows skipped: %d; repeated fix times: %d (the same fix handed over again: %d; '
+          'different fixes at one time: %d); SDK samples: %d%s' % (
+              skipped, repeated, identical, distinct, samples,
+              ' (excluded)' if exclude_samples and samples else ''))
     if store:
-        print('SDK store: %d rows in the session window; repeated fix times: %d' % (len(sts), len(sts) - len(set(sts))))
+        repeated, identical, distinct = split_repeats([k for _, _, k in pts])
+        print('SDK store: %d rows in the session window; repeated fix times: %d (the same fix stored '
+              'again: %d; different fixes at one time: %d)' % (len(sts), repeated, identical, distinct))
     elif stores:
         print('SDK store: none of the %d exported store file(s) has rows from this session; not scored' % len(stores))
     kinds = {}
-    for _, k, _ in events:
+    for _, _, k, _ in events:
         kinds[k] = kinds.get(k, 0) + 1
     print('events: ' + ', '.join('%s %d' % (k, n) for k, n in sorted(kinds.items())))
-    for d in [d for (_, k, d) in events if k == 'previous_exit']:
+    for d in [d for (_, _, k, d) in events if k == 'previous_exit']:
         print('  process died: ' + d)
     for gap in c['gaps']:
         why, notable = diagnose_gap(gap, events)
@@ -347,6 +448,51 @@ def walk(path, exclude_samples):
 
 # ---- self-test --------------------------------------------------------------
 
+def gap_wording_checks():
+    """diagnose_gap on hand-built logs around one gap, 100 s to 200 s."""
+    def hb(w, recorder, fixes, rt=None):
+        return (w, 1_000_000 + w if rt is None else rt, 'hb', 'recorder=%d;since_fix_ms=0;'
+                'fixes_this_process=%d;write_failures=0;screen_on=0' % (recorder, fixes))
+    gap = (100_000, 200_000)
+    running = [hb(w, 1, 50) for w in range(95_000, 210_000, 5_000)]
+    # No beat inside; the same process on both sides (the CPU slept). The wall clock
+    # also stepped 20 s forward meanwhile, so the beats are 110 s apart on the wall
+    # clock and 90 s apart on the elapsed clock, which is the one reported.
+    asleep = [hb(95_000, 1, 50), hb(205_000, 1, 51, rt=1_185_000)]
+    # No beat inside; a new process opened the log inside it.
+    restarted = [hb(95_000, 1, 50), (150_000, 1_150_000, 'log_open', 'reason=process_start;pid=2'),
+                 hb(205_000, 1, 1)]
+    # Beats inside, all recorder=1 but 45 s apart; the same process.
+    late = [hb(95_000, 1, 50), hb(140_000, 1, 50), hb(185_000, 1, 50), hb(205_000, 1, 51)]
+    # Beats on time, recorder=0 at every one inside.
+    stopped = [hb(95_000, 1, 50)] + [hb(w, 0, 50) for w in range(100_001, 200_000, 5_000)] + [hb(205_000, 1, 50)]
+    # No log_open in the window, but Android's exit record puts a death inside the gap.
+    # The counter alone (50 -> 60) would have read as the same process.
+    died = [hb(95_000, 1, 50), (204_000, 1_204_000, 'previous_exit',
+            'exit_wall_ms=120000;reason=low_memory;status=0'), hb(205_000, 1, 60)]
+    # A log_open that is not a process start is not a new process.
+    reopened = [hb(95_000, 1, 50), (150_000, 1_150_000, 'log_open', 'reason=start;pid=1'),
+                hb(205_000, 1, 51)]
+    w_running = diagnose_gap(gap, running)[0]
+    w_asleep = diagnose_gap(gap, asleep)[0]
+    w_restarted = diagnose_gap(gap, restarted)[0]
+    w_late = diagnose_gap(gap, late)[0]
+    w_stopped = diagnose_gap(gap, stopped)[0]
+    w_died = diagnose_gap(gap, died)[0]
+    w_reopened = diagnose_gap(gap, reopened)[0]
+    return [
+        ('gap_running', w_running == 'recorder reported running throughout; no fixes reached the log'),
+        ('gap_no_beats', w_asleep.startswith('no heartbeat in the gap') and 'same process' in w_asleep
+         and '90 s apart' in w_asleep and 'not running' not in w_asleep),
+        ('gap_new_process', 'a new process started' in w_restarted and 'same process' not in w_restarted),
+        ('gap_late_beats', '45 s apart' in w_late and 'same process' in w_late and 'recorder=0' not in w_late),
+        ('gap_recorder_off', 'recorder=0 at 20 of 20 heartbeats' in w_stopped),
+        ('gap_exit_record', 'the process died at' in w_died and 'reason=low_memory' in w_died
+         and 'same process' not in w_died),
+        ('gap_other_open', 'same process' in w_reopened and 'new process' not in w_reopened),
+    ]
+
+
 def self_test():
     expected = {}
     with open(os.path.join(FIXTURE_DIR, 'coverage-fixture.expected.properties'), encoding='utf-8') as f:
@@ -355,7 +501,7 @@ def self_test():
             if line and not line.startswith('#'):
                 key, value = line.split('=', 1)
                 expected[key.strip()] = value.strip()
-    ts, accs, skipped, _ = read_fixes_csv(os.path.join(FIXTURE_DIR, 'coverage-fixture.csv'))
+    ts, accs, skipped, _, _ = read_fixes_csv(os.path.join(FIXTURE_DIR, 'coverage-fixture.csv'))
     c = coverage(ts, accs)
     # Edge gaps: START 30 s before the first fixture fix and STOP 10 s after the last
     # give exactly one edge gap (the leading 30 s); STOP at 21 s after gives two.
@@ -375,7 +521,10 @@ def self_test():
         ('edge_exactly_20s', edge_gaps(ts, first - 20_000, last + 20_000) == []),
         ('edge_no_fixes', edge_gaps([], 0, 60_000) == [(0, 60_000)]),
         ('edge_longest', with_edges(c, [(0, 90_000)])['longest_gap_ms'] == 90_000),
-    ]
+        # Three rows at one time, two of them the same fix, and one row at another time.
+        ('repeats_split', split_repeats([(1, '5', 'x', 'y'), (1, '5', 'x', 'y'), (1, '6', 'x', 'z'),
+                                         (2, '7', 'x', 'y')]) == (2, 1, 1)),
+    ] + gap_wording_checks()
     for name, ok in checks:
         print('%-17s %s' % (name, 'ok' if ok else 'FAILED'))
     failed = [n for n, ok in checks if not ok]

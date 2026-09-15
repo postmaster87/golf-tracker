@@ -173,3 +173,11 @@ python docs/bakeoff-data/2026-09-14-veenker-walking/compare-web-gaps.py
 ```
 
 Item 2.3 carries the questions this round adds.
+
+**The tool changed after this folder was committed:** the four small changes
+Fable recommended in `docs/handoff/REPORT_2.3.md`, made on his word "make the
+four changes, then run 2.2". Re-run, the first command now splits the repeated
+fix times: T's 10 in its log and 4 in its store are all the same fix handed over
+again, and none is a different fix at the same time. Every other line of
+`score-bakeoff.txt` is unchanged, and the second command's output is identical
+to `score-golf-tracker-export.txt` (both diffed 2026-09-14).
