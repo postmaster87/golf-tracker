@@ -16,11 +16,16 @@
 #
 # -Serial picks a device. Without it: the one phone attached, or the emulator
 # when it is the only device. -Dest overrides where pull (and screenshots) go.
+# -Only K or -Only T limits start, status and stop to that app alone: a carry of
+# one recorder, because GPS Custom's wake lock keeps the phone awake for both
+# (Fable, docs/handoff/REPORT_2.3.md, Section 9). setup still installs both.
 param(
     [ValidateSet('build', 'test', 'devices', 'setup', 'samsung', 'start', 'status', 'stop', 'pull')]
     [string]$Task = 'devices',
     [string]$Serial = '',
-    [string]$Dest = ''
+    [string]$Dest = '',
+    [ValidateSet('K', 'T')]
+    [string]$Only
 )
 
 $ErrorActionPreference = 'Stop'
@@ -31,6 +36,7 @@ $adbExe = Join-Path $env:ANDROID_HOME 'platform-tools\adb.exe'
 $Apps = [ordered]@{ K = 'com.postmaster87.golfbakeoff.k'; T = 'com.postmaster87.golfbakeoff.t' }
 # The names on the phone, his pick 2026-09-14: "GPS Custom / GPS Transistor". Bake-off K and T before.
 $AppNames = @{ K = 'GPS Custom'; T = 'GPS Transistor' }
+$Run = @($Apps.Keys | Where-Object { -not $Only -or $_ -eq $Only })
 $Apks = @{
     K = Join-Path $here 'app\build\outputs\apk\handwritten\debug\app-handwritten-debug.apk'
     T = Join-Path $here 'app\build\outputs\apk\transistor\debug\app-transistor-debug.apk'
@@ -212,7 +218,7 @@ function Read-Checklist([string]$tag) {
 }
 
 function Show-Status {
-    foreach ($tag in $Apps.Keys) {
+    foreach ($tag in $Run) {
         $pkg = $Apps[$tag]
         $prefs = (Sh "run-as $pkg cat shared_prefs/sessions.xml 2>/dev/null") -join ' '
         $m = [regex]::Match($prefs, 'name="active">([^<]+)<')
@@ -300,7 +306,7 @@ switch ($Task) {
     'start' {
         Use-Device
         Require-Unlocked
-        foreach ($tag in $Apps.Keys) {
+        foreach ($tag in $Run) {
             Open-App $Apps[$tag]
             if (Ui-Find @('HOLD TO STOP')) { Write-Host "  $($AppNames[$tag]) is already recording" }
             else { Ui-Must @('START') "START in $($AppNames[$tag])" | Out-Null }
@@ -318,7 +324,7 @@ switch ($Task) {
     'stop' {
         Use-Device
         Require-Unlocked
-        foreach ($tag in $Apps.Keys) {
+        foreach ($tag in $Run) {
             Open-App $Apps[$tag]
             if (Ui-Find @('HOLD TO STOP')) { Ui-Must @('HOLD TO STOP') "HOLD TO STOP in $($AppNames[$tag])" 0 2300 | Out-Null }
             else { Write-Host "  $($AppNames[$tag]) was not recording" }
