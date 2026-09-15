@@ -97,13 +97,18 @@
 
       // The course map: tee boxes, greens, fairways, bunkers.
       const map = await (await fetch('../../course-map/veenker/osm_full.json')).json();
+      // A feature is its rings: one for a way; every outer AND inner member for a relation.
+      // Inside is the even-odd rule over all of them, so a point in a fairway's inner ring
+      // is not in the fairway. The first version read outers only; Fable, item 1.1
+      // (2026-09-15): 21 of 30 fairways have inner rings.
       const polys = [];
       for (const e of map.elements || []) {
         const g = e.tags?.golf;
         if (!['tee', 'green', 'fairway', 'bunker'].includes(g)) continue;
         const rings = e.type === 'way' && e.geometry ? [e.geometry.map((p) => [p.lat, p.lon])]
-          : e.type === 'relation' ? (e.members || []).filter((m) => m.role === 'outer' && m.geometry).map((m) => m.geometry.map((p) => [p.lat, p.lon])) : [];
-        for (const ring of rings) if (ring.length >= 3) polys.push({ golf: g, ring });
+          : e.type === 'relation' ? (e.members || []).filter((m) => (m.role === 'outer' || m.role === 'inner') && m.geometry).map((m) => m.geometry.map((p) => [p.lat, p.lon])) : [];
+        const good = rings.filter((ring) => ring.length >= 3);
+        if (good.length) polys.push({ golf: g, rings: good });
       }
       const inside = (pt, ring) => {
         let c = false;
@@ -125,8 +130,9 @@
         }
         return best;
       };
-      const inKind = (pt, kind) => polys.some((p) => p.golf === kind && inside(pt, p.ring));
-      const nearestEdge = (pt, kind) => Math.min(...polys.filter((p) => p.golf === kind).map((p) => edgeDist(pt, p.ring)));
+      const inPoly = (pt, poly) => poly.rings.filter((ring) => inside(pt, ring)).length % 2 === 1;
+      const inKind = (pt, kind) => polys.some((p) => p.golf === kind && inPoly(pt, p));
+      const nearestEdge = (pt, kind) => Math.min(...polys.filter((p) => p.golf === kind).flatMap((p) => p.rings.map((ring) => edgeDist(pt, ring))));
       const mapLie = (pt) => (inKind(pt, 'green') ? 'green' : inKind(pt, 'bunker') ? 'sand' : inKind(pt, 'tee') ? 'tee' : inKind(pt, 'fairway') ? 'fairway' : 'rough');
 
       // GPS Custom's stands, and each truth time resolved to one.
