@@ -77,6 +77,10 @@ Every number was measured this session, with its n.
 | **Pass bar:** 99% coverage and no gap over 20 s, on the Section 9 measure, across a round-length carry with the screen locked and a music app in use | Picked *"99% coverage, no gap > 20 s (Recommended)"*, 2026-09-13 |
 | Installs for the build | *"You may install whatever is needed"*, 2026-09-13 |
 | The 2026-09-14 walking round's data is committed for Fable: `docs/bakeoff-data/2026-09-14-veenker-walking/`. It is pushed to branch `bakeoff-data-2026-09-14`, not `main`, so v24 does not deploy before Fable's test | *"put all this data in a spot for Fable to pick it up in a new chat under your guidance. Commit and push it once processed"*, then picked *"Push to a branch (Recommended)"* |
+| Test app names: Bake-off K becomes GPS Custom, Bake-off T becomes GPS Transistor | Picked *"GPS Custom / GPS Transistor"*, 2026-09-14 |
+| Fable's run order: 2.2, then 2.3, then 1.1 | Picked *"2.2 → 2.3 → 1.1 (Recommended)"*, 2026-09-14 |
+| Fable's 2.3 reviews the 2026-09-14 round, with no carry | Picked *"The round only (Recommended)"*, 2026-09-14 |
+| Fable's usage here is capped at 10% a week, and he picks whenever usage has to be chosen | *"Yes but Fable is restricted 10% weekly usage on this project so plan accordingly and let me pick if a usage choice needs made"*, 2026-09-14 |
 
 ## 4. Still open - his call
 
@@ -98,6 +102,9 @@ Recommendations below are Opus's, not his.
    bunker edge gets a one-tap confirm instead of a guess (*recommendation*).
 7. **Push v24** after Fable's 2.2 verdict - he may walk 9 on Tuesday
    2026-09-15: *"I might get 9 in walking tuesday morning weather pending"*.
+   **Answered 2026-09-14:** *"Yes but Fable is restricted 10% weekly usage on
+   this project so plan accordingly and let me pick if a usage choice needs
+   made"*. The push still waits for his go at the moment it runs.
 8. **Commit `docs/roundDownloads/`?** Public is fine by his word, but he has
    not said to commit it; it stays gitignored until he does.
 9. The field test 7 export still in his Downloads - he said *"Ditch all the
@@ -122,6 +129,12 @@ Recommendations below are Opus's, not his.
   screen was on 95% of the time, so the locked-screen condition is still
   untested. Data: `docs/bakeoff-data/2026-09-14-veenker-walking/`. Next:
   his "xhigh", then Fable's queue 2.2, 2.3, 1.1.
+- **2026-09-14, next chat:** his answers are in
+  `docs/handoff/NEXT_CHAT_2026-09-14.md`, Section 5. The card (39) reconciles
+  with golf-tracker's 30 records hole by hole. Rounds this week, his words:
+  *"another walking 9 or 2 is possible and this weekend all weather
+  dependent"*. Fable's usage here is capped at 10% a week, and he picks each
+  spawn. Order: 2.2, rename the apps, 2.3 (his "xhigh"), 1.1.
 
 ## 6. Architecture notes
 

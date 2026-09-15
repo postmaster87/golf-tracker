@@ -33,7 +33,10 @@ his phone stays on golf-tracker v23.
 - **The copy:** the files were copied byte for byte from the phone's
   `Download` folder with `adb pull`, on his "Yes, copy them".
 - **One oddity:** K's exported files are timestamped 20:03 on the phone, but
-  their contents end at K's STOP (18:07:54).
+  their contents end at K's STOP (18:07:54). Asked whether he exported K again
+  around then, he answered "3 but 1 probably based off that time stamp" (3 was
+  "Don't remember", 1 was "Yes"). A second export is likely; it is not
+  confirmed.
 - **Git:** the golf-tracker export is force-added by name, because
   `.gitignore` still carries the old `golf-tracker-*.json` guard. His words
   above are the say-so to commit it.
@@ -96,6 +99,67 @@ It did not test:
 - **A process kill, or Samsung app sleeping.**
 
 It is also **one round**.
+
+## His answers, 2026-09-14 (the next chat)
+
+| Question | His answer, verbatim |
+|---|---|
+| Marking | "I marked the first few holes and then quit marking to test the tracker on all apps. I think I marked the cup on every hole and the scorecard I provided is correct" |
+| The phone during play | "pocket and push cart - always near the ball. This is the best data yet" |
+| Did a test app's notification ever disappear? | "3 but did not mess with anything and they were still there at the end so leaning toward 1 as the answer" (3 was "Didn't check", 1 was "No, both stayed") |
+| Problems | Picked "Nothing went wrong" |
+| Penalties | Picked "No penalties" |
+| Hole 11 | Picked "Only 1 putt", which read: "Tee shot, chip from the rough, one putt. The second putt record is the extra one." |
+| Hole 12 | Picked "Ball on the green", which read: "It marked where the ball lay for putt 1 and got saved as a full shot. Tee, second shot, chip, 2 putts." |
+
+## His scorecard against golf-tracker's records
+
+Round `r_18b4b0bb`. golf-tracker counts a hole's strokes as its shot records
+plus penalty strokes (`holeStrokes`, `js/round/round.js:580-584`), and a putt is
+a shot record with lie `green`. The export file is unchanged: the corrections
+below are his answers, written down here, not edits to the data.
+
+Measured: every one of the 9 holes has a cup mark (burst, quality good,
+accuracy 1.8-2.27 m). No hole has a penalty.
+
+| Hole | Par | Card | Records | Putts | Full shots | Marked by hand | Tee from track | Why the records differ |
+|---|---|---|---|---|---|---|---|---|
+| 10 | 5 | 5 | 5 | 2 | 3 | 3 | - | they match |
+| 11 | 3 | 3 | 4 | 1 (2 entered) | 2 | 2 | - | his answer: one putt |
+| 12 | 4 | 5 | 6 | 2 | 3 | 3 | - | his answer: the 4th mark was putt 1's ball |
+| 13 | 3 | 3 | 2 | 2 | 1 | 0 | - | 1 full shot not marked |
+| 14 | 4 | 5 | 2 | 2 | 3 | 0 | - | 3 full shots not marked |
+| 15 | 4 | 4 | 2 | 2 | 2 | 0 | - | 2 full shots not marked |
+| 16 | 5 | 4 | 2 | 1 | 3 | 0 | 1 | 2 full shots not marked |
+| 17 | 3 | 5 | 3 | 2 | 3 | 0 | 1 | 2 full shots not marked |
+| 18 | 5 | 5 | 4 | 2 | 3 | 2 | - | 1 full shot not marked |
+| **Total** | 36 | **39** | **30** | **16** | **23** | **10** | **2** | |
+
+- **Putts** are the counts he entered in golf-tracker, with hole 11 corrected
+  by his answer. [measured, as entered]
+- **Full shots** are the card minus putts, so they rest on those entries.
+  [inferred]
+- **Tee from track:** on holes 16 and 17 the tee shot was inserted from the
+  track in the app, not marked on the tee.
+
+**Holes 11 and 12, measured** (the distance from each mark to that hole's cup
+mark):
+
+- **Hole 11:** tee 133.0 yd; rough 44.0 ft, 41 s before the cup mark; green
+  10.4 ft, 10 s before, with its putt typed as 1 ft; then a second putt record
+  entered by hand at 16:33:03.
+- **Hole 12:** tee 294.1 yd; rough 138.4 yd; rough 57.2 ft, 14 s before the cup
+  mark; then a 4th mark 37.1 ft from the cup, 9 s after the cup mark, stored
+  with `lie: 'fairway', lieInferred: true`. The putts (24 ft, 3 ft) were typed
+  at 18:07:10, at the end of the round.
+
+**What hole 12 shows about golf-tracker v23**, read from the code:
+`setGreenEntry` (`js/round/round.js:513-527`) keeps a marked shot as putt 1
+only when its lie is `green`. Putt 1's ball mark had been stored with an
+inferred fairway lie, so it stayed a full shot and both typed putts were added
+as new records: 6 records for 5 strokes. It bears on the green flow planned for
+the native app (`docs/HANDOFF-native-build.md`, Section 7: mark cup, mark putt
+1, score). Nothing is queued for it.
 
 ## For Fable
 

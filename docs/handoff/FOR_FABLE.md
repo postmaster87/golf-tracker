@@ -11,27 +11,38 @@ An item carries: Matt's words on it VERBATIM, the evidence (file:line, the
 numbers with n, what was tried), and any decision he already made. The
 spawn prompt repeats the item number, his words and the commit hash.
 
-## RUN ORDER - the night of 2026-09-14, when his Fable usage resets
+## RUN ORDER - set 2026-09-14
 
 His words, 2026-09-13: "Opus you are on your own here. Anything you want Fable
 to check make a file for it to run tomorrow night when credits reset". And:
 "Next to know is I am out of Fable Usage until tomorrow night".
 
-1. **2.2** - test build v24 before it is played (he may walk 9 on Tuesday
-   2026-09-15). Effort high.
-2. **1.1** - review the Veenker course map before it becomes app data. Effort
-   high; review only.
-3. **2.3** - review the recorder bake-off app before it goes on the course.
-   **xhigh, and only after he types "xhigh" in the chat.** Before spawning it,
-   pull and score Monday's carry (`bakeoff.ps1 stop` then `pull`) and add the
-   numbers to the item: the week's plan is `docs/bakeoff-test-week.md`. Added 2026-09-13;
-   whether it runs before 1.1 is his call (the bake-off wants rounds on
-   19-20 September; 1.1 feeds the green flow, which comes after it).
+On 2026-09-14 two orders were written down: this file had 2.2, 1.1, 2.3, and
+`docs/handoff/NEXT_CHAT_2026-09-14.md` had 2.2, 2.3, 1.1. Asked which, he
+picked "2.2 → 2.3 → 1.1 (Recommended)".
 
-Spawn each with `subagent_type: "fable"`, one at a time, `run_in_background:
-false`. The commit hash for the prompt is `git log -1 --format=%h` at spawn,
-with `git status` clean. After 2.2 returns DONE, **the push still waits for his
-word** in his chat.
+**Fable's usage on this project, his words, 2026-09-14:** "Yes but Fable is
+restricted 10% weekly usage on this project so plan accordingly and let me pick
+if a usage choice needs made". So before every spawn Opus names the item, its
+effort and the cost of the last comparable run, and he picks. The one completed
+run to price from is 2.1 (effort high, 2026-09-11): 29.2 min, 138 tool calls,
+294,843 tokens reported at return. What share of his 10% that was cannot be
+seen from here.
+
+1. **2.2** - test build v24 before it is played (another walking 9 is
+   possible this week, weather permitting). Effort high.
+2. **2.3** - review the recorder bake-off apps. **xhigh, and only after he
+   types "xhigh" in the chat.** The field data is the 2026-09-14 round alone:
+   asked whether to wait for a carry, he picked "The round only
+   (Recommended)". Before the spawn, Opus renames the apps to his pick, "GPS
+   Custom / GPS Transistor", so Fable reviews the build that goes on the phone.
+3. **1.1** - review the Veenker course map before it becomes app data. Effort
+   high; review only.
+
+Spawn 2.2 and 1.1 with `subagent_type: "fable"` and 2.3 with `"fable-xhigh"`,
+one at a time, `run_in_background: false`. The commit hash for the prompt is
+`git log -1 --format=%h` at spawn, with `git status` clean. After 2.2 returns
+DONE, **the push still waits for his word** in his chat.
 
 **Not queued - needs his decision or his "xhigh" first:** the native recorder
 (GPS pipeline), native storage of rounds and tracks and moving his logged
@@ -41,7 +52,7 @@ data (possibly schema - 1.1 classifies it), and shell vs full native rewrite
 
 ## 1. Critical review and requests for what is Fable's (a data model or schema change; the GPS pipeline; the strokes-gained engine or a benchmark; the export format; a migration of logged rounds; a golf/Matt call Opus cannot list)
 
-### 1.1 The Veenker course map - review before it becomes app data (2026-09-13) - READY, RUN AFTER 2.2
+### 1.1 The Veenker course map - review before it becomes app data (2026-09-13) - READY, RUN THIRD (after 2.3)
 
 **His words, verbatim, in order:**
 
@@ -241,6 +252,15 @@ The screen was on at 95% of heartbeats and music at 0%, so the bar's
 locked-screen condition was not met. Phone battery went 90% → 78% over 2.0 h
 (the whole phone). T had 10 repeated fix times in its log and 4 in its store,
 with no kill.
+
+**His answers on this round, 2026-09-14, verbatim.** The phone: "pocket and
+push cart - always near the ball. This is the best data yet". Did a
+notification ever disappear: "3 but did not mess with anything and they were
+still there at the end so leaning toward 1 as the answer" (3 was "Didn't check",
+1 was "No, both stayed"). Problems: picked "Nothing went wrong". K's files
+timestamped 20:03: "3 but 1 probably based off that time stamp" (3 was "Don't
+remember", 1 was "Yes", exported again). No carry was done. Asked whether this
+review should wait for one, he picked "The round only (Recommended)".
 
 **Asked of Fable about this round (with 1-10 below):**
 - Reproduce the numbers from the committed files (commands in that README).
