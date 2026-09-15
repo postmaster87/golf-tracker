@@ -30,24 +30,21 @@ are good to go".
 **Fable's usage on this project, his words, 2026-09-14:** "Yes but Fable is
 restricted 10% weekly usage on this project so plan accordingly and let me pick
 if a usage choice needs made". So before every spawn Opus names the item, its
-effort and the cost of the last comparable run, and he picks. The one completed
-run to price from is 2.1 (effort high, 2026-09-11): 29.2 min, 138 tool calls,
-294,843 tokens reported at return. What share of his 10% that was cannot be
-seen from here.
+effort and the cost of the last comparable run, and he picks. Completed runs to
+price from: 2.1 (effort high, 2026-09-11) took 29.2 min, 138 tool calls and
+294,843 tokens reported at return; 2.3 (xhigh, 2026-09-14) took 33.4 min, 81
+tool calls and 368,352 subagent tokens. What share of his 10% either was cannot
+be seen from here.
 
-1. **2.3** - review the recorder test apps. **xhigh: he typed "x-high your are
-   good to go", 2026-09-14.** The field data is the 2026-09-14 round alone:
-   asked whether to wait for a carry, he picked "The round only
-   (Recommended)". Before the spawn, Opus renamed the apps to his pick, "GPS
-   Custom / GPS Transistor" (build bakeoff-2), so Fable reviews the build that
-   goes on the phone.
-2. **2.2** - test build v24 before it is played (another walking 9 is
+1. **2.2** - test build v24 before it is played (another walking 9 is
    possible this week, weather permitting). Effort high.
-3. **1.1** - review the Veenker course map before it becomes app data. Effort
+2. **1.1** - review the Veenker course map before it becomes app data. Effort
    high; review only.
 
-Spawn 2.2 and 1.1 with `subagent_type: "fable"` and 2.3 with `"fable-xhigh"`,
-one at a time, `run_in_background: false`. The commit hash for the prompt is
+2.3 ran first, at xhigh, and returned DONE `d892a39` (PASS,
+`docs/handoff/REPORT_2.3.md`); its line is in `FOR_FABLE_LOG.md`.
+
+Spawn 2.2 and 1.1 with `subagent_type: "fable"`, one at a time, `run_in_background: false`. The commit hash for the prompt is
 `git log -1 --format=%h` at spawn, with `git status` clean. After 2.2 returns
 DONE, **the push still waits for his word** in his chat.
 
@@ -59,7 +56,7 @@ data (possibly schema - 1.1 classifies it), and shell vs full native rewrite
 
 ## 1. Critical review and requests for what is Fable's (a data model or schema change; the GPS pipeline; the strokes-gained engine or a benchmark; the export format; a migration of logged rounds; a golf/Matt call Opus cannot list)
 
-### 1.1 The Veenker course map - review before it becomes app data (2026-09-13) - READY, RUN THIRD (after 2.2)
+### 1.1 The Veenker course map - review before it becomes app data (2026-09-13) - READY, RUN SECOND (after 2.2)
 
 **His words, verbatim, in order:**
 
@@ -116,7 +113,7 @@ photo for a 903 m request (square pixels in degrees). Both are in the README.
 
 ## 2. Testing of a risky build (a build about to be played; anything touching the lock, the marks, the track, the hole windows or round save)
 
-### 2.2 Build v24 - the footer stops moving, the lock is reachable everywhere (2026-09-13) - READY, RUN SECOND (after 2.3)
+### 2.2 Build v24 - the footer stops moving, the lock is reachable everywhere (2026-09-13) - READY, RUN FIRST
 
 **Released for the night of 2026-09-14.** Held earlier on his word ("Stage what
 Fable needs but hold it up for now. I want to brainstorm ideas before going
@@ -180,140 +177,7 @@ looking at the pane. Reports from here on should stop carrying that caveat.
    split and every rejection path are unchanged; only the height source moved.
    If you judge it weakens the guard, BLOCKED with the reason.
 
-### 2.3 The recorder bake-off app - review at xhigh before it goes on the course (2026-09-13) - READY, RUN FIRST (his "x-high" given 2026-09-14)
-
-**Spawn with `subagent_type: "fable-xhigh"`, and only after he has typed
-"xhigh" in the chat for this item.** He was told, in the option he picked: *For
-that Fable review, type "xhigh" in this chat.*
-
-**His words, verbatim, 2026-09-13 (the native-build chat).** He was asked four
-questions and picked these options:
-
-> "Native shell (Recommended)"
-
-> "Kotlin vs transistorsoft (Recommended)"
-
-> "Opus builds, Fable reviews (Recommended)" - the option's text as he read
-> it: "Opus builds a throwaway test app that only measures coverage and never
-> feeds a round. Fable reviews it at xhigh before it goes on the course, and
-> gives the pass/fail verdict. The recorder your rounds actually use and its
-> storage stay Fable's. For that Fable review, type "xhigh" in this chat."
-
-> "99% coverage, no gap > 20 s (Recommended)" - asked as "What result does a
-> recorder need to pass? Same coverage measure as the handoff's Section 9
-> table, over a round-length carry with the screen locked and a music app in
-> use."
-
-And on installs: "what are you asking. You may install whatever is needed"
-
-**Decisions he already made:** native shell before 2026-10-07; the contenders
-are a hand-written Kotlin recorder and transistorsoft's Android SDK in debug
-builds; Opus builds the comparison app, Fable reviews it at xhigh and gives the
-verdict; the recorder that feeds rounds, and its storage, stay yours; the bar is
-99% covered and no gap over 20 s on the Section 9 measure.
-
-**Where it is:** `android/bakeoff/` (start with its `README.md`: the two apps,
-T's four changed defaults with the doc quotes, the measure, the files, the gap
-diagnosis) and `tools/track-coverage.py`. **Renamed 2026-09-14**, his pick
-"GPS Custom / GPS Transistor": K is GPS Custom and T is GPS Transistor on the
-phone, build `bakeoff-2`. Only the app labels, the notification titles and
-`bakeoff.ps1`'s messages and Samsung-list check changed; the recorders, the
-application ids and the K/T tags did not (`docs/DECISIONS_LOG.md`, 2026-09-14,
-Opus). The 2026-09-14 round was recorded by the build from `44531f3`. Opus's decisions and reasons are in
-`docs/DECISIONS_LOG.md`, entries marked (Opus), 2026-09-13.
-
-**Evidence (Opus, 2026-09-13):** the README's "Verified on the emulator"
-section has every number. In short:
-- **Tests:** unit tests 8/8 in each app; `tools/track-coverage.py --self-test`
-  14/14. Mutation check: `>` to `>=` in the gap test fails 2 of the 8 Kotlin
-  tests and 3 of the Python checks.
-- **Section 9:** the tool reproduces all 6 rows from the exports.
-- **Emulator:** three smoke runs on Android 15 with synthetic 1 Hz GPS, n = 3
-  runs of 4-9 minutes. That proves the plumbing, not the bar: no Samsung, no
-  pocket, no round-length carry.
-- **Run 1:** found T's headless rule (357 s with no fixes in the app log while
-  the SDK store kept filling) and the tool's blind spot for a recorder that
-  dies before STOP.
-- **Run 2, after both fixes:** K PASS (267 fixes, 0 gaps across background,
-  destroyed screens and `kill -9`). T PASS in both its app log (336) and its
-  store (333).
-- **Run 3:** T's repeated fix times after a kill are not caused by our
-  `changePace`. Android's restart backoff took about 57 s on a second kill
-  minutes after the first.
-
-**Field evidence (Opus, 2026-09-14):** the first round with both apps. He
-walked Veenker 16:07-18:08 with golf-tracker v23 on the same phone. The data
-is committed at `docs/bakeoff-data/2026-09-14-veenker-walking/` (README
-first), on branch `bakeoff-data-2026-09-14`. His words: "put all this data in
-a spot for Fable to pick it up in a new chat under your guidance. Commit and
-push it once processed". On the push he picked "Push to a branch
-(Recommended)", so `main` is not pushed.
-
-Measured, n = 1 round:
-
-| Recorder | Fixes | Gaps > 20 s | Longest gap | Median accuracy | Bar |
-|---|---|---|---|---|---|
-| K | 7,237 | 0 | 2 s | 3.1 m | PASS |
-| T, app log | 7,256 | 0 | 2 s | 3.1 m | PASS |
-| T, SDK store | 7,249 | 0 | 2 s | 3.1 m | PASS |
-| golf-tracker's own track | 8,579 | 5 | 384 s | 3.0 m | - |
-
-K and T each kept 235 / 21 / 76 / 383 / 64 fixes inside golf-tracker's five
-gaps. The 384 s gap lines up with screen_off 17:41:18 to screen_on 17:47:34.
-The screen was on at 95% of heartbeats and music at 0%, so the bar's
-locked-screen condition was not met. Phone battery went 90% → 78% over 2.0 h
-(the whole phone). T had 10 repeated fix times in its log and 4 in its store,
-with no kill.
-
-**His answers on this round, 2026-09-14, verbatim.** The phone: "pocket and
-push cart - always near the ball. This is the best data yet". Did a
-notification ever disappear: "3 but did not mess with anything and they were
-still there at the end so leaning toward 1 as the answer" (3 was "Didn't check",
-1 was "No, both stayed"). Problems: picked "Nothing went wrong". K's files
-timestamped 20:03: "3 but 1 probably based off that time stamp" (3 was "Don't
-remember", 1 was "Yes", exported again). No carry was done. Asked whether this
-review should wait for one, he picked "The round only (Recommended)".
-
-**Asked of Fable about this round (with 1-10 below):**
-- Reproduce the numbers from the committed files (commands in that README).
-- Does this round count toward the verdict, given the screen was on for 95% of
-  it?
-- What does a fair locked-screen test need?
-
-**Asked of Fable (xhigh on his word):**
-1. **K:** fused `PRIORITY_HIGH_ACCURACY`, 1 s, `minUpdateDistance 0`,
-   `maxUpdateDelay 0`, `GRANULARITY_FINE`, a `location` foreground service,
-   `START_STICKY`, a partial wake lock, resume on process start. Name anything
-   that would lose fixes with the screen locked on a Galaxy S26.
-2. **T:** is it raw and fair? The four changed defaults are quoted in the
-   README. Is anything else in the SDK altering or dropping fixes? Do `ready()`
-   on every process start and `changePace(true)` keep it recording through a
-   five-minute wait on a tee?
-3. **The measure:** `Coverage.kt` against `tools/track-coverage.py` against
-   Section 9. The choices to check: fix time rather than receive time, T's
-   samples counted, cut rows skipped.
-4. **The gap diagnosis:** the heartbeat is a `HandlerThread` timer. Can it stall
-   during CPU sleep while the recorder is alive, and so call a live recorder
-   dead?
-5. **Data integrity:** `SessionLog`'s flush-per-row, 15 s fsync, cut-row
-   repair, and the export copy. Is there any path that loses or corrupts a row?
-6. **Verdict:** may these two APKs go on his phone for a carry and on the
-   course? If not, BLOCKED with what must change.
-7. **Classify only:** when the winner becomes the recorder that feeds rounds,
-   which of this code is reusable and which must be rebuilt under the data model
-   rules? Do not design it.
-8. **Repeated fix times:** after a `kill -9`, T re-records fixes whose times it
-   already had (run 2: 88 in the log, 93 in its store; run 3: 22 and 21; K: 0).
-   Where do they come from? Does the configuration need to change, or only the
-   analysis?
-9. **`allowIdenticalLocations`:** what does the SDK treat as identical, the same
-   fix delivered twice or a new fix at the same coordinates? The check is not in
-   the published sources. If it is only the former, `false` is the cleaner
-   setting.
-10. **Restart backoff:** T came back about 5 s after one kill (run 2) and about
-    57 s after a second kill minutes later (run 3). K was not killed twice. Can
-    either recorder do anything about Android's backoff, or is it only something
-    to watch for in the field?
+*(2.3 answered 2026-09-14 and moved to FOR_FABLE_LOG.md)*
 
 ## 3. Master-level fixes (failed twice, cannot reproduce, touches a design rule)
 
@@ -321,4 +185,4 @@ review should wait for one, he picked "The round only (Recommended)".
 
 ## Answered by Fable (one line each, dated; Opus moves them to the log)
 
-- 2026-09-14 · 2.3 · PASS: both APKs at `645355a` may go on his phone and on the course; no path loses or corrupts a row, K's config is canonical, T's fixes are K's byte for byte (7,230 of 7,230 shared) with the SDK altering nothing; the measure matches Section 9 (7 of 7 rows reproduced). The 2026-09-14 round counts as the on-course test (0 gaps, longest 1.9 s / 1.6 s, 3.06 m median, n = 1 round) and NOT as the bar's locked-screen clause (screen off 5.3% of beats, music 0%); one 376 s screen-off stretch held 1 Hz in both. A fair locked-screen test: ≥ 2 h walking, screen off ≥ 90% of beats, music ≥ 50%, golf-tracker closed, both apps together and then T alone, because K's wake lock keeps the CPU on for T and the SDK holds none of its own. Found in the SDK binary: `allowIdenticalLocations` is inert in 4.5.1 (no caller), so it stays `true`. Repeated fix times are SDK re-emissions on its own state events (10 rows at 4 times, all byte-identical to K's fix); analysis, not configuration. Nothing changed in code; four small changes recommended for Opus before a T-alone carry. `docs/handoff/REPORT_2.3.md`.
+*(none - 2.3 moved to FOR_FABLE_LOG.md on 2026-09-14)*
