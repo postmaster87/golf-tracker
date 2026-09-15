@@ -9,6 +9,58 @@ never "Fable decided".
 
 Opus's solo decisions are logged here too, marked (Opus).
 
+## 2026-09-14 - 2.3: the round counts as the on-course pass, not as the bar's locked-screen clause; the fair test has thresholds
+- **Decision:** the 2026-09-14 round is evidence that both apps run on the
+  course (PASS to carry and to play), and is not evidence for the clause in
+  his bar, "over a round-length carry with the screen locked and a music app
+  in use". A carry counts as that test only when the heartbeats show
+  `screen_on=0` at 90% or more of beats and `music=1` at 50% or more, over
+  2.0 h or more, walking, unplugged, with golf-tracker closed. Two carries:
+  both apps together, then GPS Transistor alone.
+- **Why:** the screen was off at 76 of 1,445 beats (5.3%) and music at 0, so
+  the clause is his words and was not met. golf-tracker's screen-on and its
+  own location request kept the receiver hot for both apps. GPS Custom holds
+  a partial wake lock for its whole session, which keeps the CPU on for every
+  app on the phone, and the transistorsoft 4.5.1 binary acquires no wake lock
+  of its own (`android/os/PowerManager` referenced only by its
+  `DeviceSettings` class, 642 classes searched), so T has never run on its
+  own power path. The thresholds are mine; he can move them.
+- **Changed:** nothing in code. **Report:** `docs/handoff/REPORT_2.3.md`,
+  Sections 5 and 9. **Commit:** the commit carrying this entry.
+
+## 2026-09-14 - 2.3: no code changed in the review run
+- **Decision:** the four small changes the review found are recommended to
+  Opus, not made by Fable: `tools/track-coverage.py` `diagnose_gap` must not
+  print "the app was not running" from heartbeat absence alone and should
+  report beat spacing in `elapsed_rt_ms`; `DeviceState.snapshot` should add
+  light Doze (`isDeviceLightIdleMode`, API 33+); the tool should count SDK
+  re-emissions (same `fix_ms`, `elapsed_rt_ms`, lat, lon) apart from repeated
+  times; `Sessions.begin` should fsync `meta.json`.
+- **Why:** none bears on the verdict (the heartbeat can only run late when
+  the CPU sleeps, which K's wake lock prevents in every run so far; the round
+  had 0 stalls, max beat spacing 6,587 ms); three of the four are Opus's
+  files; his words on usage, 2026-09-14: "Fable is restricted 10% weekly usage
+  on this project so plan accordingly". The first two are wanted before a
+  T-alone carry, where a sleeping CPU is possible.
+- **Changed:** nothing. **Report:** `docs/handoff/REPORT_2.3.md`, Sections 4,
+  7, 8, 11.
+
+## 2026-09-14 - 2.3: `allowIdenticalLocations` stays `true`
+- **Decision:** T keeps `allowIdenticalLocations = true`.
+- **Why:** read from the 4.5.1 AAR with `javap`: the comparison that exists,
+  `TSLocationManager.e(Location)`, calls a fix identical when time, latitude
+  and longitude match, OR when latitude, longitude, speed and bearing match
+  regardless of time; and nothing in the binary calls it or reads
+  `GeoState.allowIdenticalLocations` outside the Kotlin config wrapper, so
+  the flag is inert in this version. If a later SDK wires it back, the second
+  branch drops a new fix at the same spot: 149 of 7,236 consecutive fixes in
+  K's raw stream (2.06%) matched on all four, and those are stands. A
+  re-emission is a row the tool can count; a dropped stand is a hole. The
+  round's repeats (10 log rows at 4 fix times) are all SDK re-emissions on its
+  own state events, byte-identical to K's fix at that time.
+- **Changed:** nothing. **Report:** `docs/handoff/REPORT_2.3.md`, Sections 11
+  and 12.
+
 ## 2026-09-14 - the test apps renamed before Fable's 2.3, with a version bump (Opus)
 - **Decision:** Bake-off K is now GPS Custom and Bake-off T is GPS Transistor,
   his pick: "GPS Custom / GPS Transistor". Only the names changed:
