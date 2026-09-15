@@ -13,8 +13,10 @@ android {
         applicationId = "com.postmaster87.golfbakeoff"
         minSdk = 30
         targetSdk = 36
-        versionCode = 1
-        versionName = "bakeoff-1"
+        // 2 = renamed to GPS Custom / GPS Transistor (his pick, 2026-09-14); the
+        // recorders are unchanged. meta.json's app_version tells the builds apart.
+        versionCode = 2
+        versionName = "bakeoff-2"
     }
 
     // TWO APPS, NOT ONE. Each recorder gets its own application id, so its own
@@ -22,18 +24,21 @@ android {
     // whichever recorder held a foreground service would keep the other one's
     // process alive, and the comparison would measure nothing. Carried side by
     // side on the same round, both face the same phone, pocket and sky.
+    //
+    // The names on the phone changed on 2026-09-14; the application ids did not,
+    // so a reinstall keeps each app's sessions and grants.
     flavorDimensions += "recorder"
     productFlavors {
         create("handwritten") {
             dimension = "recorder"
             applicationIdSuffix = ".k"
-            resValue("string", "app_name", "Bake-off K")
+            resValue("string", "app_name", "GPS Custom")
             buildConfigField("String", "RECORDER_TAG", "\"K\"")
         }
         create("transistor") {
             dimension = "recorder"
             applicationIdSuffix = ".t"
-            resValue("string", "app_name", "Bake-off T")
+            resValue("string", "app_name", "GPS Transistor")
             buildConfigField("String", "RECORDER_TAG", "\"T\"")
         }
     }

@@ -9,6 +9,33 @@ never "Fable decided".
 
 Opus's solo decisions are logged here too, marked (Opus).
 
+## 2026-09-14 - the test apps renamed before Fable's 2.3, with a version bump (Opus)
+- **Decision:** Bake-off K is now GPS Custom and Bake-off T is GPS Transistor,
+  his pick: "GPS Custom / GPS Transistor". Only the names changed:
+  - the app labels
+  - the notification titles
+  - `bakeoff.ps1`'s messages and its Samsung-list check
+
+  The application ids (`.k`, `.t`) and the K/T tags in files and folders stay.
+  The build went from `bakeoff-1` (versionCode 1) to `bakeoff-2` (versionCode 2).
+  The rename was committed before 2.3 was spawned.
+- **Why:**
+  - Fable reviews at a commit hash. Renaming after the review would put a build
+    on the phone that Fable had not reviewed.
+  - The application ids stay, so the reinstall updates the apps in place. After
+    it, `setup` reads every grant back.
+  - The version bump makes `meta.json`'s `app_version` (`BuildConfig.VERSION_NAME`,
+    `DeviceState.kt:49`) tell a session recorded by the renamed build from one
+    recorded before it.
+  - `samsung` found the apps on Samsung's lists by the literal prefix
+    "Bake-off". It now matches the names from one table and sets a flag, so a
+    later rename cannot quietly turn the check off. That path is untested on a
+    Samsung: on the emulator the task stops at "Not a Samsung phone".
+- **Changed:** `android/bakeoff/app/build.gradle.kts`, `RecorderService.kt`,
+  `Recorder.kt`, `android/bakeoff/bakeoff.ps1`, `android/bakeoff/README.md`,
+  `docs/bakeoff-field-card.md`, `docs/bakeoff-test-week.md` (and their PDFs).
+  **Report:** this entry.
+
 ## 2026-09-13 - bake-off on the S26: Unrestricted battery, not Samsung's never-sleeping list (Opus)
 - **Decision:** both apps stay Unrestricted. That is Android's battery
   optimization exemption, which `setup` sets and each app's checklist reads.

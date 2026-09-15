@@ -187,7 +187,7 @@ object Recorder {
             app.startOnBoot = false
             app.enableHeadless = true
             app.notification.sticky = true
-            app.notification.title = "Bake-off T recording"
+            app.notification.title = "GPS Transistor recording"
             app.notification.text = "transistorsoft, 1 Hz"
             app.notification.smallIcon = "drawable/ic_stat_rec"
             logger.debug = false

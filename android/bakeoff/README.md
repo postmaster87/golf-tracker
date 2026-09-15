@@ -5,6 +5,11 @@ runs, with the phone locked in a pocket, and measure how much of the track they
 kept. They exist to pick the recorder the native golf-tracker will use. **They
 never feed a round.**
 
+**Names on the phone:** GPS Custom (K) and GPS Transistor (T), his pick on
+2026-09-14: "GPS Custom / GPS Transistor". Through the 2026-09-14 round they
+were Bake-off K and Bake-off T, and the data from then carries those names. K
+and T stay the tags in files, folders and `bakeoff.ps1`.
+
 Why a native recorder at all, in Matt's words (`docs/HANDOFF-native-build.md`,
 Section 2): *"The real motivation is what you stumbled on and it is 2 fold:
 allowing the GPS to run in the background and mark the track regardless of what
@@ -39,7 +44,7 @@ was tested on the emulator before it touched the phone:
 |---|---|
 | `devices` | Finds the phone and reads its model, Android version and One UI build |
 | `setup` | Installs both apps and grants precise location, location all the time, notifications, and physical activity (T only). Puts both on the Doze whitelist and allows background running. Then reads every grant back from the system, opens each app, and reads the app's own checklist |
-| `samsung` | Read-only. Opens Settings → Battery → Background usage limits and reads three lists: Never auto sleeping apps, Sleeping apps and Deep sleeping apps. It fails if either app is on Sleeping or Deep sleeping. It adds nothing. On the S26 (One UI 8.5, measured 2026-09-13), an Unrestricted app is not offered for Never auto sleeping apps, and switching Bake-off K back to Unrestricted removed it from that list. The two settings exclude each other, and `setup` sets Unrestricted |
+| `samsung` | Read-only. Opens Settings → Battery → Background usage limits and reads three lists: Never auto sleeping apps, Sleeping apps and Deep sleeping apps. It fails if either app is on Sleeping or Deep sleeping. It adds nothing. On the S26 (One UI 8.5, measured 2026-09-13), an Unrestricted app is not offered for Never auto sleeping apps, and switching K (then named Bake-off K) back to Unrestricted removed it from that list. The two settings exclude each other, and `setup` sets Unrestricted |
 | `start` | Taps START in both apps |
 | `status` | Reports whether both are recording, whether their foreground services are running, and how many fixes each has |
 | `stop` | Holds HOLD TO STOP, then taps EXPORT, in both apps |
@@ -51,7 +56,7 @@ back in, unlocked, and Claude runs `stop` and `pull`.
 
 ## The two apps
 
-| | **Bake-off K** (teal icon) | **Bake-off T** (orange icon) |
+| | **GPS Custom**, K (teal icon) | **GPS Transistor**, T (orange icon) |
 |---|---|---|
 | Application id | `com.postmaster87.golfbakeoff.k` | `com.postmaster87.golfbakeoff.t` |
 | Recorder | Hand-written Kotlin: fused location, high accuracy, 1 s interval, no distance filter, in a location foreground service holding a partial wake lock | transistorsoft `tslocationmanager` 4.5.1, debug build |

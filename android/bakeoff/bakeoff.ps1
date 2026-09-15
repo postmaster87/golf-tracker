@@ -29,6 +29,8 @@ $repo = (Resolve-Path (Join-Path $here '..\..')).Path
 if (-not $env:ANDROID_HOME) { $env:ANDROID_HOME = Join-Path $env:LOCALAPPDATA 'Android\Sdk' }
 $adbExe = Join-Path $env:ANDROID_HOME 'platform-tools\adb.exe'
 $Apps = [ordered]@{ K = 'com.postmaster87.golfbakeoff.k'; T = 'com.postmaster87.golfbakeoff.t' }
+# The names on the phone, his pick 2026-09-14: "GPS Custom / GPS Transistor". Bake-off K and T before.
+$AppNames = @{ K = 'GPS Custom'; T = 'GPS Transistor' }
 $Apks = @{
     K = Join-Path $here 'app\build\outputs\apk\handwritten\debug\app-handwritten-debug.apk'
     T = Join-Path $here 'app\build\outputs\apk\transistor\debug\app-transistor-debug.apk'
@@ -186,24 +188,24 @@ function Grant-All([string]$tag, [string]$pkg) {
     $dump = (Sh "dumpsys package $pkg") -join "`n"
     foreach ($p in $perms) {
         if ($dump -match "android\.permission\.$($p): granted=true") { Write-Host "  granted  $p" }
-        else { $problems += "Bake-off ${tag}: $p not granted" }
+        else { $problems += "$($AppNames[$tag]): $p not granted" }
     }
     if (((Sh 'dumpsys deviceidle whitelist') -join "`n") -match [regex]::Escape($pkg)) { Write-Host '  battery  unrestricted (Doze whitelist)' }
-    else { $problems += "Bake-off ${tag}: not on the Doze whitelist" }
+    else { $problems += "$($AppNames[$tag]): not on the Doze whitelist" }
     $bg = "$(Sh "cmd appops get $pkg RUN_ANY_IN_BACKGROUND")".Trim()
-    if ($bg -match 'allow') { Write-Host "  background  $bg" } else { $problems += "Bake-off ${tag}: RUN_ANY_IN_BACKGROUND is '$bg'" }
+    if ($bg -match 'allow') { Write-Host "  background  $bg" } else { $problems += "$($AppNames[$tag]): RUN_ANY_IN_BACKGROUND is '$bg'" }
     return $problems
 }
 
 function Read-Checklist([string]$tag) {
     $texts = @(Ui-Nodes | ForEach-Object { $_.GetAttribute('text') })
     $problems = @()
-    Write-Host "  Bake-off $tag checklist, as the app shows it:"
+    Write-Host "  $($AppNames[$tag]) checklist, as the app shows it:"
     for ($i = 0; $i -lt $texts.Count - 1; $i++) {
         $mark = "$($texts[$i])".Trim()
         if (@('OK', 'NO', '--') -contains $mark) {
             Write-Host "    $mark  $($texts[$i + 1])"
-            if ($mark -eq 'NO') { $problems += "Bake-off ${tag}: $($texts[$i + 1])" }
+            if ($mark -eq 'NO') { $problems += "$($AppNames[$tag]): $($texts[$i + 1])" }
         }
     }
     return $problems
@@ -218,10 +220,10 @@ function Show-Status {
         if ($m.Success) {
             $session = $m.Groups[1].Value
             $lines = "$(Sh "run-as $pkg sh -c 'wc -l < files/sessions/$session/fixes.csv'")".Trim()
-            Write-Host ("  Bake-off {0}: RECORDING {1}; foreground service {2}; fixes.csv {3} lines" -f $tag, $session,
+            Write-Host ("  {0}: RECORDING {1}; foreground service {2}; fixes.csv {3} lines" -f $AppNames[$tag], $session,
                 $(if ($fg) { 'running' } else { 'NOT RUNNING' }), $lines)
         } else {
-            Write-Host ("  Bake-off {0}: not recording; foreground service {1}" -f $tag, $(if ($fg) { 'running' } else { 'off' }))
+            Write-Host ("  {0}: not recording; foreground service {1}" -f $AppNames[$tag], $(if ($fg) { 'running' } else { 'off' }))
         }
     }
 }
@@ -241,9 +243,9 @@ switch ($Task) {
         if (-not (Test-Path $Apks.K) -or -not (Test-Path $Apks.T)) { Gradle @('assembleHandwrittenDebug', 'assembleTransistorDebug') }
         $problems = @()
         foreach ($tag in $Apps.Keys) {
-            Write-Host "Bake-off $tag ($($Apps[$tag]))"
+            Write-Host "$($AppNames[$tag]) ($($Apps[$tag]))"
             & $adbExe -s $script:dev install -r $Apks[$tag] | Out-Host
-            if ($LASTEXITCODE -ne 0) { throw "install of Bake-off $tag failed ($LASTEXITCODE)" }
+            if ($LASTEXITCODE -ne 0) { throw "install of $($AppNames[$tag]) failed ($LASTEXITCODE)" }
             $problems += Grant-All $tag $Apps[$tag]
         }
         Require-Unlocked
@@ -259,14 +261,15 @@ switch ($Task) {
     'samsung' {
         # Measured on the S26 (One UI 8.5), 2026-09-13: an app whose battery is Unrestricted -
         # what setup sets - is not offered in "Never auto sleeping apps". Switched to Optimized,
-        # Bake-off K was offered and added; set back to Unrestricted, Samsung removed it from
+        # Bake-off K (now GPS Custom) was offered and added; set back to Unrestricted, Samsung removed it from
         # that list. The two settings exclude each other, so this task changes nothing. It
         # reads Samsung's three lists and fails if either app is on Sleeping or Deep sleeping.
         Use-Device
         if ("$(Sh 'getprop ro.product.manufacturer')".Trim() -ne 'samsung') { throw 'Not a Samsung phone: there are no Samsung sleeping lists to check.' }
         Require-Unlocked
-        $names = @($Apps.Keys | ForEach-Object { "Bake-off $_" })
+        $names = @($Apps.Keys | ForEach-Object { $AppNames[$_] })
         $report = @()
+        $asleep = $false
         foreach ($list in @('Never auto sleeping apps', 'Sleeping apps', 'Deep sleeping apps')) {
             Sh 'input keyevent 3' | Out-Null
             # Settings reopens on whatever page it was left on, so start it fresh each time.
@@ -285,14 +288,13 @@ switch ($Task) {
                 Ui-Scroll
             }
             $on = @($names | Where-Object { $seen.Contains($_) })
+            if ($on.Count -and $list -ne 'Never auto sleeping apps') { $asleep = $true }
             $shot = Save-Screen ($list -replace '[^A-Za-z]+', '-')
-            $report += ('{0}: {1} (screenshot {2})' -f $list, $(if ($on.Count) { $on -join ', ' } else { 'neither Bake-off app' }), $shot)
+            $report += ('{0}: {1} (screenshot {2})' -f $list, $(if ($on.Count) { $on -join ', ' } else { 'neither test app' }), $shot)
         }
         Sh 'input keyevent 3' | Out-Null
         $report | ForEach-Object { Write-Host "  $_" }
-        if ($report | Where-Object { $_ -match '^(Sleeping apps|Deep sleeping apps): Bake-off' }) {
-            throw 'A Bake-off app is on a Samsung sleeping list.'
-        }
+        if ($asleep) { throw 'A test app is on a Samsung sleeping list.' }
     }
 
     'start' {
@@ -300,8 +302,8 @@ switch ($Task) {
         Require-Unlocked
         foreach ($tag in $Apps.Keys) {
             Open-App $Apps[$tag]
-            if (Ui-Find @('HOLD TO STOP')) { Write-Host "  Bake-off $tag is already recording" }
-            else { Ui-Must @('START') "START in Bake-off $tag" | Out-Null }
+            if (Ui-Find @('HOLD TO STOP')) { Write-Host "  $($AppNames[$tag]) is already recording" }
+            else { Ui-Must @('START') "START in $($AppNames[$tag])" | Out-Null }
         }
         Sh 'input keyevent 3' | Out-Null
         Start-Sleep -Seconds 8
@@ -318,9 +320,9 @@ switch ($Task) {
         Require-Unlocked
         foreach ($tag in $Apps.Keys) {
             Open-App $Apps[$tag]
-            if (Ui-Find @('HOLD TO STOP')) { Ui-Must @('HOLD TO STOP') "HOLD TO STOP in Bake-off $tag" 0 2300 | Out-Null }
-            else { Write-Host "  Bake-off $tag was not recording" }
-            Ui-Must @('EXPORT ALL TO DOWNLOADS') "EXPORT in Bake-off $tag" 4 | Out-Null
+            if (Ui-Find @('HOLD TO STOP')) { Ui-Must @('HOLD TO STOP') "HOLD TO STOP in $($AppNames[$tag])" 0 2300 | Out-Null }
+            else { Write-Host "  $($AppNames[$tag]) was not recording" }
+            Ui-Must @('EXPORT ALL TO DOWNLOADS') "EXPORT in $($AppNames[$tag])" 4 | Out-Null
             Start-Sleep -Seconds 8
         }
         Sh 'input keyevent 3' | Out-Null

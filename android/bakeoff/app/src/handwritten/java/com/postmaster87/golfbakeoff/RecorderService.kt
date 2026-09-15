@@ -148,7 +148,7 @@ class RecorderService : Service() {
         )
         val builder = Notification.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.ic_stat_rec)
-            .setContentTitle("Bake-off K recording")
+            .setContentTitle("GPS Custom recording")
             .setContentText(Sessions.active(this) ?: "")
             .setOngoing(true)
             .setContentIntent(open)

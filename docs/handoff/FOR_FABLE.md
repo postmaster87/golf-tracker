@@ -21,6 +21,12 @@ On 2026-09-14 two orders were written down: this file had 2.2, 1.1, 2.3, and
 `docs/handoff/NEXT_CHAT_2026-09-14.md` had 2.2, 2.3, 1.1. Asked which, he
 picked "2.2 → 2.3 → 1.1 (Recommended)".
 
+**Then, the same night, 2.3 moved first.** He stopped the 2.2 spawn and wrote:
+"let Fable analyze the data then we can talk about the round after it, All and
+all it was pleasant". Asked which job Fable does first, he picked "2.3: the two
+test apps" (the option said the v24 test waits), and then typed: "x-high your
+are good to go".
+
 **Fable's usage on this project, his words, 2026-09-14:** "Yes but Fable is
 restricted 10% weekly usage on this project so plan accordingly and let me pick
 if a usage choice needs made". So before every spawn Opus names the item, its
@@ -29,13 +35,14 @@ run to price from is 2.1 (effort high, 2026-09-11): 29.2 min, 138 tool calls,
 294,843 tokens reported at return. What share of his 10% that was cannot be
 seen from here.
 
-1. **2.2** - test build v24 before it is played (another walking 9 is
-   possible this week, weather permitting). Effort high.
-2. **2.3** - review the recorder bake-off apps. **xhigh, and only after he
-   types "xhigh" in the chat.** The field data is the 2026-09-14 round alone:
+1. **2.3** - review the recorder test apps. **xhigh: he typed "x-high your are
+   good to go", 2026-09-14.** The field data is the 2026-09-14 round alone:
    asked whether to wait for a carry, he picked "The round only
-   (Recommended)". Before the spawn, Opus renames the apps to his pick, "GPS
-   Custom / GPS Transistor", so Fable reviews the build that goes on the phone.
+   (Recommended)". Before the spawn, Opus renamed the apps to his pick, "GPS
+   Custom / GPS Transistor" (build bakeoff-2), so Fable reviews the build that
+   goes on the phone.
+2. **2.2** - test build v24 before it is played (another walking 9 is
+   possible this week, weather permitting). Effort high.
 3. **1.1** - review the Veenker course map before it becomes app data. Effort
    high; review only.
 
@@ -52,7 +59,7 @@ data (possibly schema - 1.1 classifies it), and shell vs full native rewrite
 
 ## 1. Critical review and requests for what is Fable's (a data model or schema change; the GPS pipeline; the strokes-gained engine or a benchmark; the export format; a migration of logged rounds; a golf/Matt call Opus cannot list)
 
-### 1.1 The Veenker course map - review before it becomes app data (2026-09-13) - READY, RUN THIRD (after 2.3)
+### 1.1 The Veenker course map - review before it becomes app data (2026-09-13) - READY, RUN THIRD (after 2.2)
 
 **His words, verbatim, in order:**
 
@@ -109,7 +116,7 @@ photo for a 903 m request (square pixels in degrees). Both are in the README.
 
 ## 2. Testing of a risky build (a build about to be played; anything touching the lock, the marks, the track, the hole windows or round save)
 
-### 2.2 Build v24 - the footer stops moving, the lock is reachable everywhere (2026-09-13) - READY, RUN FIRST
+### 2.2 Build v24 - the footer stops moving, the lock is reachable everywhere (2026-09-13) - READY, RUN SECOND (after 2.3)
 
 **Released for the night of 2026-09-14.** Held earlier on his word ("Stage what
 Fable needs but hold it up for now. I want to brainstorm ideas before going
@@ -173,7 +180,7 @@ looking at the pane. Reports from here on should stop carrying that caveat.
    split and every rejection path are unchanged; only the height source moved.
    If you judge it weakens the guard, BLOCKED with the reason.
 
-### 2.3 The recorder bake-off app - review at xhigh before it goes on the course (2026-09-13) - NEEDS HIS "xhigh"
+### 2.3 The recorder bake-off app - review at xhigh before it goes on the course (2026-09-13) - READY, RUN FIRST (his "x-high" given 2026-09-14)
 
 **Spawn with `subagent_type: "fable-xhigh"`, and only after he has typed
 "xhigh" in the chat for this item.** He was told, in the option he picked: *For
@@ -207,7 +214,12 @@ verdict; the recorder that feeds rounds, and its storage, stay yours; the bar is
 
 **Where it is:** `android/bakeoff/` (start with its `README.md`: the two apps,
 T's four changed defaults with the doc quotes, the measure, the files, the gap
-diagnosis) and `tools/track-coverage.py`. Opus's decisions and reasons are in
+diagnosis) and `tools/track-coverage.py`. **Renamed 2026-09-14**, his pick
+"GPS Custom / GPS Transistor": K is GPS Custom and T is GPS Transistor on the
+phone, build `bakeoff-2`. Only the app labels, the notification titles and
+`bakeoff.ps1`'s messages and Samsung-list check changed; the recorders, the
+application ids and the K/T tags did not (`docs/DECISIONS_LOG.md`, 2026-09-14,
+Opus). The 2026-09-14 round was recorded by the build from `44531f3`. Opus's decisions and reasons are in
 `docs/DECISIONS_LOG.md`, entries marked (Opus), 2026-09-13.
 
 **Evidence (Opus, 2026-09-13):** the README's "Verified on the emulator"
