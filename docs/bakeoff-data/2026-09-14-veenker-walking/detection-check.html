@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>2026-09-14 round — shot detection check</title>
+    <style>
+      body { margin: 0; padding: 16px; font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: #fff; color: #111; }
+      h1 { font-size: 17px; margin: 0 0 4px; }
+      h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: #555; margin: 22px 0 6px; }
+      p { max-width: 90ch; margin: 0 0 10px; }
+      table { border-collapse: collapse; margin: 0 0 14px; }
+      th, td { text-align: left; padding: 3px 12px 3px 0; border-bottom: 1px solid #ddd; vertical-align: top; }
+      th { color: #555; font-size: 11px; text-transform: uppercase; }
+      .no { color: #b00; } .yes { color: #070; } .muted { color: #777; }
+    </style>
+  </head>
+  <body>
+    <h1>Veenker, 2026-09-14, walking back nine — did the track find the shots?</h1>
+    <p>
+      Runs the shipped detection code (<code>js/round/track-analysis.js</code>) on the two tracks
+      recorded in this folder, golf-tracker's own and GPS Custom's (Bake-off K on the day), against
+      the ground truth Matt gave on 2026-09-15 and the Veenker course map. Serve the repo with
+      <code>python tools/devserver.py 8123</code> and open
+      <code>/docs/bakeoff-data/2026-09-14-veenker-walking/detection-check.html</code>.
+      Nothing here is written anywhere; it only reads.
+    </p>
+    <div id="out">running…</div>
+
+    <script type="module">
+      import { stopCandidates, proposeHoleShots } from '../../../js/round/track-analysis.js';
+      import { holeWindow } from '../../../js/round/round.js';
+      import { distanceM } from '../../../js/util/geo.js';
+
+      const TZ = 'America/Chicago';
+      const hm = (ts) => new Date(ts).toLocaleTimeString('en-GB', { timeZone: TZ });
+      const yd = (m) => Math.round(m / 0.9144);
+      const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);
+
+      /*
+       * GROUND TRUTH, and where each piece came from.
+       *
+       * Card (his scorecard photo in this folder) and putts (as he entered them in
+       * golf-tracker, hole 11 corrected by his answer "Only 1 putt").
+       *
+       * Full-shot positions on holes 13-17 are GPS Custom stands, named by the time
+       * the stand starts (CDT). "his word" = his answers, 2026-09-15, verbatim:
+       *   "15. 1st stop was the shot from 176 put to 5 yards. 2nd stop was we unloading
+       *    everything at 16 tee and a short break 14. 2nd was 151 with a tree directly in
+       *    front on me that I had to hook it around, 3rd from 29 that was my worse chip of
+       *    the day, 17. yes was a shit show"
+       *   "15. was fairway, 14, rough, and 17 2 rough shots"
+       *   "14 was a chip from the right side of the fairway - correct!"
+       * "map" = the stand lies inside a mapped tee box (checked below).
+       * "inferred" = the only long stands between tee and green; not confirmed by him.
+       */
+      const CARD = { 10: 5, 11: 3, 12: 5, 13: 3, 14: 5, 15: 4, 16: 4, 17: 5, 18: 5 };
+      const PUTTS = { 10: 2, 11: 1, 12: 2, 13: 2, 14: 2, 15: 2, 16: 1, 17: 2, 18: 2 };
+      const TRUTH = {
+        13: [['16:54:30', 'tee', 'map']],
+        14: [['17:02:08', 'tee', 'map'], ['17:07:39', 'from 151 yd, rough', 'his word'], ['17:10:02', 'chip from 29 yd, fairway', 'his word']],
+        15: [['17:13:52', 'tee', 'map'], ['17:16:45', 'from 176 yd, fairway', 'his word']],
+        16: [['17:26:37', 'tee', 'map'], ['17:30:53', 'from 252 yd', 'inferred'], ['17:34:38', 'from 103 yd', 'inferred']],
+        17: [['17:41:31', 'tee', 'map + his word'], ['17:45:15', 'from 40 yd, rough', 'his word'], ['17:46:40', 'from 23 yd, rough', 'his word']],
+      };
+      const NOT_SHOTS = { 15: [['17:19:00', 'cart at 16 tee and a short break', 'his word']] };
+      const HIS_LIES = [
+        ['14', '17:07:39', 'rough'], ['14', '17:10:02', 'fairway'], ['15', '17:16:45', 'fairway'],
+        ['17', '17:45:15', 'rough'], ['17', '17:46:40', 'rough'],
+      ];
+      // A pick is a truth stand when within 10 m of it: the same match tools/detection-scoring.html
+      // uses against marks. At 12 m (the segmenter's stop radius) a 21 s stand 11 yd further from
+      // the cup on hole 17 counted as his 40 yd shot.
+      const MATCH_M = 10;
+
+      const out = document.getElementById('out');
+      const html = [];
+      const table = (head, rows) =>
+        `<table><tr>${head.map((h) => `<th>${esc(h)}</th>`).join('')}</tr>${rows
+          .map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join('')}</tr>`)
+          .join('')}</table>`;
+
+      const exp = await (await fetch('golf-tracker-20260914-1807.json')).json();
+      const round = exp.rounds.find((r) => r.id.startsWith('r_18b4b0bb'));
+      const web = exp.tracks[round.id];
+      const csv = await (await fetch('golf-bakeoff/K/20260914-160716-K/fixes.csv')).text();
+      const lines = csv.trim().split('\n');
+      const H = lines[0].split(',');
+      const ix = (n) => H.indexOf(n);
+      const K = lines.slice(1).map((l) => l.split(',')).filter((c) => c.length === H.length).map((c) => ({
+        lat: +c[ix('lat')], lon: +c[ix('lon')], acc: c[ix('acc_m')] === '' ? null : +c[ix('acc_m')],
+        ts: +c[ix('fix_ms')], speed: c[ix('speed_mps')] === '' ? null : +c[ix('speed_mps')],
+      }));
+      const tsOf = (p) => (Array.isArray(p) ? p[3] : p.ts);
+      const byNum = (n) => round.holes.find((h) => h.number === n);
+      const TRACKS = [['golf-tracker', web], ['GPS Custom', K]];
+
+      // The course map: tee boxes, greens, fairways, bunkers.
+      const map = await (await fetch('../../course-map/veenker/osm_full.json')).json();
+      const polys = [];
+      for (const e of map.elements || []) {
+        const g = e.tags?.golf;
+        if (!['tee', 'green', 'fairway', 'bunker'].includes(g)) continue;
+        const rings = e.type === 'way' && e.geometry ? [e.geometry.map((p) => [p.lat, p.lon])]
+          : e.type === 'relation' ? (e.members || []).filter((m) => m.role === 'outer' && m.geometry).map((m) => m.geometry.map((p) => [p.lat, p.lon])) : [];
+        for (const ring of rings) if (ring.length >= 3) polys.push({ golf: g, ring });
+      }
+      const inside = (pt, ring) => {
+        let c = false;
+        for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+          const [yi, xi] = ring[i], [yj, xj] = ring[j];
+          if ((yi > pt.lat) !== (yj > pt.lat) && pt.lon < ((xj - xi) * (pt.lat - yi)) / (yj - yi) + xi) c = !c;
+        }
+        return c;
+      };
+      const R = 6371008.8, rad = Math.PI / 180;
+      const enu = (p, o) => [(p[1] - o.lon) * rad * R * Math.cos(o.lat * rad), (p[0] - o.lat) * rad * R];
+      const edgeDist = (pt, ring) => {
+        let best = Infinity;
+        for (let i = 0; i < ring.length; i++) {
+          const a = enu(ring[i], pt), b = enu(ring[(i + 1) % ring.length], pt);
+          const dx = b[0] - a[0], dy = b[1] - a[1];
+          const t = Math.max(0, Math.min(1, -(a[0] * dx + a[1] * dy) / (dx * dx + dy * dy || 1)));
+          best = Math.min(best, Math.hypot(a[0] + t * dx, a[1] + t * dy));
+        }
+        return best;
+      };
+      const inKind = (pt, kind) => polys.some((p) => p.golf === kind && inside(pt, p.ring));
+      const nearestEdge = (pt, kind) => Math.min(...polys.filter((p) => p.golf === kind).map((p) => edgeDist(pt, p.ring)));
+      const mapLie = (pt) => (inKind(pt, 'green') ? 'green' : inKind(pt, 'bunker') ? 'sand' : inKind(pt, 'tee') ? 'tee' : inKind(pt, 'fairway') ? 'fairway' : 'rough');
+
+      // GPS Custom's stands, and each truth time resolved to one.
+      const kStops = stopCandidates(K);
+      const standAt = (hms) => kStops.find((c) => hm(c.startTs) === hms) ?? null;
+      const truthStands = {};
+      const unresolved = [];
+      for (const [n, list] of Object.entries(TRUTH)) {
+        truthStands[n] = list.map(([t, what, src]) => {
+          const s = standAt(t);
+          if (!s) unresolved.push(`${n} ${t}`);
+          return { t, what, src, s };
+        });
+      }
+      if (unresolved.length) html.push(`<p class="no">Truth stands not found in GPS Custom's track: ${esc(unresolved.join(', '))}</p>`);
+
+      /* ---- 1. holes 13-17: what the ranking picked ---- */
+      html.push('<h2>1. Holes 13-17, 12 full shots: what the ranking picked</h2>');
+      html.push('<p>A pick is <span class="yes">right</span> when it is within ' + MATCH_M + ' m of a truth stand for that hole. Otherwise it is labelled: the previous or this hole\'s green (within 15 yd of a cup mark), a walking pause (under 20 s), a known non-shot, or other. "As on course" is the window the app would have used when he typed the putts; "cup to cup" runs from the previous hole\'s cup mark to this one\'s.</p>');
+      const tally = {};
+      const rows = [];
+      for (const n of [13, 14, 15, 16, 17]) {
+        const hole = byNum(n), prev = byNum(n - 1), full = CARD[n] - PUTTS[n];
+        const modes = [
+          ['as on course', holeWindow(round, hole, { now: Date.parse(hole.greenEntry.enteredAt) })],
+          ['cup to cup', { fromTs: Date.parse(prev.cup.ts), toTs: Date.parse(hole.cup.ts) }],
+        ];
+        for (const [tname, tr] of TRACKS) {
+          for (const [mname, w] of modes) {
+            const pts = tr.filter((p) => tsOf(p) >= w.fromTs - 600000 && tsOf(p) <= w.toTs + 600000);
+            const r = proposeHoleShots(pts, { fullShots: full, fromTs: w.fromTs, toTs: w.toTs });
+            const key = `${tname} | ${mname}`;
+            tally[key] ??= { right: 0, of: 0 };
+            const used = new Set();
+            const labels = r.proposed.map((c) => {
+              const hit = truthStands[n].find((ts, i) => ts.s && !used.has(i) && distanceM(c, ts.s) <= MATCH_M);
+              if (hit) { used.add(truthStands[n].indexOf(hit)); return `<span class="yes">right: ${esc(hit.what)}</span>`; }
+              if (distanceM(c, prev.cup) <= 15 * 0.9144) return `<span class="no">hole ${prev.number}'s green</span>`;
+              if (distanceM(c, hole.cup) <= 15 * 0.9144) return '<span class="no">this green</span>';
+              const not = (NOT_SHOTS[n] ?? []).map(([t, what]) => [standAt(t), what]).find(([s]) => s && distanceM(c, s) <= MATCH_M);
+              if (not) return `<span class="no">${esc(not[1])}</span>`;
+              if (c.dwellMs < 20000) return '<span class="no">walking pause</span>';
+              return '<span class="no">other</span>';
+            });
+            tally[key].right += used.size;
+            tally[key].of += full;
+            const missed = truthStands[n].filter((ts, i) => !used.has(i)).map((ts) => ts.what);
+            rows.push([n, esc(tname), esc(mname), full,
+              r.proposed.map((c, i) => `${hm(c.startTs)} ${Math.round(c.dwellMs / 1000)} s, ${yd(distanceM(c, hole.cup))} yd: ${labels[i]}`).join('<br>'),
+              missed.length ? esc(missed.join('; ')) : '<span class="muted">none</span>']);
+          }
+        }
+      }
+      html.push(table(['hole', 'track', 'window', 'full shots', 'picks', 'truth not picked'], rows));
+      html.push(table(['track | window', 'picked right'], Object.entries(tally).map(([k, v]) => [esc(k), `${v.right} of ${v.of}`])));
+
+      /* ---- 2. were the shots in the track at all ---- */
+      html.push('<h2>2. Holes 13-17: is each shot a stand in the track?</h2>');
+      const rec = [];
+      for (const [tname, tr] of TRACKS) {
+        const stops = tname === 'GPS Custom' ? kStops : stopCandidates(tr);
+        let found = 0, of = 0;
+        const miss = [];
+        for (const [n, list] of Object.entries(truthStands)) for (const ts of list) {
+          if (!ts.s) continue;
+          of++;
+          const hit = stops.find((c) => distanceM(c, ts.s) <= MATCH_M && c.dwellMs >= 20000 && c.endTs >= ts.s.startTs - 60000 && c.startTs <= ts.s.endTs + 60000);
+          if (hit) found++; else miss.push(`${n}: ${ts.what}`);
+        }
+        rec.push([esc(tname), `${found} of ${of}`, miss.length ? esc(miss.join('; ')) : '<span class="muted">none</span>']);
+      }
+      html.push('<p>A stand of 20 s or more within ' + MATCH_M + ' m of the truth stand, at the same time (±60 s).</p>');
+      html.push(table(['track', 'shots with a stand', 'missing'], rec));
+
+      /* ---- 3. hand-marked holes, the detection-scoring measure ---- */
+      html.push('<h2>3. Holes 10-12 and 18: the tools/detection-scoring.html measure on hand marks</h2>');
+      html.push('<p>Match within 10 m. Marks the app inserted from the track (<code>source: track</code>) are not ground truth and are left out. Full shots exclude green marks and hole 12\'s fourth mark, which he said was his ball on the green.</p>');
+      const meas = [];
+      for (const [tname, tr] of TRACKS) {
+        for (const which of ['all hand marks', 'full shots only']) {
+          let tot = 0, found = 0, hit = 0;
+          for (const n of [10, 11, 12, 18]) {
+            const hole = byNum(n);
+            let marks = hole.shots.filter((s) => s.mark?.lat != null && s.source !== 'track');
+            if (which === 'full shots only') marks = marks.filter((s) => s.lie !== 'green' && !(n === 12 && s.seq === 4));
+            const w = holeWindow(round, hole, { now: Date.parse(round.completedAt) + 3.6e6 });
+            const cs = stopCandidates(tr.filter((p) => tsOf(p) >= w.fromTs && tsOf(p) <= w.toTs));
+            const near = (c, m) => distanceM({ lat: c.lat, lon: c.lon }, m.mark) <= 10;
+            tot += marks.length;
+            found += marks.filter((m) => cs.some((c) => near(c, m))).length;
+            const picked = [...cs].sort((a, b) => b.score - a.score).slice(0, marks.length);
+            hit += marks.filter((m) => picked.some((c) => near(c, m))).length;
+          }
+          meas.push([esc(tname), esc(which), tot, `${found} of ${tot}`, `${hit} of ${tot}`]);
+        }
+      }
+      html.push(table(['track', 'marks', 'n', 'position in track', 'selected by score'], meas));
+
+      /* ---- 4. the course map ---- */
+      html.push('<h2>4. The course map</h2>');
+      const teeRows = [];
+      for (const [n, list] of Object.entries(truthStands)) {
+        const tee = list.find((ts) => ts.what === 'tee');
+        if (tee?.s) teeRows.push([`${n} tee stand ${tee.t}`, inKind(tee.s, 'tee') ? '<span class="yes">inside a tee box</span>' : `<span class="no">outside, ${nearestEdge(tee.s, 'tee').toFixed(1)} m</span>`]);
+      }
+      for (const n of [10, 11, 12, 18]) {
+        const s = byNum(n).shots.find((x) => x.lie === 'tee' && x.source === 'gps');
+        if (s) teeRows.push([`${n} tee, marked by hand`, inKind(s.mark, 'tee') ? '<span class="yes">inside a tee box</span>' : `<span class="no">outside, ${nearestEdge(s.mark, 'tee').toFixed(1)} m</span>`]);
+      }
+      for (const n of [16, 17]) {
+        const s = byNum(n).shots.find((x) => x.source === 'track');
+        if (s) teeRows.push([`${n} tee the app inserted from its track`, inKind(s.mark, 'tee') ? '<span class="yes">inside a tee box</span>' : `<span class="no">outside, ${nearestEdge(s.mark, 'tee').toFixed(1)} m</span>`]);
+      }
+      html.push(table(['position', 'mapped tee boxes'], teeRows));
+      const lieRows = HIS_LIES.map(([n, t, his]) => {
+        const s = standAt(t);
+        if (!s) return [n, t, his, '<span class="no">stand not found</span>', ''];
+        const m = mapLie(s);
+        return [n, t, esc(his), m === his ? `<span class="yes">${m}</span>` : `<span class="no">${m}</span>`,
+          `fairway edge ${nearestEdge(s, 'fairway').toFixed(1)} m, green edge ${nearestEdge(s, 'green').toFixed(1)} m`];
+      });
+      html.push('<p>His lie against the map\'s: inside a green, bunker, tee or fairway polygon, else rough. The stand is where he stood, not where the ball sat.</p>');
+      html.push(table(['hole', 'stand', 'his lie', 'map lie', 'nearest edges'], lieRows));
+
+      /* ---- 5. the play-through on 12's tee ---- */
+      html.push('<h2>5. Hole 12 tee: the play-through</h2>');
+      html.push('<p>His words, 2026-09-15: "i had to let someone play through on 12 tee so you should see a long break there".</p>');
+      const teeMark = byNum(12).shots.find((s) => s.lie === 'tee').mark;
+      const wait12 = kStops.filter((c) => Math.abs(c.endTs - Date.parse(teeMark.ts)) < 120000 && c.dwellMs >= 120000);
+      html.push(table(['stand', 'dwell', 'from the tee mark', 'on a tee box'], wait12.map((c) => [
+        `${hm(c.startTs)}-${hm(c.endTs)}`, `${Math.round(c.dwellMs / 1000)} s`, `${distanceM(c, teeMark).toFixed(1)} m`, String(inKind(c, 'tee')),
+      ])));
+      html.push(`<p>Tee mark at ${hm(Date.parse(teeMark.ts))}.</p>`);
+
+      out.innerHTML = html.join('\n');
+      console.log('DETECTION_CHECK ' + Object.entries(tally).map(([k, v]) => `${k}=${v.right}/${v.of}`).join(' '));
+    </script>
+  </body>
+</html>

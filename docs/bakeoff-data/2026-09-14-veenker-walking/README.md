@@ -161,6 +161,68 @@ as new records: 6 records for 5 strokes. It bears on the green flow planned for
 the native app (`docs/HANDOFF-native-build.md`, Section 7: mark cup, mark putt
 1, score). Nothing is queued for it.
 
+## Shot detection, checked against his answers and the course map (2026-09-15)
+
+He asked, 2026-09-15: "correct. Did you find all the shots on 13-17. That was
+my intent to test the tracker". His answers, verbatim, in order:
+
+> "15. 1st stop was the shot from 176 put to 5 yards. 2nd stop was we unloading everything at 16 tee and a short break 14. 2nd was 151 with a tree directly in front on me that I had to hook it around, 3rd from 29 that was my worse chip of the day, 17. yes was a shit show"
+
+> "15. was fairway, 14, rough, and 17 2 rough shots"
+
+> "i had to let someone play through on 12 tee so you should see a long break there"
+
+> "14 was a chip from the right side of the fairway - correct!"
+
+On 17, his "yes" confirmed a tee shot from about 138 yd and shots from about
+40 and 23 yd.
+
+**Reproduce:** serve the repo (`python tools/devserver.py 8123`) and open
+`/docs/bakeoff-data/2026-09-14-veenker-walking/detection-check.html`. It runs
+the shipped `js/round/track-analysis.js` on golf-tracker's track and on GPS
+Custom's (Bake-off K on the day), against the answers above and
+`docs/course-map/veenker/osm_full.json`. It only reads. A pick counts as right
+within 10 m of the shot's stand, the same match `tools/detection-scoring.html`
+uses against marks.
+
+**Results, n = 1 round:**
+
+| | golf-tracker's track | GPS Custom's track |
+|---|---|---|
+| Holes 13-17: full shots with a stand of 20 s or more (n = 12) | 9 (hole 17's three fall in its screen-off gap) | 12 |
+| Picked right, with the window the app would have used on the course | 6 | 5 |
+| Picked right, with the window from cup mark to cup mark | 6 | 7 |
+| Holes 10-12 and 18: hand-marked full shots with a stop within 10 m (n = 10) | 9 | 9 |
+| ... and selected by the ranking | 5 | 5 |
+
+Of the 12 full shots on 13-17, 10 positions are known (a stand inside a mapped
+tee box, or his word) and 2 are inferred: hole 16's stands at 252 and 103 yd,
+the only long stands between its tee and green.
+
+**Why picks went wrong**, each visible in the page:
+
+- **The previous green.** He marks the cup, then putts, so the putting stand
+  falls into the next hole's window. It was picked as a shot on 14, 16 and 17.
+- **A long stand that is not a shot beats a real one on dwell.** The cart break
+  at 16's tee (145 s) was picked on 15 with every track and window.
+- **Walking with a push cart** breaks into 10-15 s stops; one was picked on 17.
+- **Chips near the green are ranked down** while enough other stops remain:
+  17's shots from 40 and 23 yd.
+- **A window that closes when he types the putts at the next tee** makes "the
+  last stop is the green" point at that tee: on 13, GPS Custom's putting stand
+  was picked as the tee shot.
+
+**The course map:** all five tee stands on 13-17 and all four hand-marked tees
+(10, 11, 12, 18) are inside mapped tee boxes. The two tees the app inserted
+from its own track are not: 16's by 18.7 m (the cart spot) and 17's by 6.8 m
+(a walking pause). His five lies all match the map (n = 5); two sit within 4 m
+of a fairway edge (0.6 m and 3.0 m).
+
+**12's tee:** one GPS Custom stand of 542 s (16:33:29-16:42:31) ends at the tee
+mark (16:42:34), centred 12.1 m from it and outside the tee box. The
+play-through wait and the tee shot are one stand, which is why 12's tee was the
+one hand mark with no stop within 10 m.
+
 ## For Fable
 
 This is field evidence for item 2.3 in `docs/handoff/FOR_FABLE.md`, reviewed at
