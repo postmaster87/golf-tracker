@@ -1,0 +1,14 @@
+{
+  "session": "20260914-160724-T",
+  "recorder_tag": "T",
+  "recorder": "T: transistorsoft tslocationmanager 4.5.1, debug build. Raw fixes (PassThrough, no Kalman), stop detection off, 1 Hz.",
+  "app_version": "bakeoff-1",
+  "application_id": "com.postmaster87.golfbakeoff.t",
+  "started_wall_ms": 1789420044117,
+  "device": "samsung SM-S942U",
+  "android": "16",
+  "sdk_int": 36,
+  "gap_threshold_ms": 20000,
+  "pass_covered_pct": 99,
+  "state_at_start": "screen_on=1;doze=0;battery_saver=0;unrestricted=1;bg_restricted=0;standby_bucket=5;thermal=0;battery_pct=90;charging=0;music=0;location_on=1"
+}

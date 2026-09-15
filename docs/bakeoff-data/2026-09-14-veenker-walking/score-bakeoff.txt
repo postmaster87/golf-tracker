@@ -1,0 +1,24 @@
+﻿| Source | Span | Fixes | Covered | Gaps > 20 s | Longest gap | Median accuracy | Bar |
+|---|---|---|---|---|---|---|---|
+| 20260914-160716-K | 120.6 min | 7,237 | 120.6 min (100.0%) | 0 | 0.0 min (2 s) | 3.1 m | PASS |
+
+recorder: K: hand-written Kotlin. Fused location, high accuracy, 1 Hz, foreground service with a partial wake lock.
+device: samsung SM-S942U, Android 16
+session: START 16:07:16 -> STOP 18:07:54 (120.6 min); fixes cover 120.6 min of it
+phone battery (whole phone): 90% -> 78% over 2.0 h
+rows skipped: 0; repeated fix times: 0; SDK samples: 0
+events: availability 2, hb 1445, log_close 1, log_open 1, log_reopen 1, recorder_halt 1, screen_off 2, screen_on 2, start 1, stop 1, updates_on 1
+
+| Source | Span | Fixes | Covered | Gaps > 20 s | Longest gap | Median accuracy | Bar |
+|---|---|---|---|---|---|---|---|
+| 20260914-160724-T - app log | 120.7 min | 7,256 | 120.7 min (100.0%) | 0 | 0.0 min (2 s) | 3.1 m | PASS |
+| 20260914-160724-T - SDK store (sdk-store-20260914-180811.json) | 120.7 min | 7,249 | 120.7 min (100.0%) | 0 | 0.0 min (2 s) | 3.1 m | PASS |
+
+recorder: T: transistorsoft tslocationmanager 4.5.1, debug build. Raw fixes (PassThrough, no Kalman), stop detection off, 1 Hz.
+device: samsung SM-S942U, Android 16
+session: START 16:07:24 -> STOP 18:08:09 (120.8 min); fixes cover 120.7 min of it
+phone battery (whole phone): 90% -> 78% over 2.0 h
+rows skipped: 0; repeated fix times: 10; SDK samples: 0
+SDK store: 7249 rows in the session window; repeated fix times: 4
+events: hb 1447, log_close 1, log_open 1, screen_off 2, screen_on 2, sdk_delivery_route 1, sdk_motionchange 2, sdk_ready_on_resume 3, sdk_started 1, sdk_stop_requested 1, start 1, stop 1
+

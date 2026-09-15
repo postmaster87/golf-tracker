@@ -1,0 +1,7 @@
+﻿rounds started 2026-09-14 in the export: ['r_18b4b0bb-701c-4bd8-83a5-a728617c2cde']
+golf-tracker track: 16:08:04 -> 18:07:29, 8579 fixes, 5 gaps over 20 s
+  gap 16:58:27 -> 17:02:23 (236 s): K fixes inside 235, T fixes inside 235; phone events within 60 s: none
+  gap 17:09:51 -> 17:10:12 (21 s): K fixes inside 21, T fixes inside 21; phone events within 60 s: none
+  gap 17:21:18 -> 17:22:35 (77 s): K fixes inside 76, T fixes inside 76; phone events within 60 s: none
+  gap 17:41:17 -> 17:47:41 (384 s): K fixes inside 383, T fixes inside 383; phone events within 60 s: 17:41:18 screen_off, 17:47:34 screen_on, 17:47:36 screen_off, 17:47:36 screen_on
+  gap 17:49:31 -> 17:50:35 (64 s): K fixes inside 64, T fixes inside 64; phone events within 60 s: none

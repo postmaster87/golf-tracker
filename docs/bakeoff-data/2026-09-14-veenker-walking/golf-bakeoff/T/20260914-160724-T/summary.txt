@@ -1,0 +1,13 @@
+session          20260914-160724-T
+recorder         T: transistorsoft tslocationmanager 4.5.1, debug build. Raw fixes (PassThrough, no Kalman), stop detection off, 1 Hz.
+measure          HANDOFF-native-build.md Section 9: covered = fix intervals of 20 s or less
+span             120.7 min
+fixes            7256
+rows skipped     0
+covered          120.7 min (100.0%)
+gaps over 20 s   0
+longest gap      1.6 s
+median accuracy  3.1 m
+bar              PASS (99% covered, no gap over 20 s)
+
+This file is a convenience. The verdict comes from tools/track-coverage.py on the PC.

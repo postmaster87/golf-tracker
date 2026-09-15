@@ -76,6 +76,7 @@ Every number was measured this session, with its n.
 | **Opus builds the bake-off app** (it measures coverage and never feeds a round). Fable reviews it at xhigh before it goes on the course and gives the pass/fail verdict. The recorder that feeds rounds, and its storage, stay Fable's | Picked *"Opus builds, Fable reviews (Recommended)"*, 2026-09-13 |
 | **Pass bar:** 99% coverage and no gap over 20 s, on the Section 9 measure, across a round-length carry with the screen locked and a music app in use | Picked *"99% coverage, no gap > 20 s (Recommended)"*, 2026-09-13 |
 | Installs for the build | *"You may install whatever is needed"*, 2026-09-13 |
+| The 2026-09-14 walking round's data is committed for Fable: `docs/bakeoff-data/2026-09-14-veenker-walking/`. It is pushed to branch `bakeoff-data-2026-09-14`, not `main`, so v24 does not deploy before Fable's test | *"put all this data in a spot for Fable to pick it up in a new chat under your guidance. Commit and push it once processed"*, then picked *"Push to a branch (Recommended)"* |
 
 ## 4. Still open - his call
 
@@ -115,6 +116,12 @@ Recommendations below are Opus's, not his.
   smoke-tested on the emulator (`android/bakeoff/`, README first). Next:
   Fable's item 2.3 at xhigh (it needs his "xhigh" in the chat first), then a
   carry, then rounds.
+- **2026-09-14:** the apps were set up on his S26 (`bakeoff.ps1 setup`) and ran
+  through the first walking round at Veenker. Both passed (0 gaps in 2 h, n = 1
+  round), while golf-tracker's web track had 5 gaps, the longest 384 s. The
+  screen was on 95% of the time, so the locked-screen condition is still
+  untested. Data: `docs/bakeoff-data/2026-09-14-veenker-walking/`. Next:
+  his "xhigh", then Fable's queue 2.2, 2.3, 1.1.
 
 ## 6. Architecture notes
 

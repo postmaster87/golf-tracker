@@ -1,0 +1,10 @@
+﻿## golf-tracker-20260914-1807.json
+| Source | Span | Fixes | Covered | Gaps > 20 s | Longest gap | Median accuracy | Bar |
+|---|---|---|---|---|---|---|---|
+| Veenker Memorial 2026-09-14 (r_18b4b0bb) | 119.4 min | 8,579 | 106.4 min (89.1%) | 5 | 6.4 min (384 s) | 3.0 m | - |
+| Veenker Memorial 2026-09-11 (r_1792abc1) | 141.2 min | 4,585 | 62.0 min (43.9%) | 6 | 65.6 min (3934 s) | 3.1 m | - |
+| Veenker Memorial 2026-09-11 (r_bbd02109) | 0.1 min | 5 | 0.1 min (100.0%) | 0 | 0.0 min (2 s) | 6.3 m | - |
+| Veenker Memorial 2026-09-09 (r_bd6dc819) | 75.3 min | 5,913 | 72.0 min (95.5%) | 4 | 1.6 min (97 s) | 3.0 m | - |
+| Veenker Memorial 2026-09-09 (r_de5532ac) | 27.7 min | 959 | 14.2 min (51.2%) | 3 | 11.2 min (672 s) | 3.8 m | - |
+| Veenker Memorial 2026-09-03 (r_41fdfed4) | 71.3 min | 49 | 0.5 min (0.7%) | 1 | 70.8 min (4249 s) | 8.8 m | - |
+

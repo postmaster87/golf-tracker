@@ -218,6 +218,36 @@ section has every number. In short:
   `changePace`. Android's restart backoff took about 57 s on a second kill
   minutes after the first.
 
+**Field evidence (Opus, 2026-09-14):** the first round with both apps. He
+walked Veenker 16:07-18:08 with golf-tracker v23 on the same phone. The data
+is committed at `docs/bakeoff-data/2026-09-14-veenker-walking/` (README
+first), on branch `bakeoff-data-2026-09-14`. His words: "put all this data in
+a spot for Fable to pick it up in a new chat under your guidance. Commit and
+push it once processed". On the push he picked "Push to a branch
+(Recommended)", so `main` is not pushed.
+
+Measured, n = 1 round:
+
+| Recorder | Fixes | Gaps > 20 s | Longest gap | Median accuracy | Bar |
+|---|---|---|---|---|---|
+| K | 7,237 | 0 | 2 s | 3.1 m | PASS |
+| T, app log | 7,256 | 0 | 2 s | 3.1 m | PASS |
+| T, SDK store | 7,249 | 0 | 2 s | 3.1 m | PASS |
+| golf-tracker's own track | 8,579 | 5 | 384 s | 3.0 m | - |
+
+K and T each kept 235 / 21 / 76 / 383 / 64 fixes inside golf-tracker's five
+gaps. The 384 s gap lines up with screen_off 17:41:18 to screen_on 17:47:34.
+The screen was on at 95% of heartbeats and music at 0%, so the bar's
+locked-screen condition was not met. Phone battery went 90% → 78% over 2.0 h
+(the whole phone). T had 10 repeated fix times in its log and 4 in its store,
+with no kill.
+
+**Asked of Fable about this round (with 1-10 below):**
+- Reproduce the numbers from the committed files (commands in that README).
+- Does this round count toward the verdict, given the screen was on for 95% of
+  it?
+- What does a fair locked-screen test need?
+
 **Asked of Fable (xhigh on his word):**
 1. **K:** fused `PRIORITY_HIGH_ACCURACY`, 1 s, `minUpdateDistance 0`,
    `maxUpdateDelay 0`, `GRANULARITY_FINE`, a `location` foreground service,

@@ -1,0 +1,13 @@
+session          20260914-160716-K
+recorder         K: hand-written Kotlin. Fused location, high accuracy, 1 Hz, foreground service with a partial wake lock.
+measure          HANDOFF-native-build.md Section 9: covered = fix intervals of 20 s or less
+span             120.6 min
+fixes            7237
+rows skipped     0
+covered          120.6 min (100.0%)
+gaps over 20 s   0
+longest gap      1.9 s
+median accuracy  3.1 m
+bar              PASS (99% covered, no gap over 20 s)
+
+This file is a convenience. The verdict comes from tools/track-coverage.py on the PC.
