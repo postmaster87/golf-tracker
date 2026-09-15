@@ -9,6 +9,43 @@ never "Fable decided".
 
 Opus's solo decisions are logged here too, marked (Opus).
 
+## 2026-09-14 - Item 2.2: v24 FAILS for the course on the lie fold; the lock strip fixed here; zoneOf approved
+- **Decision:** verdict FAIL, on one defect only - at burst end the lie grid
+  is below `.body`'s bottom edge (360 x 780: row 1 by 39 px, row 2 entirely;
+  375 x 812: row 2 by 46 px). The lock, the marks, the round save and the
+  `zoneOf` change all pass. v24 stays off the phone.
+- **Made alone:** (1) fixed the card growing into the LOCK strip in
+  `css/base.css` (`minmax(0, 1fr)` columns, card padding 12 -> 6 px, lie
+  labels 16 -> 14 px) - a design-rule violation on the course path with one
+  answer, so no BLOCKED for it; (2) three lie columns kept rather than two -
+  two would drop the third row 74 px lower on a card already below the fold;
+  (3) the fold left to Opus (his screen; what is on it at burst end is a
+  course call for Matt through Opus's chat) with two layout-agnostic
+  acceptance tests committed RED on purpose; (4) the Settings "Show scoring
+  and distances" seg, 32 px under the tab when scrolled level, named for
+  Opus and not fixed (same cause, off the course path); (5) no `BUILD.id`
+  bump - v24 has never been deployed; (6) `idleMs` raised to 600 s in the sim
+  page for the measurements after the 30 s auto-lock fired under scripted
+  clicks; (7) the "known intermittent" caveat dropped from `CLAUDE.md` and
+  `.claude/agents/fable.md` - diagnosis confirmed (hidden pane, no viewport
+  emulation: `window.innerHeight` 0; with an emulation set it reports the
+  emulated height, which is why the failure came and went across sessions).
+- **Why FAIL and not a fix:** the card and the constant footer do not both
+  fit in the 184 px the body has at 360 x 780; something on his course screen
+  has to give (grid first in the card, the club grid behind a toggle, smaller
+  lie buttons, the boxed field's padding) and that is a design choice, not a
+  master-level fix.
+- **Checked:** suite 501/501 x3 baseline (pane hidden, `innerHeight` 0);
+  mutation `zoneOf` -> `window.innerHeight` fails exactly "the deliberate
+  gesture unlocks" (500/501); strip tests 4/4 fail with the fix stashed out at
+  both widths; final tree 505/509 x3 with the four RED named. 11 sheet kinds
+  + 3 confirm sheets at 375 x 812 and 8 at 360 x 780: 22 px clearance, 0
+  under the tab. 1 sim round: 5 shots, cup under LOCK, gaps gate, finish,
+  `status completed`, key present after reload.
+- **Changed:** `css/base.css`, `test/run.js`, `test/index.html`, `CLAUDE.md`,
+  `.claude/agents/fable.md`, `docs/handoff/FOR_FABLE.md` (Answered line),
+  this file. **Report:** `docs/handoff/REPORT_2.2.md` (+ PDF).
+
 ## 2026-09-14 - Fable's four small changes from 2.3, made (Opus)
 - **Decision:** his words, "make the four changes, then run 2.2". The four
   changes `docs/handoff/REPORT_2.3.md` recommends (Sections 4, 7, 8 and 11) are

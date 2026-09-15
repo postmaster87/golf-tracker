@@ -589,9 +589,53 @@ input[type='text'] {
 .body > .capture {
   border: 1px solid var(--line);
   border-radius: 14px;
-  padding: 12px;
+  /* 6 px at the sides, not 12: every pixel here comes off the lie buttons. */
+  padding: 12px 6px;
   margin-bottom: 12px;
   background: var(--surface);
+  /* The card fits the body; it never widens to its contents. */
+  min-width: 0;
+  max-width: 100%;
+}
+
+/*
+ * IN THE CARD THE GRIDS FIT. THEY DO NOT GROW.
+ *
+ * A grid column is `minmax(auto, 1fr)` by default: a label wider than its
+ * share pushes the column, and the card with it, out past the body's content
+ * box - which is the strip reserved for the LOCK tab. Measured on the sim with
+ * the lie outstanding (Fable, item 2.2, 2026-09-14): the card ended at x=307
+ * whatever the width, so at 375 px the club chips "5" and "PW" were 6 px UNDER
+ * the tab and at 360 px the right-hand column of everything in the card was
+ * 23 px under it - a thumb going for a lie or a club locked the phone. The
+ * footer had 40 px more room for the same grids in v23 (no card padding, a
+ * narrower strip), which is why this only appeared when they moved into the
+ * body.
+ *
+ * `minmax(0, 1fr)` pins the columns to their share whatever the labels
+ * measure, so the strip is protected by construction. Three lie columns stay:
+ * two would put the third row below the footer and need a scroll to reach
+ * RECOVERY and GREEN. The labels drop from 16 to 14 px with no tracking so
+ * RECOVERY (the widest) fits its 74 px column at 360 px wide.
+ */
+.body > .capture .lie-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.body > .capture .lie-grid .seg-btn {
+  font-size: 14px;
+  letter-spacing: 0;
+  padding-inline: 0;
+  min-width: 0;
+}
+
+.body > .capture .club-grid {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.body > .capture .club-grid > button {
+  padding-inline: 2px;
+  min-width: 0;
 }
 
 .cap-head {

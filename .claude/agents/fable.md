@@ -110,13 +110,12 @@ course) goes back as BLOCKED with the question. A small decision does not.
   (that is `tools/devserver.py 8123`; never `python -m http.server`, it
   sends no cache headers and a run can pass against deleted code). The
   suite is `http://localhost:8123/test/` and runs against the shipped
-  modules. Record passed/failed counts. **One failure is known and
-  intermittent** - "the deliberate gesture unlocks" in the pocket-lock
-  group, present on an untouched baseline before 2026-09-10 - and it is
-  named in the report every time, never folded into "green". Build v24
-  (`84da7f4`) diagnoses it as a hidden-pane artifact
-  (`window.innerHeight` is 0, so the unlock zones vanished) and item 2.2 asks
-  you to confirm; once you have, drop this caveat here and in `CLAUDE.md`.
+  modules. Record passed/failed counts. The old "known intermittent"
+  pocket-lock failure is closed (item 2.2, 2026-09-14: a hidden pane with no
+  viewport emulation reports `window.innerHeight` 0; `zoneOf` now measures
+  the overlay); a failure there is real. Any test left RED on purpose as an
+  acceptance bar for Opus (the two lie-card tests from 2.2, until the card is
+  reworked) is named in every report, never folded into "green".
 - On-course flows are driven with `?sim=1` (synthetic GPS,
   `js/dev/sim.js`). A hidden preview tab throttles timers; drive long runs
   as background scripts in the page and poll.

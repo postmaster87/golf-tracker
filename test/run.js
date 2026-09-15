@@ -4225,6 +4225,144 @@ export async function runLockReachTests() {
   });
 }
 
+/* ---------------------------------- the capture card stays out of the strip */
+
+/**
+ * The lie is answered on a card in the body since v24, and the body reserves
+ * the lock tab's strip. That is only a guarantee if the card fits the body: a
+ * grid column is `minmax(auto, 1fr)` by default, so a grid whose labels are
+ * wider than their share grows past its container instead of shrinking - and
+ * on the sim at 375x812 (Fable, item 2.2, 2026-09-14) the club chips "5" and
+ * "PW" ended 6 px under the LOCK tab, and the lie grid 15 px past the card's
+ * edge. A thumb going for a lie or a club at the right end of its row locks
+ * the phone instead. The mark is already saved by then, so it costs a lock
+ * and an unlock, not data; but "nothing tappable under the tab, on any
+ * screen" is the rule the tab sits above the sheets on.
+ *
+ * Measured against the real CSS at an explicit width, so a hidden pane (which
+ * lays out at 0 px wide) cannot make it pass vacuously: every button in the
+ * card, during the burst and with the lie outstanding, must end inside the
+ * body's content box - left of the strip, not merely left of the tab.
+ */
+export async function runCaptureReachTests() {
+  group('the capture card stays out of the lock strip');
+
+  const css = await fetch('../css/base.css').then((r) => r.text());
+  const style = document.createElement('style');
+  style.textContent = css;
+  document.head.appendChild(style);
+
+  const wait = (ms = 30) => new Promise((r) => setTimeout(r, ms));
+  const gutter = parseFloat(
+    getComputedStyle(document.documentElement).getPropertyValue('--lock-tab-gutter')
+  );
+  pocketLock.enable();
+
+  // A fresh round and screen per size, pinned to the top-left corner at a
+  // phone's width and height so the rects read like a phone.
+  const at = async (width, height) => {
+    const gps = heldGps(TEE);
+    const round = par4Round();
+    const screen = playScreen({
+      app: newAppState(),
+      round,
+      gps,
+      params: {},
+      go() {},
+      persistRound() {},
+      persistApp() {},
+      startGps() {},
+      stopGps() {},
+      trackStats: () => null,
+    });
+    Object.assign(screen.el.style, { position: 'fixed', left: '0', top: '0', height: `${height}px`, width: `${width}px` });
+    document.body.appendChild(screen.el);
+    const press = (re) => [...screen.el.querySelectorAll('.footer button')].find((b) => re.test(b.textContent.trim()))?.click();
+    const worst = () => {
+      const card = screen.el.querySelector('.body > .capture');
+      const items = [...(card?.querySelectorAll('button') ?? [])].map((b) => ({
+        text: b.textContent.trim(),
+        right: b.getBoundingClientRect().right,
+        // A label wider than its button: the column was pinned, the text was not.
+        spill: b.scrollWidth - b.clientWidth,
+      }));
+      const w = items.reduce((a, x) => (x.right > (a?.right ?? -Infinity) ? x : a), null);
+      const s = items.reduce((a, x) => (x.spill > (a?.spill ?? -Infinity) ? x : a), null);
+      // The fold: the body is the only scroller, so a lie button below its
+      // bottom edge needs a scroll before it can be tapped.
+      const bodyBottom = screen.el.querySelector('.body').getBoundingClientRect().bottom;
+      const lieBottom = Math.max(...[...(card?.querySelectorAll('.lie-grid .seg-btn') ?? [])].map((b) => b.getBoundingClientRect().bottom), -Infinity);
+      return { n: items.length, card: card?.dataset.burst ?? null, worst: w, spill: s, cardRight: card?.getBoundingClientRect().right ?? null, bodyBottom, lieBottom };
+    };
+    await wait();
+    press(/^MARK TEE SHOT$/);
+    gps.endBurst();
+    await wait();
+    press(/^MARK SHOT 2$/);
+    await wait();
+    const burst = worst();
+    gps.endBurst();
+    await wait();
+    const pending = worst();
+    screen.el.remove();
+    return { width, height, limit: width - gutter, burst, pending };
+  };
+
+  const narrow = await at(375, 812);
+  const narrower = await at(360, 780);
+
+  pocketLock.disable();
+  style.remove();
+
+  for (const r of [narrow, narrower]) {
+    test(`at ${r.width} px the capture card's buttons all end before the lock strip`, () => {
+      assert(r.burst.card === 'running', `no running capture card (${r.burst.card})`);
+      assert(r.burst.n >= 7, `only ${r.burst.n} buttons in the capture card`);
+      assert(
+        r.burst.worst.right <= r.limit,
+        `"${r.burst.worst.text}" ends at ${Math.round(r.burst.worst.right)} px, strip starts at ${r.limit}`
+      );
+    });
+    test(`at ${r.width} px the pending-lie card's buttons all end before the lock strip`, () => {
+      assert(r.pending.card === 'done', `no pending-lie card (${r.pending.card})`);
+      assert(r.pending.n >= 8, `only ${r.pending.n} buttons in the lie card`);
+      assert(
+        r.pending.worst.right <= r.limit,
+        `"${r.pending.worst.text}" ends at ${Math.round(r.pending.worst.right)} px, strip starts at ${r.limit}`
+      );
+      assert(
+        r.pending.worst.right <= r.pending.cardRight,
+        `"${r.pending.worst.text}" spills ${Math.round(r.pending.worst.right - r.pending.cardRight)} px past the card`
+      );
+    });
+    /*
+     * The two below FAIL on v24 (Fable, item 2.2, 2026-09-14) and are left in
+     * as the acceptance bar for the rework of the card - a test written for a
+     * defect is proven to fail against it. Both are layout-agnostic: they say
+     * what the golfer must be able to do, not how the card is built.
+     */
+    test(`at ${r.width} px every label in the lie card fits its button`, () => {
+      // A pinned column with a label wider than it is the strip defect moved
+      // one level down. RECOVERY is the widest label.
+      assert(
+        r.pending.spill.spill <= 0,
+        `"${r.pending.spill.text}" is ${r.pending.spill.spill} px wider than its button`
+      );
+    });
+    test(`at ${r.width}x${r.height} the whole lie grid is above the footer when the burst ends`, () => {
+      // Field test 7 was a required field the golfer could not find. In v23
+      // the lie panel took over the footer and was always fully on screen; in
+      // v24 the card sits in the body above a 430 px footer, and the second
+      // row of lies (SAND, RECOVERY, GREEN) is below the fold at a phone's
+      // height - it needs a scroll before it can be tapped.
+      assert(
+        r.pending.lieBottom <= r.pending.bodyBottom,
+        `the lowest lie button ends at ${Math.round(r.pending.lieBottom)} px, the body at ${Math.round(r.pending.bodyBottom)} px (${Math.round(r.pending.lieBottom - r.pending.bodyBottom)} px below the fold)`
+      );
+    });
+  }
+}
+
 /**
  * LIVE INDICATORS ON THE PLAY SCREEN
  *

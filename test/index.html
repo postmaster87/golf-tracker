@@ -42,6 +42,7 @@
         runCaptureUiTests,
         runMarkFlowTests,
         runLockReachTests,
+        runCaptureReachTests,
         runStoragePersistTests,
       } from './run.js';
 
@@ -54,6 +55,7 @@
       await runCaptureUiTests();
       await runMarkFlowTests();
       await runLockReachTests();
+      await runCaptureReachTests();
       await runStoragePersistTests();
       const results = getResults();
       const failed = results.filter((r) => !r.ok);

@@ -107,13 +107,15 @@ never "Fable decided".
   8123`). Never `python -m http.server` - no cache headers, and a run can
   pass against deleted code. `?sim=1` gives synthetic GPS.
 - Tests run in the browser at `http://localhost:8123/test/` against the
-  shipped modules. One failure is known and intermittent - "the deliberate
-  gesture unlocks" in the pocket-lock group, present on an untouched
-  baseline before 2026-09-10. It is named in every report, never folded
-  into "green". Build v24 (`84da7f4`, not pushed at 2026-09-13) diagnoses
-  it: `window.innerHeight` is 0 in a hidden preview pane, so the unlock
-  zones vanished; `zoneOf` now measures the overlay and the suite ran
-  501/501 with the pane hidden. Keep naming it until Fable's item 2.2
-  confirms the diagnosis.
+  shipped modules. The "known intermittent" failure ("the deliberate gesture
+  unlocks", pocket-lock group) is closed: Fable confirmed the v24 diagnosis
+  on 2026-09-14 (`docs/handoff/REPORT_2.2.md`) - a hidden pane with no
+  viewport emulation reports `window.innerHeight` 0, `zoneOf` at
+  `window.innerHeight` fails exactly that test every time, `zoneOf` at the
+  overlay's height passes it every time. A failure in that test is a real
+  failure now. Two tests in "the capture card stays out of the lock strip"
+  are RED on purpose since 2.2 (label fit, lie grid above the fold): they
+  are the acceptance bar for the rework of the v24 lie card and are named
+  in every report until Opus's rework clears them.
 - Memory for this repo:
   `C:\Users\Administrator\.claude\projects\C--Temp-gitRepos-golf-tracker\memory\MEMORY.md`.
