@@ -62,6 +62,35 @@ import {
 } from '../round/round.js';
 
 /**
+ * Where the typed first putt stops being worth asking for.
+ *
+ * Matt, 2026-09-16: *"With the Green flow established at 20ft not 15"* — his
+ * ruling, `docs/DECISIONS_LOG.md` at commit `a778194`, closing what had been
+ * Opus's 15 ft recommendation and never his. Two marks at ±2 m each compound
+ * to roughly ±8 ft on the distance between them, and what that costs is the
+ * error in EXPECTED PUTTS: 0.17 strokes from 20 ft against 0.34 from 15
+ * (`docs/HANDOFF-native-build.md` Section 7, scratch baseline, badged derived).
+ *
+ * At module scope rather than beside `CUP_AT_TEE_M` inside the screen, because
+ * the rule below it is a pure function the suite holds directly.
+ */
+export const TYPED_PUTT_MAX_FT = 20;
+
+/**
+ * How the first putt's distance is entered: by GPS, or by his thumb.
+ *
+ * `gps` only at 20 ft and over WITH a GPS distance to use — the mark-to-cup
+ * measurement stands and the grid is there to override it. Under 20 ft, or
+ * with no ball mark or no cup to measure between, it is `typed` and the sheet
+ * will not save without a number: that is the range where the GPS error is
+ * worth a third of a stroke and a glance at the ball is worth more than the
+ * instrument.
+ */
+export function firstPuttEntryMode({ gpsFt = null } = {}) {
+  return Number.isFinite(gpsFt) && gpsFt >= TYPED_PUTT_MAX_FT ? 'gps' : 'typed';
+}
+
+/**
  * The on-course screen. Everything here is built around two facts: a mis-tap is
  * always one tap from being undone, and no action ever blocks on the GPS —
  * the burst runs while the lie is being chosen, so marking a shot costs two
@@ -1310,6 +1339,23 @@ export function playScreen(ctx) {
       // off a grid number, so it moves a foot at a time.
       const step = 1;
 
+      /*
+       * THE 20 FT RULE (his ruling, `TYPED_PUTT_MAX_FT`).
+       *
+       * `gps` is the mark-to-cup measurement, or null when there is no ball
+       * mark or no cup to measure between. At 20 ft and over it stands and the
+       * sheet saves with nothing typed; under 20 ft — and with no measurement
+       * at all — the number has to come from him before this sheet will save.
+       */
+      const mode = firstPuttEntryMode({ gpsFt: gps?.ft ?? null });
+      const firstPuttMissing = () => draft.putts > 0 && mode === 'typed' && draft.values[0] == null;
+      // Assigned at the end of every render; patched in place from the type-in,
+      // which deliberately does not re-render (it would steal the caret).
+      let saveBtn = null;
+      const syncSave = () => {
+        if (saveBtn) saveBtn.disabled = firstPuttMissing();
+      };
+
       const render = () => {
         wrap.replaceChildren();
 
@@ -1341,16 +1387,23 @@ export function playScreen(ctx) {
                 ? 'Putt 2 — the leave'
                 : `Putt ${i + 1} — to the hole`;
 
-          // With no paced value on the first putt, the GPS measurement is what
+          // With no typed value on the first putt, the GPS measurement is what
           // will actually be used — so the readout shows that rather than a
-          // dash, and says where the number came from.
-          const gpsInUse = i === 0 && draft.values[0] == null && gps;
+          // dash, and says where the number came from. Under 20 ft it is not
+          // what will be used, so it is shown greyed and labelled instead.
+          const gpsInUse = i === 0 && draft.values[0] == null && gps && mode === 'gps';
+          const gpsGreyed = i === 0 && draft.values[0] == null && gps && mode === 'typed';
           const readout = h(
             'div',
-            { class: 'stat', style: { textAlign: 'center' } },
+            { class: 'stat', style: { textAlign: 'center', opacity: gpsGreyed ? '0.45' : null } },
             h('span', {
               class: 'v',
-              text: gpsInUse ? `${Math.round(gps.ft)}` : draft.values[i] == null ? '—' : String(draft.values[i]),
+              text:
+                gpsInUse || gpsGreyed
+                  ? `${Math.round(gps.ft)}`
+                  : draft.values[i] == null
+                    ? '—'
+                    : String(draft.values[i]),
             }),
             h('span', {
               class: 'n',
@@ -1397,13 +1450,22 @@ export function playScreen(ctx) {
 
               const fieldEl = e.target.closest('.field');
               const val = draft.values[i];
-              const gpsNow = i === 0 && val == null && gps;
-              const vEl = fieldEl?.querySelector('.stat .v');
-              const nEl = fieldEl?.querySelector('.stat .n');
-              if (vEl) vEl.textContent = gpsNow ? String(Math.round(gps.ft)) : val == null ? '—' : String(val);
+              const gpsNow = i === 0 && val == null && gps && mode === 'gps';
+              const greyNow = i === 0 && val == null && gps && mode === 'typed';
+              const statEl = fieldEl?.querySelector('.stat');
+              const vEl = statEl?.querySelector('.v');
+              const nEl = statEl?.querySelector('.n');
+              if (statEl) statEl.style.opacity = greyNow ? '0.45' : '';
+              if (vEl) {
+                vEl.textContent =
+                  gpsNow || greyNow ? String(Math.round(gps.ft)) : val == null ? '—' : String(val);
+              }
               if (nEl) {
                 nEl.textContent = gpsNow ? `ft · GPS ±${Math.round(gps.errFt)}` : 'ft';
               }
+              // The 20 ft rule gates SAVE, and this is the one path that
+              // changes the first putt without a repaint.
+              syncSave();
               // A typed value means no chip is selected any more.
               for (const b of fieldEl?.querySelectorAll('.hole-jump button') ?? []) {
                 b.setAttribute('aria-pressed', String(val === Number(b.textContent)));
@@ -1416,33 +1478,44 @@ export function playScreen(ctx) {
           const gpsControl =
             i !== 0
               ? null
-              : gps
-                ? h('button', {
-                    class: draft.values[0] == null ? 'btn primary sm' : 'btn sm dim',
-                    text:
-                      draft.values[0] == null
-                        ? `USING GPS · ${Math.round(gps.ft)} ft ±${Math.round(gps.errFt)}`
-                        : `USE GPS INSTEAD · ${Math.round(gps.ft)} ft`,
-                    onClick: () => {
-                      draft.values[0] = null;
-                      render();
-                    },
+              : gps && mode === 'typed'
+                ? // Under 20 ft the measurement is not offered as an answer. It
+                  // is still shown, because it is evidence about the putt he is
+                  // about to describe and hiding it would be hiding a reading
+                  // the app has.
+                  h('p', {
+                    class: 'note muted',
+                    style: { margin: '0 2px' },
+                    text: `GPS says ${Math.round(gps.ft)} ft — under ${TYPED_PUTT_MAX_FT} ft, type it.`,
                   })
-                : h('button', {
-                    // Primary, not dim: marking the cup from behind the hole is
-                    // part of the routine on every green, and it is what makes
-                    // every distance on the hole exact rather than approximate.
-                    // No longer disabled until a ball is marked on the green —
-                    // the ball on the fringe is exactly when he wants it.
-                    class: hl.cup ? 'btn sm dim' : 'btn primary',
-                    text: hl.cup ? 'RE-MARK CUP' : 'MARK CUP',
-                    onClick: () => {
-                      done('markcup');
-                      // Reopens this sheet once the cup is captured.
-                      reopenPuttsAfterCup = true;
-                      beginCapture('cup');
-                    },
-                  });
+                : gps
+                  ? h('button', {
+                      class: draft.values[0] == null ? 'btn primary sm' : 'btn sm dim',
+                      text:
+                        draft.values[0] == null
+                          ? `USING GPS · ${Math.round(gps.ft)} ft ±${Math.round(gps.errFt)}`
+                          : `USE GPS INSTEAD · ${Math.round(gps.ft)} ft`,
+                      onClick: () => {
+                        draft.values[0] = null;
+                        render();
+                      },
+                    })
+                  : h('button', {
+                      // Primary, not dim: marking the cup from behind the hole
+                      // is part of the routine on every green, and it is what
+                      // makes every distance on the hole exact rather than
+                      // approximate. No longer disabled until a ball is marked
+                      // on the green — the ball on the fringe is exactly when
+                      // he wants it.
+                      class: hl.cup ? 'btn sm dim' : 'btn primary',
+                      text: hl.cup ? 'RE-MARK CUP' : 'MARK CUP',
+                      onClick: () => {
+                        done('markcup');
+                        // Reopens this sheet once the cup is captured.
+                        reopenPuttsAfterCup = true;
+                        beginCapture('cup');
+                      },
+                    });
 
           wrap.appendChild(
             field(
@@ -1475,7 +1548,15 @@ export function playScreen(ctx) {
                   })
                 ),
                 grid,
-                typeIn
+                typeIn,
+                // The rule, stated once, under the first putt only.
+                i === 0 && gps && mode === 'gps'
+                  ? h('p', {
+                      class: 'note muted',
+                      style: { margin: '8px 2px 0' },
+                      text: `${TYPED_PUTT_MAX_FT} ft and over: GPS stands. Tap a number only if you know better.`,
+                    })
+                  : null
               )
             )
           );
@@ -1584,45 +1665,48 @@ export function playScreen(ctx) {
           );
         }
 
-        wrap.appendChild(
-          h('button', {
-            class: 'btn primary',
-            text: thenAdvance ? 'SAVE & NEXT HOLE' : 'SAVE',
-            onClick: () => {
-              setGreenEntry(hl, {
-                putts: draft.putts,
-                distances: draft.values.slice(0, draft.putts),
-                unit: 'feet',
+        saveBtn = h('button', {
+          class: 'btn primary',
+          text: thenAdvance ? 'SAVE & NEXT HOLE' : 'SAVE',
+          // The 20 ft rule: under it, or with nothing to measure between, the
+          // first putt's length is the one number this sheet will not guess.
+          // Zero putts asks for nothing.
+          disabled: firstPuttMissing(),
+          onClick: () => {
+            setGreenEntry(hl, {
+              putts: draft.putts,
+              distances: draft.values.slice(0, draft.putts),
+              unit: 'feet',
+            });
+            // A described pin only lands if the cup was never marked; a
+            // measurement is never overwritten by a construction.
+            if (!hl.cup && draft.pinOn != null && pinContext?.usable) {
+              const paceFeet = ctx.app.settings.paceFeet ?? 3;
+              const located = locateCupFromPaces(pinContext.points, {
+                approach: pinContext.approach,
+                anchor: pinContext.anchor,
+                onPaces: draft.pinOn,
+                sidePaces: draft.pinSide,
+                paceFeet,
+                fromTs: pinContext.fromTs,
+                toTs: pinContext.toTs,
               });
-              // A described pin only lands if the cup was never marked; a
-              // measurement is never overwritten by a construction.
-              if (!hl.cup && draft.pinOn != null && pinContext?.usable) {
-                const paceFeet = ctx.app.settings.paceFeet ?? 3;
-                const located = locateCupFromPaces(pinContext.points, {
-                  approach: pinContext.approach,
-                  anchor: pinContext.anchor,
+              if (located) {
+                setCupFromPaces(hl, located, {
                   onPaces: draft.pinOn,
                   sidePaces: draft.pinSide,
                   paceFeet,
-                  fromTs: pinContext.fromTs,
-                  toTs: pinContext.toTs,
                 });
-                if (located) {
-                  setCupFromPaces(hl, located, {
-                    onPaces: draft.pinOn,
-                    sidePaces: draft.pinSide,
-                    paceFeet,
-                  });
-                }
               }
-              persist();
-              markWarning = null;
-              paint();
-              done('saved');
-              if (thenAdvance) advanceHole(1, { force: true });
-            },
-          })
-        );
+            }
+            persist();
+            markWarning = null;
+            paint();
+            done('saved');
+            if (thenAdvance) advanceHole(1, { force: true });
+          },
+        });
+        wrap.appendChild(saveBtn);
       };
 
       render();

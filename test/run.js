@@ -111,7 +111,7 @@ import {
 } from '../js/analysis/strokes-gained.js';
 import * as pocketLock from '../js/ui/lock.js';
 import { sheet, closeSheet } from '../js/ui/dom.js';
-import { playScreen } from '../js/ui/screen-play.js';
+import { playScreen, firstPuttEntryMode, TYPED_PUTT_MAX_FT } from '../js/ui/screen-play.js';
 import { settingsScreen } from '../js/ui/screen-settings.js';
 import {
   PERSISTENT,
@@ -5072,6 +5072,145 @@ export async function runNativeShellTests() {
     assert(sharedResult.saved?.startsWith('Download/golf-tracker/'), sharedResult.saved);
     eq(savedResult.rounds, expectedPayload.rounds.length, 'the count Matt is shown');
     eq(savedResult.trackPoints, expectedPayload.trackPoints, 'the fix count Matt is shown');
+  });
+}
+
+/* ---------------------------------------------------------- the green flow */
+
+/**
+ * THE GREEN FLOW — mark the cup or the ball, hole out, the putts, the score.
+ *
+ * His words, 2026-09-15: *"Workflow on the green mark the cup or my ball first
+ * whatever is easiest. Hole out - record the putt length for short putts,
+ * double check GPS for long putts, enter hole score (once this is entered the
+ * app needs to compute the shots and ask me questions about the lie."* And the
+ * number, 2026-09-16: *"With the Green flow established at 20ft not 15"*.
+ *
+ * Driven through the real screen and the real sheets, because the rule is only
+ * worth anything at the point where it stops a SAVE.
+ */
+export async function runGreenFlowTests() {
+  group('the green flow (cup, ball, putts, score)');
+
+  const wait = (ms = 30) => new Promise((r) => setTimeout(r, ms));
+  const openSheet = () => document.querySelector('.scrim .sheet');
+  const sheetText = () => openSheet()?.textContent ?? '';
+  const sheetButton = (re) =>
+    [...(openSheet()?.querySelectorAll('button') ?? [])].find((b) => re.test(b.textContent.trim()));
+  const puttField = (n = 1) =>
+    [...(openSheet()?.querySelectorAll('.field') ?? [])].find((f) =>
+      new RegExp(`Putt ${n}`).test(f.querySelector('.label')?.textContent ?? '')
+    );
+
+  test(`the ${TYPED_PUTT_MAX_FT} ft rule decides who supplies the first putt`, () => {
+    // His ruling, not a recommendation: docs/DECISIONS_LOG.md at a778194.
+    eq(TYPED_PUTT_MAX_FT, 20, '"20ft not 15"');
+    eq(firstPuttEntryMode({ gpsFt: 20 }), 'gps', 'at the threshold the measurement stands');
+    eq(firstPuttEntryMode({ gpsFt: 60 }), 'gps', 'and past it');
+    eq(firstPuttEntryMode({ gpsFt: 19.9 }), 'typed', 'a tenth under it is his to type');
+    eq(firstPuttEntryMode({ gpsFt: 8 }), 'typed', 'a tap-in is never GPS');
+    eq(firstPuttEntryMode({ gpsFt: null }), 'typed', 'nothing to measure between');
+    eq(firstPuttEntryMode({}), 'typed', 'and no argument at all is not a measurement');
+  });
+
+  /** On the green: tee and approach marked, ball marked, cup `cupFt` away. */
+  const greenScreen = ({ cupFt, marks = true }) => {
+    const round = par4Round();
+    const hl = round.holes[0];
+    if (marks) {
+      addShot(hl, { lie: 'tee', reduced: fakeReduced(TEE) });
+      addShot(hl, { lie: 'fairway', reduced: fakeReduced(offsetM(TEE, 240, 5)) });
+    }
+    const ball = offsetM(TEE, 372, 1);
+    addShot(hl, { lie: 'green', reduced: fakeReduced(ball) });
+    setCup(hl, fakeReduced(offsetM(ball, feetToM(cupFt), 0)));
+    const screen = playScreen({
+      app: newAppState(),
+      round,
+      gps: heldGps(ball),
+      params: {},
+      go() {},
+      persistRound() {},
+      persistApp() {},
+      startGps() {},
+      stopGps() {},
+      trackStats: () => null,
+    });
+    document.body.appendChild(screen.el);
+    return {
+      round,
+      hl,
+      screen,
+      press: (re) =>
+        [...screen.el.querySelectorAll('.footer button')].find((b) => re.test(b.textContent.trim()))?.click(),
+    };
+  };
+
+  /* ---- 30 ft: the measurement stands ---- */
+  const long = greenScreen({ cupFt: 30 });
+  long.press(/^(GREEN|ENTER PUTTS)/);
+  await wait();
+  const longSheet = {
+    readout: puttField()?.querySelector('.stat')?.textContent ?? '',
+    saveDisabled: sheetButton(/^SAVE$/)?.disabled ?? null,
+    usingGps: Boolean(sheetButton(/^USING GPS/)),
+    stands: /GPS stands/.test(sheetText()),
+  };
+  sheetButton(/^SAVE$/)?.click();
+  await wait();
+  const longPutt = long.hl.shots.find((s) => s.lie === 'green');
+  const longSaved = {
+    distanceFt: longPutt?.distanceFt ?? null,
+    marked: Boolean(longPutt?.mark),
+    measuredFt: firstPuttM(long.hl) == null ? null : toFeet(firstPuttM(long.hl)),
+  };
+  long.screen.el.remove();
+  closeSheet();
+
+  /* ---- 12 ft: his thumb, or nothing ---- */
+  const short = greenScreen({ cupFt: 12 });
+  short.press(/^(GREEN|ENTER PUTTS)/);
+  await wait();
+  const shortSheet = {
+    saveDisabled: sheetButton(/^SAVE$/)?.disabled ?? null,
+    saidTypeIt: /under 20 ft, type it/.test(sheetText()),
+    usingGps: Boolean(sheetButton(/^USING GPS/)),
+    readout: puttField()?.querySelector('.stat')?.textContent ?? '',
+  };
+  [...(puttField()?.querySelectorAll('.hole-jump button') ?? [])]
+    .find((b) => b.textContent.trim() === '10')
+    ?.click();
+  await wait();
+  const shortTyped = { saveDisabled: sheetButton(/^SAVE$/)?.disabled ?? null };
+  sheetButton(/^SAVE$/)?.click();
+  await wait();
+  const shortSaved = { firstPuttFt: puttDistancesFt(short.hl)[0], complete: isHoleComplete(short.hl) };
+  short.screen.el.remove();
+  closeSheet();
+
+  test('at 30 ft the GPS distance stands and SAVE needs nothing typed', () => {
+    assert(/^30/.test(longSheet.readout), `putt 1 read "${longSheet.readout}"`);
+    assert(/GPS/.test(longSheet.readout), `no provenance on the readout: "${longSheet.readout}"`);
+    assert(longSheet.usingGps, 'the USING GPS control is not offered at 30 ft');
+    assert(longSheet.stands, 'the sheet never says GPS stands at 20 ft and over');
+    eq(longSheet.saveDisabled, false, 'SAVE was gated on a putt GPS can measure');
+  });
+
+  test('a GPS first putt is stored as a measurement, not as a number', () => {
+    // No `distanceFt`: the mark and the cup ARE the distance, and writing a
+    // rounded copy of it beside them is how a measurement turns into an entry.
+    eq(longSaved.distanceFt, null, 'a typed distance was invented from the GPS reading');
+    assert(longSaved.marked, 'the ball mark did not survive the green entry');
+    near(longSaved.measuredFt, 30, 0.5, 'mark-to-cup');
+  });
+
+  test('under 20 ft SAVE waits for the number', () => {
+    eq(shortSheet.saveDisabled, true, 'SAVE would have saved a 12 ft putt GPS cannot measure');
+    assert(shortSheet.saidTypeIt, `the sheet never asked for it: "${shortSheet.readout}"`);
+    eq(shortSheet.usingGps, false, 'GPS is still offered as the answer under 20 ft');
+    eq(shortTyped.saveDisabled, false, 'SAVE stayed disabled after a distance was tapped');
+    eq(shortSaved.firstPuttFt, 10, 'the tapped distance is what was stored');
+    eq(shortSaved.complete, true, 'the hole did not finish');
   });
 }
 
