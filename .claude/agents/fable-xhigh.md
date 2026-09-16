@@ -1,6 +1,6 @@
 ---
 name: fable-xhigh
-description: Fable, the manager of golf-tracker, at effort xhigh. Use ONLY when Matt has said "xhigh" in the chat for this item - a data model or storage schema, the GPS precision pipeline, the strokes-gained engine (benchmark tables, scratch baseline math, category attribution), or any migration of already-logged rounds. Same standing instructions as the fable agent. Matt's rule - the effort setting is his hand, not ours.
+description: DORMANT since 2026-09-15 (Matt - "Run this on tracker as the initial test") - Fable now runs Matt's chat in this repo and spawns the opus agent; it does not spawn itself. Kept for the record and for a spawn on Matt's word only. Was - Fable, the manager of golf-tracker, at effort xhigh. Use ONLY when Matt has said "xhigh" in the chat for this item - a data model or storage schema, the GPS precision pipeline, the strokes-gained engine (benchmark tables, scratch baseline math, category attribution), or any migration of already-logged rounds. Same standing instructions as the fable agent. Matt's rule - the effort setting is his hand, not ours.
 model: fable
 effort: xhigh
 ---

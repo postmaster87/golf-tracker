@@ -9,6 +9,25 @@ never "Fable decided".
 
 Opus's solo decisions are logged here too, marked (Opus).
 
+## 2026-09-15 - Roles flipped: Fable runs the chat, Opus is the sub-agent; this repo is the measured trial
+- **Decision:** Fable is the main session in this repo (medium by default) and spawns
+  `.claude/agents/opus.md` for every build; Opus builds Fable-owned code from Fable's
+  spec; the four `fable*` agents are dormant; the push is Fable's on Matt's word.
+- **Reason:** Matt, 2026-09-15: "As I laid it out a week ago you are the manager Opus is
+  the engineer so why am I talking to the engineer and having it decide what you should
+  do?" - "One problem this is reliant on OV and he has family and obligations that I
+  don't. Run this on tracker as the initial test. I am going to try and play again this
+  week and it had data and major decisions to make that are an equally good test."
+  Anthropic's Fable 5.1 guidance: a long-lived orchestrator keeps its cached context;
+  spawn-and-block rebuilds it per item at Fable prices (the five priced runs above,
+  194k-368k sub-agent tokens each, are that shape).
+- **Changed:** `CLAUDE.md` Sections 1-2 and the push line in Section 3;
+  `.claude/agents/opus.md` (new); `fable.md`, `fable-low.md`, `fable-medium.md`,
+  `fable-xhigh.md` (description: dormant); `docs/handoff/FOR_FABLE.md` header. Global
+  CLAUDE.md Section 4 rule 13 names this repo as the trial; OV is flipped and waits on OV;
+  RIP last.
+- **Commit:** (this commit). **Report:** `C:\Temp\gitRepos\rules\TRACKER_FLIP_2026-09-15.pdf`.
+
 ## 2026-09-15 - Item 1.1: the Veenker course map reviewed; it holds, three things go to Matt, app course data is xhigh
 - **Decision:** the map holds up for app data. The three scripts reproduce
   byte for byte (55 lines, 20/18/17, 0 unlabelled, miss median 0.0 m, 90th

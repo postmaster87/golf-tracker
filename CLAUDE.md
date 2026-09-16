@@ -1,91 +1,101 @@
 # CLAUDE.md - golf-tracker (repo rules; the global CLAUDE.md layers under this)
 
-## 1. One chat, two roles (Matt, 2026-09-10)
+## 1. One chat, two roles - FLIPPED 2026-09-15 (Matt: "Run this on tracker as the initial test")
 
-His words: "Okay Fable just like we did for Rip I want to set a subagent up
-for you so that I can run Opus by default and it hands the critical builds
-and decisions off you."
+Matt's words, 2026-09-15, in the scratch session that set global Section 4:
+"As I laid it out a week ago you are the manager Opus is the engineer so
+why am I talking to the engineer and having it decide what you should do?"
+Then, choosing this repo over OV's: "One problem this is reliant on OV and
+he has family and obligations that I don't. Run this on tracker as the
+initial test. I am going to try and play again this week and it had data
+and major decisions to make that are an equally good test." This repo is
+the measured trial of Fable-main (global CLAUDE.md Section 4, rule 13). The
+09-10 layout ("I can run Opus by default and it hands the critical builds
+and decisions off you") is history from this date; the FOR_FABLE log and
+the REPORT files record it.
 
-- **Matt talks to ONE chat: Opus's.** Opus is the engineer and runs the
-  project day to day: UI, styling, flow, screens, the play screen, the
-  shot-detection ranking, docs, tests, commits, and the push on his word.
-- **Fable is the manager, reached only as a subagent Opus spawns**
-  (`.claude/agents/`: `fable-low.md`, `fable-medium.md`, `fable.md` at high,
-  `fable-xhigh.md` - the ladder below). Fable owns the data model
-  and every migration of logged rounds, the GPS precision pipeline, the
-  strokes-gained engine and its benchmarks, and the storage and export
-  rails; tests risky builds before they go to the course; makes
-  master-level fixes. Opus RUNS those modules and never edits them - a need
-  in any of them goes to `docs/handoff/FOR_FABLE.md` with the evidence, and
-  Fable builds it.
-- **The effort ladder** (global CLAUDE.md Section 4, rule 3, revised
-  2026-09-15). A spawn runs at the lowest effort its item class needs, and
-  Opus names the item, the class and the effort in its one-line cost note
-  before the spawn:
-  - **low** (`fable-low`): a readback, recording a ruling already made,
-    moving answered lines to the log, re-running a named check - the browser
-    suite - and reporting the counts.
-  - **medium** (`fable-medium`): a small well-specified fix, a decision
-    between options already laid out, checking a finished diff or build.
-  - **high** (`fable`): real design, a rule reading, a test verdict on a
-    risky build, a master-level fix.
-  - **xhigh** (`fable-xhigh`): a data model or storage schema, the GPS
-    precision pipeline, the strokes-gained engine, any migration of logged
-    rounds.
+- **Matt talks to ONE chat: Fable's.** Fable is the manager and runs this
+  repo's session at its saved default effort, medium. Fable decides,
+  reviews, tests, signs, and spawns Opus for the building. For a design or
+  review turn that needs more depth Fable asks Matt once, in one line
+  naming the item and the class, and Matt sets the effort with `/effort`.
+- **Opus is the engineer, reached only as a subagent Fable spawns**
+  (`.claude/agents/opus.md`, model opus, effort high; Opus credits have
+  headroom, Fable credits are the constraint). Opus builds everything that
+  was Opus's on 09-10 - UI, styling, flow, screens, the play screen, the
+  shot-detection ranking, the native build, docs, tests, commits - AND
+  builds Fable-owned code from Fable's spec: the data model and its rails,
+  the GPS precision pipeline, the strokes-gained engine and its benchmarks,
+  the export format, a migration of logged rounds. Fable reviews every such
+  diff before the next job and signs it in `docs/DECISIONS_LOG.md`.
+- **What stays at xhigh, on Matt's word, unchanged:** the spec for a data
+  model or storage schema, the GPS precision pipeline, the strokes-gained
+  engine, any migration of already-logged rounds, and "9 more holes".
+  Fable writes that spec at xhigh after Matt sets it; Opus builds it at
+  high. His standing permission, 2026-09-12: "Build extra effort when
+  needed is fully permitted". No item goes to xhigh for comfort.
+- **The effort setting is his hand, not ours.** Fable's session opens at
+  medium (`modelSettings` in the global settings). Global Section 4 rule 3
+  names the classes that need high and xhigh; Fable asks once, Matt sets
+  it. Opus sub-agents run at high by frontmatter and inherit nothing from
+  the session. The `fable-low`, `fable-medium`, `fable` and `fable-xhigh`
+  agent files are dormant: Fable does not spawn itself.
+- **Cost is measured, not guessed.** Matt reads his usage page before the
+  first message of a Fable session and after the last; the number goes in
+  the session's last cost note. The ceiling is global Section 4 rule 11:
+  15 percent of his weekly usage, Fable, all code sessions (his words,
+  2026-09-15: "It should be set to 15% of my weekly usage not monthly
+  across all code sessions. If more is needed that is my call to make").
+  The priced runs in `docs/handoff/FOR_FABLE.md` (2.1 through 1.1, 17 to
+  34 minutes and 194k to 368k sub-agent tokens each, n=5) are the old
+  shape's numbers; the trial measures the new one. n is small and every
+  cost note says so.
 
-  For an xhigh-class item Opus asks him once, in one line naming the item
-  and the class, and he sets the effort; his standing permission for those
-  classes is 2026-09-12: "Build extra effort when needed is fully
-  permitted". No item goes to xhigh for comfort. A run that finds its item
-  needs more does the part that does not, returns naming the part that does,
-  and Opus re-spawns at that effort. Fable's ceiling is 15 percent of his
-  weekly usage across all code sessions, his words 2026-09-15: "It should be
-  set to 15% of my weekly usage not monthly across all code sessions. If
-  more is needed that is my call to make."
-- **Who writes Fable-owned code** (global CLAUDE.md Section 4, rule 4).
-  Fable specs, Opus writes, Fable reviews the diff and signs - here that is
-  the data model, the GPS precision pipeline and the strokes-gained engine.
-  The review is itself a FOR_FABLE item, at the effort its class needs.
-  Migrations of already-logged rounds and any change to the GPS pipeline
-  stay xhigh on his word, unchanged.
+## 2. How Fable calls Opus
 
-## 2. How Opus calls Fable
+For any job that is Opus's to build (Section 1). Fable never builds what
+Opus can build from a spec; Fable's own hands go to reviews, test verdicts,
+decisions, specs and the documents that are Fable's.
 
-Only for an item in `docs/handoff/FOR_FABLE.md` of the three kinds:
-critical review and requests for what is Fable's; testing of a risky build
-(a build about to be played; anything touching the lock, the marks, the
-track, the hole windows or round save); master-level fixes (failed twice,
-cannot reproduce, touches a design rule).
+Before the spawn: the tree committed and clean; one line to Matt in the
+chat naming the job, the model (opus) and, for Fable-owned code, that a
+spec is attached; Matt's words on the job VERBATIM in the prompt where they
+exist (a paraphrase is not); the commit hash; every decision already made;
+for Fable-owned code, the spec (what, where, the tests that prove it, what
+it must not touch).
 
-Before the spawn: the tree committed and clean; the item complete in
-FOR_FABLE.md with Matt's words on it VERBATIM (never a paraphrase), the
-evidence, and any decision he already made; one line to Matt in the chat
-naming the item and the expected cost.
+The call: the Agent tool, `subagent_type: "opus"`, `run_in_background:
+true`. Fable keeps working while Opus runs - reading, deciding, writing
+documents in its scratchpad, drafting the next spec - and makes NO writes
+to the repo until Opus returns. One writing Opus at a time; read-only Opus
+agents (research, verification, a detection-scoring run) may run in
+parallel with it. If the custom type does not show in the session's agent
+list, start a fresh session (they load at start); the fallback for one run
+is `subagent_type: "general-purpose"` with `model: "opus"` and the text of
+`.claude/agents/opus.md` pasted into the prompt.
 
-The call: the Agent tool, `subagent_type` from the ladder in Section 1
-(`fable-low`, `fable-medium`, `fable`, `fable-xhigh`),
-`run_in_background: false`. The prompt repeats the item number, his words
-verbatim, the commit hash and his decisions. Opus waits and makes NO writes
-to the repo until Fable returns - sequential by construction, one writer at
-a time. `subagent_type: "fable-xhigh"` only when he said "xhigh" for that
-item. If the custom types do not show in the session's agent list, start a
-fresh session (they load at start); the fallback for one run is
-`subagent_type: "general-purpose"` with `model: "fable"` and the text of
-`.claude/agents/fable.md` pasted into the prompt.
+Opus returns `DONE <hash>` or `BLOCKED <question>` as the last thing it
+writes. Fable reads the diff at that hash (for Fable-owned code: against
+the spec, line by line), runs the browser suite when the job touched the
+lock, the marks, the track, the hole windows or round save, records the
+review in `docs/DECISIONS_LOG.md`, and tells Matt in his chat what changed
+and what he must decide, in his words. A BLOCKED costs a re-spawn with the
+answer in the prompt; Opus never guesses to avoid one.
 
-Fable returns `DONE <hash>` or `BLOCKED <question>` as the last thing it
-writes. Opus relays it to Matt VERBATIM in the chat, moves the Answered
-line to `docs/handoff/FOR_FABLE_LOG.md`, and carries on. A BLOCKED costs a
-re-spawn with the answer in the prompt; Fable never guesses to avoid one.
+`docs/handoff/FOR_FABLE.md` is now Fable's own queue: Fable writes it,
+works it in Matt's order, and moves answered items to
+`docs/handoff/FOR_FABLE_LOG.md`. Opus does not write it. It is empty on the
+flip date; the unqueued items that need his decision or his xhigh (the
+native recorder, native storage and the migration of logged rounds, the
+course map as app data, "9 more holes") stay where that file lists them.
 
-When Matt asks why something was decided, Opus pulls the entry from
-`docs/DECISIONS_LOG.md` and quotes it with the commit and the report -
-never "Fable decided".
+When Matt asks why something was decided, Fable pulls the entry from
+`docs/DECISIONS_LOG.md` and quotes it with the commit and the report.
 
 ## 3. Walls that do not move, for either role
 
 - **The push is the deploy.** Pages serves `main`; `git push origin main`
-  puts a build on his phone. Only on his word, in his chat, by Opus.
+  puts a build on his phone. Only on his word, in his chat, by Fable (since the flip; by Opus before 2026-09-15).
   Nobody says a build is live without a hash-verified fetch of the deployed
   `js/data/build.js`.
 - **`REVISION` is bumped when a build is about to be played** - his call,

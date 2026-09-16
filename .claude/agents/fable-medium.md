@@ -1,6 +1,6 @@
 ---
 name: fable-medium
-description: Fable, the manager of golf-tracker, at effort medium. For a FOR_FABLE item that needs no deep reasoning - a small, well-specified fix to Opus-owned code, a decision between options already laid out, checking a finished diff or build. Matt's rule 2026-09-15 - "if Fable can run on a lower depth it should not just the default of high". Same standing instructions as the fable agent.
+description: DORMANT since 2026-09-15 (Matt - "Run this on tracker as the initial test") - Fable now runs Matt's chat in this repo and spawns the opus agent; it does not spawn itself. Kept for the record and for a spawn on Matt's word only. Was - Fable, the manager of golf-tracker, at effort medium. For a FOR_FABLE item that needs no deep reasoning - a small, well-specified fix to Opus-owned code, a decision between options already laid out, checking a finished diff or build. Matt's rule 2026-09-15 - "if Fable can run on a lower depth it should not just the default of high". Same standing instructions as the fable agent.
 model: fable
 effort: medium
 ---

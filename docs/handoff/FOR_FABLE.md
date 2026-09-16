@@ -1,11 +1,20 @@
-# FOR_FABLE - the only way work reaches Fable (Matt, 2026-09-10)
+# FOR_FABLE - Fable's own queue since the flip (Matt, 2026-09-15: "Run this on tracker as the initial test")
 
-Opus is the only writer. Fable is a subagent Opus spawns per item
+Since 2026-09-15 Fable runs this repo's chat and spawns Opus (`.claude/agents/opus.md`)
+for the building; this file is Fable's queue, written by Fable, worked in Matt's order,
+one item at a time. Opus does not write it. Answered items move to
+`docs/handoff/FOR_FABLE_LOG.md`; their write-ups are the `REPORT_*.md` files beside this
+one. The rule is the repo's `CLAUDE.md` Sections 1-2. Everything below is the file as
+Opus left it on the flip date; its "spawn" and "10% weekly" language is history (the
+ceiling is now 15 percent of weekly usage across all code sessions, global Section 4
+rule 11; there is no Fable spawn any more).
+
+---
+
+*(Header as it stood before the flip, kept for the record:)* Opus is the only writer. Fable is a subagent Opus spawns per item
 (`.claude/agents/fable.md`; `fable-xhigh.md` only on Matt's "xhigh"), one
 item per spawn, and Opus makes no writes to the repo until Fable returns.
-Empty queue = Fable is not needed. The rule is the repo's `CLAUDE.md`.
-Answered items move to `docs/handoff/FOR_FABLE_LOG.md`; their write-ups are
-the `REPORT_*.md` files beside this one.
+Empty queue = Fable is not needed.
 
 An item carries: Matt's words on it VERBATIM, the evidence (file:line, the
 numbers with n, what was tried), and any decision he already made. The
