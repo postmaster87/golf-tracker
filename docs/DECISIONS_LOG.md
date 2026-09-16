@@ -9,6 +9,37 @@ never "Fable decided".
 
 Opus's solo decisions are logged here too, marked (Opus).
 
+## 2026-09-16 - 3.2 PASS: the green flow is built to the spec; the push and the v28 bump wait on his word
+- **Decision:** Fable reviewed Opus's four commits (`29dd4fb` to `39ff544`,
+  five files, +806 / -87, only `js/ui/screen-play.js`, the suite and the
+  report) against `docs/SPEC_green-flow.md` at medium and signs the build.
+  G1-G7 hold: `TYPED_PUTT_MAX_FT = 20` with `firstPuttEntryMode` (gps at
+  20 and over, typed under, typed with no GPS); MARK CUP and MARK BALL in
+  one row at the top of the sheet, the ball a `putt` burst with no lie
+  card; SAVE on an unmarked hole hands off to the score card with the putts
+  and the first putt carried in and not re-asked; `applyHoleEntry` keeps
+  the marked green shots; footer `GREEN ▸`. Section 5's must-not-change
+  list is untouched (no `js/round/*`, `js/gps/*`, CSS, schema, native).
+- **Fable's own run:** browser suite **540 / 540** at 360x728 (n = 1; Opus
+  n = 1 plus eight mutation runs each RED on exactly its test).
+- **Departures accepted (REPORT_3.2 Section 3, all four):** the constant at
+  module scope so test 1 can hold it; a re-mark replaces the existing green
+  shot's mark rather than adding a putt (spec test 4 required it, spec 4(b)
+  was the wrong reading); the mark built by `addShot` and moved, not
+  constructed in the UI; the score card's penalty default is
+  `penaltyStrokes(hl)` so a penalty logged when it occurred survives.
+- **Owed by Matt:** the push (Fable bumps `BUILD.id` to v28 and the
+  `gt-shell-v28` cache in that commit, on his word); the two defaults he
+  may overrule (`GREEN ▸`; strokes default par or putts + 1, the larger);
+  the FT7 answer from 3.1; his usage number after this session.
+- **Follow-up:** `docs/launch-checklist.md` line 52 still says "ENTER
+  PUTTS" (Opus, next docs job).
+- **Cost, n = 1:** Opus at high 42 min, 334k sub-agent tokens, 185 tool
+  uses, inside the 2.1-1.1 band (17-34 min, 194k-368k) on tokens, over on
+  minutes.
+- **Changed:** nothing by Fable in code. **Report:** `docs/handoff/REPORT_3.2.md`.
+  **Commit:** Opus `39ff544`, Fable this commit.
+
 ## 2026-09-16 - 3.1 PASS: the native shell is built to the spec; not the instrument until the carry
 - **Decision:** Fable reviewed Opus's five commits (`0edbb28` to `ebdff3d`,
   44 files, +4,271 / -33) line by line against
