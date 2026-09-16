@@ -26,7 +26,7 @@ Opus's solo decisions are logged here too, marked (Opus).
   `fable-xhigh.md` (description: dormant); `docs/handoff/FOR_FABLE.md` header. Global
   CLAUDE.md Section 4 rule 13 names this repo as the trial; OV is flipped and waits on OV;
   RIP last.
-- **Commit:** (this commit). **Report:** `C:\Temp\gitRepos\rules\TRACKER_FLIP_2026-09-15.pdf`.
+- **Commit:** `2c01b5f`. **Report:** `C:\Temp\gitRepos\rules\TRACKER_FLIP_2026-09-15.pdf`.
 
 ## 2026-09-15 - Item 1.1: the Veenker course map reviewed; it holds, three things go to Matt, app course data is xhigh
 - **Decision:** the map holds up for app data. The three scripts reproduce
