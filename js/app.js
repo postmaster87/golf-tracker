@@ -161,6 +161,7 @@ function startGps() {
 
 function stopGps() {
   ctx.gps.stop();
+  stopNativeRecorderIfRoundEnded();
   if (shell()) return;
   wakeLock.release();
   pocketLock.disable();
@@ -282,6 +283,44 @@ function syncNativeRecorder(round, { recheck = false } = {}) {
     // The recorder holds its own committed flag and resumes on its own. A
     // failed bridge call is a message lost, never a round lost.
   }
+}
+
+/**
+ * The round's fate is known — stop the recorder if it is still on that round.
+ *
+ * MEASURED, emulator, 2026-09-16: finishing a round left the recorder running.
+ * Finish and abandon both do the same three things in one tick — set the
+ * status, null `ctx.round`, then `stopGps()` — so the GPS loop can never see a
+ * `completed` round, and `syncNativeRecorder`'s stop branch could not fire from
+ * any of its call sites. The recorder ran on past the finish (319 rows at
+ * FINISH, still climbing 12 s later) and would have kept the wake lock until
+ * the 8 h cap.
+ *
+ * This is the fourth call site, and `stopGps` is the right one because it has
+ * exactly two callers and both mean "the round is over". It does NOT weaken D8:
+ * a null `ctx.round` still never stops anything by itself — the STORED round is
+ * what is consulted, and a round still `in_progress` is left recording.
+ */
+function stopNativeRecorderIfRoundEnded() {
+  const gn = globalThis.GolfNative;
+  if (!gn) return;
+  let id = nativeRecorderRoundId;
+  try {
+    if (!id) id = gn.recordingRoundId() || null;
+  } catch {
+    id = null;
+  }
+  if (!id) return;
+  const stored = loadRound(id);
+  // Still live: leave it alone. Only a round that ended, or one whose record is
+  // gone, takes the recorder down (D8).
+  if (stored?.status === 'in_progress') return;
+  try {
+    gn.stopRecording(id);
+  } catch {
+    // The recorder holds its own committed flag; the cap is the backstop.
+  }
+  nativeRecorderRoundId = null;
 }
 
 ctx.gps.subscribe((event) => {
