@@ -4324,8 +4324,29 @@ export async function runCaptureReachTests() {
     gps.endBurst();
     await wait();
     const pending = worst();
+    /*
+     * THE LONGEST HINT IN THE APP, WITH A LIE CARD UNDER IT.
+     *
+     * The footer's hint is the only part of that footer whose height is not
+     * fixed, and the body — which the lie card lives in — gets what the footer
+     * leaves. Answering a lie GREEN and then pressing MARK SHOT instead of
+     * MARK CUP is the one state that puts the "on the green" hint on screen
+     * with a card up, and at v26 that hint wrapped to three lines at 360 px
+     * and took 37.8 px off the body: the SAND / RECOVERY / GREEN row ended
+     * 11.5 px under the footer with everything else about the layout correct
+     * (Fable, 2026-09-16, off REPORT 2.6 Section 6; Matt: "shorten it and
+     * push"). So the worst hint is measured, not the average one.
+     */
+    const lieBtn = (label) =>
+      [...screen.el.querySelectorAll('.body > .capture .lie-grid .seg-btn')]
+        .find((b) => b.textContent.trim() === label);
+    lieBtn('GREEN')?.click();
+    await wait();
+    press(/^MARK SHOT 3$/);
+    await wait();
+    const onGreen = { ...worst(), hint: screen.el.querySelector('.footer .hint')?.textContent ?? '' };
     screen.el.remove();
-    return { width, height, limit: width - gutter, burst, pending };
+    return { width, height, limit: width - gutter, burst, pending, onGreen };
   };
 
   /*
@@ -4404,6 +4425,20 @@ export async function runCaptureReachTests() {
       assert(
         r.pending.lieBottom <= r.pending.bodyBottom,
         `the lowest lie button ends at ${Math.round(r.pending.lieBottom)} px, the body at ${Math.round(r.pending.bodyBottom)} px (${Math.round(r.pending.lieBottom - r.pending.bodyBottom)} px below the fold)`
+      );
+    });
+    test(`at ${r.width}x${r.height} the longest hint still leaves the whole lie grid above the footer`, () => {
+      // The residual v26 left: the hint is the one variable-height thing in
+      // the footer, and "on the green" is the longest one that can be on
+      // screen with a lie card up. Three lines of it put the bottom row under
+      // the footer at 360x728 — the same defect as the test above, reached
+      // through the text rather than the box model.
+      assert(/MARK CUP/.test(r.onGreen.hint), `the "on the green" hint is not up: "${r.onGreen.hint}"`);
+      assert(r.onGreen.card === 'running', `no capture card in the on-the-green state (${r.onGreen.card})`);
+      assert(Number.isFinite(r.onGreen.lieBottom), 'no lie grid in the on-the-green state');
+      assert(
+        r.onGreen.lieBottom <= r.onGreen.bodyBottom,
+        `under "${r.onGreen.hint}" the lowest lie button ends at ${Math.round(r.onGreen.lieBottom)} px, the body at ${Math.round(r.onGreen.bodyBottom)} px (${Math.round(r.onGreen.lieBottom - r.onGreen.bodyBottom)} px below the fold)`
       );
     });
     test(`at ${r.width}x${r.height} the lie grid does not move when the burst ends`, () => {

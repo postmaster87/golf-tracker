@@ -178,3 +178,114 @@ are as v25 left them.
    footer with about a finger's width of the card's "Captured" line showing
    under them. If any of it is cut, the number to send back is what the page
    height is, and the build stays off the course.
+---
+
+## 9. v27: the hints
+
+Matt, 2026-09-16, on the residual in Section 8 item 2: **"shorten it and
+push."** Built at `193eb00`, tree clean at the spawn.
+
+### The two strings
+
+| | before | after |
+|---|---|---|
+| on the green | `On the green: MARK CUP when you walk behind the hole, then enter the putts.` | **`On the green: MARK CUP, then putts.`** |
+| cup marked | `Cup marked. Putt out, then enter the putts and how long the first one was.` | **`Cup marked. Putt out, then the putts and how long the first was.`** |
+
+Nothing else moved. No CSS was touched — the footer, the card and the lie grid
+are as v26 left them; only the sentence above them is shorter.
+
+### What it is worth, measured in the app at 360 x 728
+
+`?sim=1`, one tab, viewport emulated 360 x 728, hole 10 par 5 473 yd — the same
+hole and the same page height as Section 6. Footer **385.6 px**, body
+131.3 - 342.4, lie grid bottom **316.2**, all identical to Section 6, so the
+only variable is the hint. The hint is 246 px wide with the lock strip
+reserved; each line is 18.9 px. n = 1 run per string, the four strings swapped
+into the same live footer back to back.
+
+| hint | lines | spare under the lie grid |
+|---|---|---|
+| old, on the green | 3 | **−11.5 px** — the bottom row under the footer |
+| **new, on the green** | **1** | **+26.3 px** |
+| old, cup marked | 2 | +7.4 px |
+| **new, cup marked** | **2** | **+7.4 px** |
+
+So the state that was 11.5 px short now clears by **26.3 px** — the same number
+the "At your ball: MARK SHOT 6." state reads in Section 6, which is the best
+this layout gives. The rightmost lie button still ends at **253.3 px** against
+a strip starting at 274, and label spill is **0**.
+
+**The one-line budget is 246 px, about 35 characters.** Fable's suggested
+`On the green: MARK CUP, then the putts.` (39) measures two lines; dropping
+"the" is what buys the line. `MARK CUP behind the hole, then putts.` (37) is
+also two lines — the capitals are wide — so "walk behind the hole" could not
+be kept at any length and is what went.
+
+### Why the "cup marked" hint stayed at two lines
+
+One line is reachable (`Cup marked. Putt out, then the putts.` measures 18.9 px
+and +26.3) but only by dropping *how long the first one was*, and that is the
+one thing on that screen he has to notice **before** he picks the ball out —
+the putts entry asks for the first putt's length after the fact. The job
+allowed two lines for this hint because there is no state that shows it with a
+lie grid under it; at two lines it costs the same 37.8 px the old one did, so
+nothing was given up to keep it. It is shortened from 74 to 64 characters, in
+his words.
+
+### The test
+
+`test/run.js`, the fold group. The helper now plays one more move at each of
+the three page heights: shot 2's lie answered **GREEN**, then **MARK SHOT 3**
+pressed instead of MARK CUP — the one state that puts the "on the green" hint
+on screen with a capture card under it — and a new assertion per size holds the
+whole lie grid above the body's bottom edge under that hint.
+
+**Proven against the defect first.** With `js/ui/screen-play.js` mutated back
+to the two old strings and nothing else changed, the suite reads **518 / 519**,
+failing exactly one test:
+
+> at 360x728 the longest hint still leaves the whole lie grid above the footer
+> — under "On the green: MARK CUP when you walk behind the hole, then enter the
+> putts." the lowest lie button ends at 317 px, the body at 304 px (13 px below
+> the fold)
+
+375x791 and 360x759 stay green under the old strings (the hint is 2 lines at
+375 px and the 759 page has 18.2 px to give), which is why 728 is the size the
+group is held to.
+
+### Suite
+
+`http://localhost:8123/test/` (`tools/devserver.py 8123`), browser pane
+fronted.
+
+| run | tree | viewport | result |
+|---|---|---|---|
+| 1 | v26 at `193eb00`, before the change | 360x728 | **516 / 516** |
+| 2 | v27 | 360x728 | **519 / 519** |
+| 3 | mutation: the two old strings back in `screen-play.js` | 360x728 | **518 / 519** — the new test at 360x728, and only it |
+| 4 | v27 restored | 360x728 | **519 / 519** |
+| 5 | v27 | 375x812 | **519 / 519** |
+
+519, not 516: the new assertion runs at each of the group's three page heights.
+No test is RED on purpose.
+
+### What changed
+
+| file | change |
+|---|---|
+| `js/ui/screen-play.js` | `nextStepHint()`: the two hint strings above, and a comment saying why the "on the green" one has to stay one line |
+| `test/run.js` | the fold group plays GREEN then MARK SHOT and asserts the lie grid is above the fold under the longest hint, at all three page heights |
+| `js/data/build.js` | `BUILD.id` v26 -> **v27**, date 2026-09-16 |
+| `sw.js` | `gt-shell-v26` -> `gt-shell-v27` |
+
+`REVISION` is untouched. Nothing in `js/gps/`, `js/util/geo.js`,
+`js/data/schema.js` or `js/analysis/` was touched, and no CSS was touched.
+
+### His call
+
+1. **The push.** Not taken — v27 is committed and not pushed.
+2. **The one photograph** from Section 8 item 3 still stands, and it is now
+   worth one more tap: after MARK SHOT 2, answer the lie **GREEN** and press
+   MARK SHOT 3. The hint should read *"On the green: MARK CUP, then putts."* on
+   one line with all six lies clear of the footer.

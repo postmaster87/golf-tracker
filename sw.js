@@ -26,7 +26,7 @@
 // v25: the lie field is first in the capture card and the card is first in the
 // body, so the whole lie grid sits above the footer at 360x780 and does not move
 // when the burst ends.
-const CACHE = 'gt-shell-v26';
+const CACHE = 'gt-shell-v27';
 const NET_TIMEOUT_MS = 2500;
 const SHELL = [
   './',

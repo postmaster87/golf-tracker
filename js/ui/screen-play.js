@@ -1785,12 +1785,30 @@ export function playScreen(ctx) {
     if (editing) return 'Editing: hand-enter this hole, or fix individual shots in the list above.';
     const n = strokeMarks(hl).length;
     if (!n) return 'On the tee: MARK TEE SHOT before you hit.';
-    if (hl.cup) return 'Cup marked. Putt out, then enter the putts and how long the first one was.';
+    if (hl.cup) return 'Cup marked. Putt out, then the putts and how long the first was.';
     // The cup half of this only appears once the cup button does. Naming a
     // control that is not on screen is what sent him looking for it in the
     // wrong place in the first place.
+    /*
+     * ONE LINE, OR THE BOTTOM ROW OF LIES GOES UNDER THE FOOTER.
+     *
+     * The hint is the only thing in that footer whose height is not fixed, and
+     * the footer is what the body — and the lie card in it — gets what is left
+     * of. Measured at 360x728 (his S26's page, REPORT 2.6), each hint line is
+     * 18.9 px and the lie grid clears the fold by 26.3 px at one line, 7.4 at
+     * two and −11.5 at three. The old wording — "On the green: MARK CUP when
+     * you walk behind the hole, then enter the putts." — was three lines, and
+     * in the one state that shows it with a card up (a shot marked GREEN, no
+     * cup yet, MARK SHOT pressed instead of MARK CUP) it put SAND / RECOVERY /
+     * GREEN under the footer. Matt, 2026-09-16: "shorten it and push."
+     *
+     * So this one stays at one line at 246 px — the hint's width at 360 with
+     * the lock strip reserved — which is about 35 characters. "walk behind the
+     * hole" is what went; MARK CUP and the putts are what he needs read at a
+     * glance. The fold group holds it.
+     */
     return hl.shots.some((x) => x.lie === 'green')
-      ? `On the green: MARK CUP when you walk behind the hole, then enter the putts.`
+      ? `On the green: MARK CUP, then putts.`
       : `At your ball: MARK SHOT ${hl.shots.length + 1}.`;
   }
 
