@@ -243,8 +243,33 @@ export function exportFilename(now = new Date()) {
  * purpose: an export that quietly contained no track is the exact failure this
  * function was changed to fix, and it must not look identical to one that did.
  */
+/**
+ * Hand the export to the phone, in the shell.
+ *
+ * There is no Downloads folder a WebView's `<a download>` can reach, so the
+ * file goes out through MediaStore into `Download/golf-tracker/` — the same
+ * place `adb pull` and My Files look. Returns the path it wrote, which the
+ * caller shows, because "saved" with no location is how an export gets lost.
+ *
+ * Returns null when this is not the shell, so the callers keep their own paths.
+ */
+function saveThroughBridge(payload) {
+  const gn = globalThis.GolfNative;
+  if (!gn) return null;
+  const counts = { rounds: payload.rounds.length, trackPoints: payload.trackPoints };
+  try {
+    const res = JSON.parse(gn.saveExport(exportFilename(), JSON.stringify(payload, null, 2)));
+    if (res?.path) return { ...counts, saved: res.path };
+  } catch {
+    /* falls through to the failure below */
+  }
+  return { ...counts, shared: false, reason: 'failed' };
+}
+
 export async function downloadExport(app) {
   const payload = await buildExportWithTracks(app);
+  const native = saveThroughBridge(payload);
+  if (native) return native;
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -271,6 +296,8 @@ export async function downloadExport(app) {
  */
 export async function shareExport(app) {
   const payload = await buildExportWithTracks(app);
+  const native = saveThroughBridge(payload);
+  if (native) return native;
   const file = new File([JSON.stringify(payload, null, 2)], exportFilename(), {
     type: 'application/json',
   });

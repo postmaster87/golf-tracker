@@ -43,6 +43,28 @@ const DB_NAME = 'gt-track';
 const DB_VERSION = 1;
 const STORE = 'chunks';
 
+/*
+ * IN THE SHELL, THE NATIVE FIX LOG IS THE DENSE TRACK (D2).
+ *
+ * Every function below keeps its contract and its shape; only the storage under
+ * it changes. This is the right seam because it is already the seam: every
+ * reader in the app goes through `readTrack`, `writeTrackChunk`, `trackSize`,
+ * `deleteTrack`, `trackedRoundIds`, `pruneOrphanTracks` and `createTrackWriter`
+ * and none of them knows what is behind them.
+ *
+ * ONE SOURCE, not two. The recorder writes the track whether the page is alive
+ * or not, so an IndexedDB copy could only ever be a catch-up of what is already
+ * on disk — with a duplicated point at every boundary and two answers to "how
+ * many fixes does this round have". There is no copy.
+ *
+ * EVERY IndexedDB LINE BELOW IS UNTOUCHED. The Pages build runs exactly the
+ * code it ran before, and the existing suite is the proof of that: it runs with
+ * no bridge present and takes the same path it always did.
+ */
+function bridge() {
+  return globalThis.GolfNative;
+}
+
 /**
  * Flush cadence.
  *
@@ -171,6 +193,8 @@ export function expandFix(p) {
  * these the buffer is lost on every single pocket, which is most of the data.
  */
 export function createTrackWriter(roundId, { flushMs = FLUSH_MS, maxBuffer = MAX_BUFFER } = {}) {
+  const gn = bridge();
+  if (gn) return nativeWriter(gn);
   let buffer = [];
   let seq = 0;
   let timer = null;
@@ -270,6 +294,44 @@ export function createTrackWriter(roundId, { flushMs = FLUSH_MS, maxBuffer = MAX
 }
 
 /**
+ * The shell's writer: there is nothing to write.
+ *
+ * The recorder is already writing every fix to the round's own file, from its
+ * own service, whether this page exists or not. `push` says `false` — the same
+ * answer the IndexedDB writer gives for a fix it refused — because this writer
+ * genuinely did not store anything; the recorder did.
+ *
+ * `stats()` is the live one, straight off the bridge, so the Data card's
+ * on-course indicator keeps answering the question it exists to answer: is the
+ * track actually recording? `written` and `buffered` are both the row count,
+ * because in the shell nothing is ever in flight — a row is on disk before the
+ * fix reaches this page at all.
+ */
+function nativeWriter(gn) {
+  const zero = { buffered: 0, written: 0, flushes: 0, failures: 0, inBuffer: 0 };
+  return {
+    push: () => false,
+    flush: () => Promise.resolve(),
+    close: () => Promise.resolve(),
+    stats: () => {
+      try {
+        const s = JSON.parse(gn.stats());
+        const rows = Number(s?.rows) || 0;
+        return {
+          buffered: rows,
+          written: rows,
+          flushes: 0,
+          failures: Number(s?.writeFailures) || 0,
+          inBuffer: 0,
+        };
+      } catch {
+        return { ...zero };
+      }
+    },
+  };
+}
+
+/**
  * Every stored fix for a round, in time order.
  *
  * Chunks are sorted by their own `seq` rather than trusted to come back in
@@ -278,6 +340,17 @@ export function createTrackWriter(roundId, { flushMs = FLUSH_MS, maxBuffer = MAX
  * worse than no track because the stop detector would read it as teleporting.
  */
 export async function readTrack(roundId) {
+  const gn = bridge();
+  if (gn) {
+    try {
+      const pts = JSON.parse(gn.readTrack(roundId));
+      // A bridge failure comes back as `{error: ...}`, which is not an array.
+      // Same posture as an unavailable IndexedDB: degrade, never throw.
+      return Array.isArray(pts) ? pts : [];
+    } catch {
+      return [];
+    }
+  }
   const db = await openTrackDb();
   if (!db) return [];
   try {
@@ -309,6 +382,14 @@ export async function readTrack(roundId) {
 export async function writeTrackChunk(roundId, points) {
   const pts = (points ?? []).filter((p) => Array.isArray(p) && Number.isFinite(p[3]));
   if (!pts.length) return 0;
+  const gn = bridge();
+  if (gn) {
+    try {
+      return Number(gn.importTrack(roundId, JSON.stringify(pts))) || 0;
+    } catch {
+      return 0;
+    }
+  }
   const db = await openTrackDb();
   if (!db) return 0;
   try {
@@ -339,6 +420,14 @@ export async function writeTrackChunk(roundId, points) {
 
 /** Point count for a round without materialising the points. */
 export async function trackSize(roundId) {
+  const gn = bridge();
+  if (gn) {
+    try {
+      return Number(gn.trackSize(roundId)) || 0;
+    } catch {
+      return 0;
+    }
+  }
   const db = await openTrackDb();
   if (!db) return 0;
   try {
@@ -357,6 +446,14 @@ export async function trackSize(roundId) {
  * contents are big.
  */
 export async function deleteTrack(roundId) {
+  const gn = bridge();
+  if (gn) {
+    try {
+      return gn.deleteTrack(roundId) === true;
+    } catch {
+      return false;
+    }
+  }
   const db = await openTrackDb();
   if (!db) return false;
   try {
@@ -394,6 +491,15 @@ export async function deleteTrack(roundId) {
  * per chunk.
  */
 export async function trackedRoundIds() {
+  const gn = bridge();
+  if (gn) {
+    try {
+      const ids = JSON.parse(gn.trackedRoundIds());
+      return Array.isArray(ids) ? ids : [];
+    } catch {
+      return [];
+    }
+  }
   const db = await openTrackDb();
   if (!db) return [];
   try {

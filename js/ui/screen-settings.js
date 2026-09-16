@@ -47,6 +47,15 @@ const THEME_NOTES = {
   midnight: 'Dark, true neutral',
 };
 
+/**
+ * Whether this build is running inside the native shell. Read at call time (not
+ * cached at module load) so the suite can stand a fake bridge up and take it
+ * down again.
+ */
+function shell() {
+  return Boolean(globalThis.GolfNative);
+}
+
 export function settingsScreen(ctx) {
   const el = h('div', { class: 'screen' });
 
@@ -254,7 +263,11 @@ export function settingsScreen(ctx) {
             const what = r.trackPoints
               ? `${r.rounds} round${r.rounds === 1 ? '' : 's'} · ${r.trackPoints.toLocaleString()} track fixes`
               : `${r.rounds} round${r.rounds === 1 ? '' : 's'} — NO track data found`;
-            if (r.shared) {
+            if (r.saved) {
+              // The shell writes the file itself; say where, because "saved"
+              // with no location is how an export gets lost.
+              toast(`Saved to ${r.saved} · ${what}.`);
+            } else if (r.shared) {
               toast(`Sent: ${what}.`);
             } else if (r.reason === 'cancelled') {
               toast('Share cancelled — nothing sent.');
@@ -277,7 +290,9 @@ export function settingsScreen(ctx) {
     dataCard.appendChild(
       h('p', {
         class: 'note muted',
-        text: 'SEND opens the share sheet — mail it to yourself or drop it in Drive without hunting through folders. SAVE writes it to this device\'s Downloads.',
+        text: shell()
+          ? 'Both buttons write the file to Download/golf-tracker on this phone, where My Files and the share sheet can reach it.'
+          : 'SEND opens the share sheet — mail it to yourself or drop it in Drive without hunting through folders. SAVE writes it to this device\'s Downloads.',
       })
     );
     dataCard.appendChild(
@@ -289,11 +304,12 @@ export function settingsScreen(ctx) {
           btn.disabled = true;
           btn.textContent = 'SAVING…';
           try {
-            const { rounds, trackPoints } = await downloadExport(ctx.app);
+            const { rounds, trackPoints, saved } = await downloadExport(ctx.app);
+            const where = saved ?? 'Downloads';
             toast(
               trackPoints
-                ? `Saved to Downloads · ${rounds} round${rounds === 1 ? '' : 's'} · ${trackPoints.toLocaleString()} track fixes.`
-                : `Saved to Downloads · ${rounds} round${rounds === 1 ? '' : 's'} — NO track data found.`
+                ? `Saved to ${where} · ${rounds} round${rounds === 1 ? '' : 's'} · ${trackPoints.toLocaleString()} track fixes.`
+                : `Saved to ${where} · ${rounds} round${rounds === 1 ? '' : 's'} — NO track data found.`
             );
           } catch (err) {
             toast(`Export failed: ${err.message}`);
@@ -344,9 +360,55 @@ export function settingsScreen(ctx) {
     dataCard.appendChild(
       h('p', {
         class: 'note muted',
-        text: 'Export after every round until Firestore sync lands. localStorage is cleared by "clear browsing data" without warning.',
+        text: shell()
+          ? 'Export after every round. The export is the only copy that survives uninstalling the app or clearing its data.'
+          : 'Export after every round until Firestore sync lands. localStorage is cleared by "clear browsing data" without warning.',
       })
     );
+
+    /*
+     * The recorder's own logs, for the PC tool.
+     *
+     * fixes.csv, events.csv and meta.json for one round, copied out to
+     * Download/golf-tracker/logs/<roundId>/, which is what
+     * `tools/track-coverage.py` scores. This is how the bar gets measured after
+     * a carry — the round export carries the track, but not the heartbeats and
+     * the process-exit records that say WHY a gap happened.
+     */
+    if (shell()) {
+      const logRound = ctx.round?.id ?? ctx.app.rounds?.[0]?.id ?? null;
+      dataCard.appendChild(
+        h('button', {
+          class: 'btn',
+          text: 'EXPORT RECORDER LOGS',
+          disabled: !logRound,
+          onClick: async (e) => {
+            const btn = e.target;
+            btn.disabled = true;
+            btn.textContent = 'EXPORTING…';
+            try {
+              const res = JSON.parse(globalThis.GolfNative.exportLogs(logRound));
+              toast(res.path ? `Recorder logs: ${res.path}` : `Export failed: ${res.error}`);
+            } catch (err) {
+              toast(`Export failed: ${err.message}`);
+            } finally {
+              btn.disabled = false;
+              btn.textContent = 'EXPORT RECORDER LOGS';
+            }
+          },
+        })
+      );
+      dataCard.appendChild(
+        h('p', {
+          class: 'note muted',
+          text: logRound
+            ? `Writes the recorder's own fixes.csv, events.csv and meta.json for ${
+                ctx.round ? 'this round' : 'the last round'
+              } to Download/golf-tracker/logs. That is what the coverage tool scores.`
+            : 'No round recorded on this phone yet.',
+        })
+      );
+    }
     body.appendChild(dataCard);
 
     /* ------------------------------------------------- during a round */
@@ -576,7 +638,7 @@ export function settingsScreen(ctx) {
     statePromise
       .then((state) => {
         if (!box.isConnected) return;
-        const { heading, detail, tone } = persistenceLabel(state);
+        const { heading, detail, tone } = persistenceLabel(state, { shell: shell() });
         clear(box);
         box.className = `storage tone-${tone}`;
         box.appendChild(h('h4', { text: heading }));

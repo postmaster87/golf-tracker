@@ -129,15 +129,39 @@ function lockOrientation() {
   }
 }
 
+/**
+ * Whether this build is running inside the native shell.
+ *
+ * The bridge object's presence is the one signal — there is no flag, no build
+ * variant and no user agent sniff. Read at call time rather than cached, so the
+ * suite can stand a fake bridge up and take it down again.
+ */
+function shell() {
+  return Boolean(globalThis.GolfNative);
+}
+
 function startGps() {
   if (!ctx.gps.running) ctx.gps.start();
-  wakeLock.acquire();
   lockOrientation();
+  /*
+   * In the shell the phone's power button IS the lock (his word, 2026-09-16).
+   *
+   * The screen wake lock and the in-app pocket lock both exist because a web
+   * page only receives GPS while it is the foreground page: the screen had to
+   * stay on, and a screen that stays on in a back pocket had to be defended
+   * from thumbs. The native recorder removes the premise — it marks the track
+   * with the screen off and the app closed — so both come off, and the round is
+   * one power-button press away from safe. `js/ui/lock.js` is unchanged; it is
+   * simply never enabled here.
+   */
+  if (shell()) return;
+  wakeLock.acquire();
   pocketLock.enable();
 }
 
 function stopGps() {
   ctx.gps.stop();
+  if (shell()) return;
   wakeLock.release();
   pocketLock.disable();
 }
@@ -217,7 +241,53 @@ function syncTrackWriter(round) {
   return trackWriter;
 }
 
+/*
+ * The native recorder, followed off the round exactly as the writer above is.
+ *
+ * D8: recording follows the round's STATUS, never a null `ctx.round`. The
+ * writer-follows-round pattern closes on null because an absent round means
+ * nothing to buffer; the recorder must NOT, because a WebView that dies
+ * mid-round would otherwise take the recording with it — and the recording is
+ * the whole reason the shell exists.
+ *
+ * `nativeRecorderRoundId` is what we last told the recorder, so the GPS loop
+ * costs one bridge call per state change rather than one a second. Boot and
+ * a return to visible pass `recheck`, which re-reads the recorder's own
+ * committed answer instead of trusting a variable that a reload just cleared.
+ */
+let nativeRecorderRoundId = null;
+
+function syncNativeRecorder(round, { recheck = false } = {}) {
+  const gn = globalThis.GolfNative;
+  if (!gn) return;
+  try {
+    if (recheck) nativeRecorderRoundId = gn.recordingRoundId() || null;
+    const want = round?.status === 'in_progress' ? round.id : null;
+    if (want) {
+      if (want === nativeRecorderRoundId) return;
+      if (gn.startRecording(want)) nativeRecorderRoundId = want;
+      return;
+    }
+    // A null round is "this screen does not know", not "stop". Only a round
+    // that has actually ended takes the recorder down with it.
+    if (!round || !nativeRecorderRoundId) return;
+    if (
+      (round.status === 'completed' || round.status === 'abandoned') &&
+      round.id === nativeRecorderRoundId
+    ) {
+      gn.stopRecording(round.id);
+      nativeRecorderRoundId = null;
+    }
+  } catch {
+    // The recorder holds its own committed flag and resumes on its own. A
+    // failed bridge call is a message lost, never a round lost.
+  }
+}
+
 ctx.gps.subscribe((event) => {
+  // Same place, same reason as the track writer: the one loop that already
+  // runs whenever a round is live.
+  syncNativeRecorder(ctx.round);
   if (event === 'fix' && ctx.round && ctx.round.status === 'in_progress') {
     /*
      * Two tracks, deliberately.
@@ -308,6 +378,11 @@ function boot() {
     }
   }
 
+  // The app state and the active round are now loaded, so the recorder can be
+  // reconciled against them: a round resumed after a reload gets its recording
+  // back, and a round that ended while the page was gone stops it.
+  syncNativeRecorder(ctx.round, { recheck: true });
+
   render();
 
   if (ctx.round) {
@@ -326,13 +401,25 @@ window.addEventListener('beforeunload', (e) => {
 });
 
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible' && ctx.round?.status === 'in_progress') {
+  if (document.visibilityState !== 'visible') return;
+  // The recorder ran while this page was frozen or gone; re-read what it is
+  // actually doing rather than trusting a variable that may be stale.
+  syncNativeRecorder(ctx.round, { recheck: true });
+  if (ctx.round?.status === 'in_progress') {
     startGps();
     active?.tick?.();
   }
 });
 
-if ('serviceWorker' in navigator) {
+/*
+ * The service worker is a Pages mechanism, and only a Pages mechanism.
+ *
+ * In the shell every file already comes out of the APK through
+ * WebViewAssetLoader, so a worker would cache what is local to begin with — and
+ * it would add a second answer to "which build am I running", on the one build
+ * whose version is fixed at compile time (D6, D9).
+ */
+if ('serviceWorker' in navigator && !shell()) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('./sw.js').catch(() => {
       /* offline support is a bonus, not a requirement */
@@ -348,6 +435,23 @@ if (new URLSearchParams(location.search).has('sim')) {
     await import('./dev/sim.js');
   } catch (err) {
     console.error('GPS simulator failed to load; continuing with real GPS.', err);
+  }
+}
+
+/*
+ * Inside the shell, fixes come from the native recorder rather than the
+ * WebView's own receiver. Loaded here, before `boot()` can start the GPS
+ * service, and dynamically so Pages never fetches a file it has no use for.
+ *
+ * The simulator wins when both are present. That combination only happens at a
+ * desk with `?sim=1` typed by hand, and a synthetic round must never be able to
+ * reach a real recorder.
+ */
+if (globalThis.GolfNative && !globalThis.__GT_SIM__) {
+  try {
+    await import('./native/shim.js');
+  } catch (err) {
+    console.error('Native GPS shim failed to load; continuing with the WebView receiver.', err);
   }
 }
 

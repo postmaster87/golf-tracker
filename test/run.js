@@ -64,6 +64,7 @@ import {
 } from '../js/round/round.js';
 import {
   newAppState,
+  newRound,
   THEMES,
   migrate,
   summarizeRound,
@@ -95,6 +96,7 @@ import {
   expandFix,
   pruneOrphanTracks,
   trackedRoundIds,
+  writeTrackChunk,
   openTrackDb,
 } from '../js/data/trackstore.js';
 import { expectedStrokes, validateBenchmarks, BASELINES } from '../js/analysis/benchmarks.js';
@@ -135,6 +137,8 @@ import {
 import {
   buildExport,
   buildExportWithTracks,
+  downloadExport,
+  shareExport,
   importExport,
   restoreTracks,
   loadApp,
@@ -4760,6 +4764,314 @@ export async function runStoragePersistTests() {
       /PROTECTED|AT RISK|UNKNOWN/.test(afterPress),
       `the box never came back from the request: ${JSON.stringify(afterPress)}`
     );
+  });
+}
+
+/* ------------------------------------------------ the native shell (3.1) */
+
+/**
+ * A stand-in for `window.GolfNative`, recording what the web layer actually
+ * asked the phone to do.
+ *
+ * Return values match the real bridge's contract exactly: a JSON string for an
+ * object result, a primitive otherwise, and never a throw. The `calls` log is
+ * the interesting half — the bugs that matter here are "the points never
+ * reached the bridge" and "the export went out twice", neither of which shows
+ * up in a return value.
+ */
+function fakeBridge(overrides = {}) {
+  const calls = [];
+  const record = (name, fn) => (...args) => {
+    calls.push([name, ...args]);
+    return fn(...args);
+  };
+  const base = {
+    version: () => 'v27',
+    watch: () => true,
+    unwatch: () => true,
+    startRecording: () => true,
+    stopRecording: () => true,
+    recordingRoundId: () => '',
+    readTrack: () => '[]',
+    importTrack: (id, json) => JSON.parse(json).length,
+    trackSize: () => 0,
+    trackedRoundIds: () => '[]',
+    deleteTrack: () => false,
+    stats: () =>
+      JSON.stringify({
+        recording: true,
+        roundId: 'r_fake',
+        rows: 120,
+        lastFixMs: 1789420084966,
+        writeFailures: 2,
+        skippedNoAcc: 0,
+      }),
+    saveExport: (name) => JSON.stringify({ path: `Download/golf-tracker/${name}` }),
+    exportLogs: (id) => JSON.stringify({ path: `Download/golf-tracker/logs/${id}` }),
+  };
+  const bridge = {};
+  for (const [name, fn] of Object.entries({ ...base, ...overrides })) {
+    bridge[name] = record(name, fn);
+  }
+  return { calls, bridge };
+}
+
+/**
+ * THE SHELL SEAM.
+ *
+ * Six things, all of which are invisible on Pages and load-bearing on the
+ * phone: the GPS shim, the track store routing to the native log, the storage
+ * verdict, the round's recorder stamp and the export leaving the phone. Every
+ * one of them is proven with the bridge present AND checked to be inert with it
+ * absent, because the failure that would cost a round is not "the shell is
+ * broken" — it is "the shell changed what the web build does".
+ */
+export async function runNativeShellTests() {
+  group('native shell');
+
+  /* ---------------------------------------------------------- 1. the shim */
+
+  const realGeolocation = navigator.geolocation;
+  delete globalThis.GolfNative;
+  delete globalThis.__golfNativeFix;
+
+  /*
+   * The shim is a side-effect module: importing it IS installing it. To prove
+   * it installs ONLY under a bridge, the no-bridge case needs its own module
+   * instance, and a distinct specifier is a distinct module in the registry.
+   * Nothing in the app ever loads it twice; this is a test seam and says so.
+   */
+  await import('../js/native/shim.js?shell=absent');
+  const geoUntouchedWithoutBridge = navigator.geolocation === realGeolocation;
+  const noHookWithoutBridge = typeof globalThis.__golfNativeFix !== 'function';
+
+  const gpsFake = fakeBridge();
+  globalThis.GolfNative = gpsFake.bridge;
+  await import('../js/native/shim.js?shell=present');
+  const installedWithBridge = navigator.geolocation !== realGeolocation;
+
+  const gps = new GpsService();
+  gps.start();
+  const nativeFix = {
+    lat: 42.0414213,
+    lon: -93.6501613,
+    acc: 3.2,
+    alt: 290,
+    altAcc: 6,
+    speed: 1.25,
+    heading: 88,
+    ts: 1789420084966,
+  };
+  globalThis.__golfNativeFix(nativeFix);
+  const delivered = gps.last;
+
+  // 2. the revive path: clearWatch then watchPosition, which is exactly what
+  // GpsService.restart() does when a thawed page has gone quiet.
+  gps.restart();
+  globalThis.__golfNativeFix({ ...nativeFix, ts: nativeFix.ts + 1000 });
+  const afterRevive = gps.last;
+  const watchCalls = gpsFake.calls.filter((c) => c[0] === 'watch').length;
+  const unwatchCalls = gpsFake.calls.filter((c) => c[0] === 'unwatch').length;
+  gps.stop();
+
+  test('the shim installs only when the bridge is there', () => {
+    eq(geoUntouchedWithoutBridge, true, 'it replaced navigator.geolocation with no bridge present');
+    eq(noHookWithoutBridge, true, 'it installed __golfNativeFix with no bridge present');
+    eq(installedWithBridge, true, 'it did not replace navigator.geolocation under a bridge');
+  });
+
+  test('a native fix reaches GpsService carrying its own time, not the arrival time', () => {
+    // `ts` is `Location.time`, the `fix_ms` column. The track is keyed on it and
+    // tools/track-coverage.py measures every gap on it — a receive time here
+    // would quietly re-base every gap in every round.
+    assert(delivered != null, 'no fix reached the GPS service at all');
+    eq(delivered.ts, nativeFix.ts, 'timestamp');
+    near(delivered.lat, nativeFix.lat, 1e-9, 'latitude');
+    near(delivered.acc, nativeFix.acc, 1e-9, 'accuracy');
+    near(delivered.speed, nativeFix.speed, 1e-9, 'device speed survives — the stop detector needs it');
+    eq(delivered.heading, 88, 'heading');
+  });
+
+  test('the watch survives a revive, and leaves the native count where it started', () => {
+    eq(afterRevive.ts, nativeFix.ts + 1000, 'fixes stopped after clearWatch + watchPosition');
+    // One down and one up: the count is what turns the phone's location service
+    // on and off, so an unbalanced restart would leave it running for ever or
+    // kill it mid-round.
+    eq(watchCalls, 2, 'watchPosition should have registered twice');
+    eq(unwatchCalls, 1, 'clearWatch should have deregistered once');
+  });
+
+  delete globalThis.GolfNative;
+  delete globalThis.__golfNativeFix;
+  delete navigator.geolocation; // the own property goes; the real accessor returns
+
+  test('the suite gets the real receiver back', () => {
+    eq(navigator.geolocation, realGeolocation, 'navigator.geolocation was left shimmed');
+  });
+
+  /* -------------------------------------------------- 3. the track store */
+
+  const storeFake = fakeBridge({
+    readTrack: () =>
+      JSON.stringify([
+        [42.1, -93.2, 3, 1000],
+        [42.2, -93.3, 4, 2000, 1.5, 90],
+      ]),
+    trackSize: () => 42,
+    trackedRoundIds: () => JSON.stringify(['r_a', 'r_b']),
+    deleteTrack: () => true,
+  });
+  globalThis.GolfNative = storeFake.bridge;
+  const nativeRead = await readTrack('r_native');
+  const nativeWrote = await writeTrackChunk('r_native', [
+    [42.1, -93.2, 3, 1000],
+    'junk',
+    [1, 2, 3, 'not a timestamp'],
+  ]);
+  const nativeSize = await trackSize('r_native');
+  const nativeIds = await trackedRoundIds();
+  const nativeDeleted = await deleteTrack('r_native');
+  const nativeWriter = createTrackWriter('r_native');
+  const nativePushed = nativeWriter.push({ lat: 42, lon: -93, acc: 3, ts: 1 });
+  const nativeStats = nativeWriter.stats();
+  const sentPoints = storeFake.calls.find((c) => c[0] === 'importTrack');
+  delete globalThis.GolfNative;
+
+  test('every track-store read routes to the bridge and keeps its shape', () => {
+    eq(nativeRead.length, 2, 'readTrack parsed the bridge answer');
+    eq(nativeRead[1].length, 6, 'the six-slot point came back whole');
+    eq(nativeSize, 42, 'trackSize routed');
+    eq(nativeIds.join(','), 'r_a,r_b', 'trackedRoundIds routed');
+    eq(nativeDeleted, true, "deleteTrack returned the bridge's own answer");
+  });
+
+  test('writeTrackChunk filters first, then hands the points over', () => {
+    // The filter is the thing that stops a junk row becoming a CSV row on the
+    // phone, and the count is what the restore reports to Matt as success.
+    eq(nativeWrote, 1, 'the native count came back');
+    eq(sentPoints?.[2], JSON.stringify([[42.1, -93.2, 3, 1000]]), 'what crossed the bridge');
+  });
+
+  test('the shell writer stores nothing itself and reports the recorder instead', () => {
+    // The recorder already wrote every fix to the round's own file, from its own
+    // service, whether this page existed or not. A second copy would mean two
+    // answers to "how many fixes does this round have".
+    eq(nativePushed, false, 'the shell writer claimed to have stored a fix');
+    eq(nativeStats.written, 120, "written = the recorder's row count");
+    eq(nativeStats.buffered, 120, 'buffered = rows');
+    eq(nativeStats.failures, 2, 'failures = writeFailures');
+    eq(nativeStats.flushes, 0, 'nothing is ever in flight in the shell');
+    eq(nativeStats.inBuffer, 0, 'nothing is ever in flight in the shell');
+  });
+
+  /* ------------------------------------------------- 4. storage verdict */
+
+  const persistFake = fakeBridge();
+  globalThis.GolfNative = persistFake.bridge;
+  // A navigator that would answer "best effort", to prove the shell answer does
+  // not come from `navigator.storage` at all.
+  const shellNav = { storage: { persisted: async () => false, persist: async () => false } };
+  const shellPersistence = await checkPersistence(shellNav);
+  const shellRequest = await requestPersistence(shellNav);
+  const shellLabel = persistenceLabel(PERSISTENT, { shell: true });
+  delete globalThis.GolfNative;
+  const webLabel = persistenceLabel(PERSISTENT);
+
+  test('the shell reports protected storage without asking the browser', () => {
+    // App-private WebView storage is not reachable by the per-origin eviction
+    // that took field tests 1 to 5, so asking `navigator.storage` would answer
+    // the wrong question.
+    eq(shellPersistence, PERSISTENT);
+    eq(shellRequest, PERSISTENT);
+  });
+
+  test('and says what actually deletes rounds there, not what deletes them in Chrome', () => {
+    assert(/private storage/i.test(shellLabel.detail), shellLabel.detail);
+    assert(/uninstalling/i.test(shellLabel.detail), shellLabel.detail);
+    assert(/export/i.test(shellLabel.detail), 'the only copy that survives is not named');
+    // Pages is untouched: same words as before.
+    assert(/clearing browsing data/i.test(webLabel.detail), webLabel.detail);
+  });
+
+  /* ------------------------------------------- 5. the round's recorder */
+
+  const webRound = newRound({
+    courseId: 'veenker',
+    courseName: 'Veenker',
+    coursePar: 72,
+    type: 'practice',
+    teeSet: 'gold',
+    startingNine: 'front',
+    holes: [],
+  });
+  const recorderFake = fakeBridge();
+  globalThis.GolfNative = recorderFake.bridge;
+  const shellRound = newRound({
+    courseId: 'veenker',
+    courseName: 'Veenker',
+    coursePar: 72,
+    type: 'practice',
+    teeSet: 'gold',
+    startingNine: 'front',
+    holes: [],
+  });
+  delete globalThis.GolfNative;
+
+  test('a round records which recorder marked its track', () => {
+    eq(webRound.device.recorder, 'web');
+    eq(shellRound.device.recorder, 'native-k');
+    // Additive and optional: the schema version does not move for it, so a
+    // round logged before the shell existed has no key rather than a wrong one.
+    eq(shellRound.schemaVersion, webRound.schemaVersion, 'schemaVersion moved');
+  });
+
+  /* ------------------------------------------------------- 6. the export */
+
+  const EXPORT_ID = 'r_shell_export_test';
+  deleteRound(EXPORT_ID);
+  const exportRound = par4Round();
+  exportRound.id = EXPORT_ID;
+  saveRound(exportRound);
+  const exportApp = loadApp();
+
+  const exportFake = fakeBridge({
+    readTrack: (id) =>
+      id === EXPORT_ID
+        ? JSON.stringify([
+            [42.1, -93.2, 3, 1000],
+            [42.11, -93.21, 3, 2000],
+            [42.12, -93.22, 3, 3000],
+          ])
+        : '[]',
+  });
+  globalThis.GolfNative = exportFake.bridge;
+  const expectedPayload = await buildExportWithTracks(exportApp);
+  const savedResult = await downloadExport(exportApp);
+  const sharedResult = await shareExport(exportApp);
+  const saveCalls = exportFake.calls.filter((c) => c[0] === 'saveExport');
+  const sentPayload = JSON.parse(saveCalls[0][2]);
+  delete globalThis.GolfNative;
+  deleteRound(EXPORT_ID);
+
+  test('the shell export hands the phone the same payload the download path builds', () => {
+    eq(sentPayload.format, expectedPayload.format, 'format');
+    eq(sentPayload.formatVersion, expectedPayload.formatVersion, 'formatVersion');
+    eq(sentPayload.rounds.length, expectedPayload.rounds.length, 'rounds');
+    eq(sentPayload.trackPoints, expectedPayload.trackPoints, 'trackPoints');
+    assert(expectedPayload.trackPoints >= 3, 'the fixture track never reached the export');
+    eq(sentPayload.tracks[EXPORT_ID].length, 3, 'the native track rode along under its round id');
+  });
+
+  test('both export buttons write the file once, and say where it went', () => {
+    // SEND used to fall back to the download when the share sheet was absent.
+    // In the shell there is no share sheet and no Downloads folder a WebView can
+    // reach, so both buttons take the same path — and if `saved` were missing,
+    // Settings would fall through and write a second file.
+    eq(saveCalls.length, 2, 'one call per button, no fallback');
+    assert(savedResult.saved?.startsWith('Download/golf-tracker/'), savedResult.saved);
+    assert(sharedResult.saved?.startsWith('Download/golf-tracker/'), sharedResult.saved);
+    eq(savedResult.rounds, expectedPayload.rounds.length, 'the count Matt is shown');
+    eq(savedResult.trackPoints, expectedPayload.trackPoints, 'the fix count Matt is shown');
   });
 }
 

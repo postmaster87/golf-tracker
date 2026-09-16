@@ -76,6 +76,7 @@ function manager(nav = globalThis.navigator) {
  * taking a screen down for.
  */
 export async function checkPersistence(nav = globalThis.navigator) {
+  if (globalThis.GolfNative) return PERSISTENT;
   const sm = manager(nav);
   if (!sm) return UNKNOWN;
   try {
@@ -93,6 +94,7 @@ export async function checkPersistence(nav = globalThis.navigator) {
  * never had the API in the first place.
  */
 export async function requestPersistence(nav = globalThis.navigator) {
+  if (globalThis.GolfNative) return PERSISTENT;
   const sm = manager(nav);
   if (!sm || typeof sm.persist !== 'function') return UNKNOWN;
   try {
@@ -137,13 +139,22 @@ export async function ensurePersistence(settings, nav = globalThis.navigator) {
  * How to say it on screen. Blunt on purpose for the bad case — the whole
  * failure mode here is that eviction is silent, so the app has to be the thing
  * that is not quiet about it.
+ *
+ * `shell` changes only the PROTECTED wording. In the native shell the rounds
+ * are in the app's own private storage, which Chrome's per-origin eviction — the
+ * thing that took field tests 1 to 5 — cannot reach at all. Saying "this
+ * browser will not delete your rounds" there would name the wrong mechanism and
+ * imply the wrong caveat: it is not "clear browsing data" that takes them any
+ * more, it is uninstalling, or Android's per-app "clear storage".
  */
-export function persistenceLabel(state) {
+export function persistenceLabel(state, { shell = false } = {}) {
   switch (state) {
     case PERSISTENT:
       return {
         heading: 'Storage: PROTECTED',
-        detail: 'This browser will not delete your rounds to free space. Clearing browsing data still will.',
+        detail: shell
+          ? "Rounds live in this app's private storage. Only clearing the app's data or uninstalling deletes them. Export after every round; the export is the only copy that survives that."
+          : 'This browser will not delete your rounds to free space. Clearing browsing data still will.',
         tone: 'ok',
       };
     case BEST_EFFORT:

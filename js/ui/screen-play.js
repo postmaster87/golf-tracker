@@ -2416,27 +2416,35 @@ export function playScreen(ctx) {
         // doing the deliberate locking, anything under half a minute only ever
         // fired while the screen was still being used. 30 is the default —
         // Matt's choice. See the note on `autoLockSec` in `schema.js`.
-        field(
-          'Auto-lock after',
-          segmented(
-            [
-              { value: 30, label: '30s' },
-              { value: 60, label: '60s' },
-              { value: 120, label: '2m' },
-              { value: 300, label: '5m' },
-              { value: 0, label: 'OFF' },
-            ],
-            ctx.app.settings.autoLockSec ?? 30,
-            (v) => {
-              ctx.app.settings.autoLockSec = v;
-              pocketLock.configure({ idleMs: v * 1000 });
-              ctx.persistApp();
-              done('autolock');
-              openMenu();
-            },
-            { columns: 5 }
-          )
-        ),
+        //
+        // Hidden in the native shell. The pocket lock is never enabled there
+        // (`js/app.js`'s `startGps`): the recorder keeps marking the track with
+        // the screen off, so the phone's power button is the lock, his word on
+        // 2026-09-16. A control that cannot do anything is worse than no
+        // control, on a screen whose whole point is not making him hunt.
+        globalThis.GolfNative
+          ? null
+          : field(
+              'Auto-lock after',
+              segmented(
+                [
+                  { value: 30, label: '30s' },
+                  { value: 60, label: '60s' },
+                  { value: 120, label: '2m' },
+                  { value: 300, label: '5m' },
+                  { value: 0, label: 'OFF' },
+                ],
+                ctx.app.settings.autoLockSec ?? 30,
+                (v) => {
+                  ctx.app.settings.autoLockSec = v;
+                  pocketLock.configure({ idleMs: v * 1000 });
+                  ctx.persistApp();
+                  done('autolock');
+                  openMenu();
+                },
+                { columns: 5 }
+              )
+            ),
         // Optional refinement: exact distances for this hole, and one more
         // sample for the accumulated green position. Not needed to finish.
         h('button', {

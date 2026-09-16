@@ -401,6 +401,18 @@ export function newRound({
     device: {
       ua: globalThis.navigator?.userAgent ?? null,
       screen: globalThis.screen ? `${screen.width}x${screen.height}` : null,
+      /*
+       * WHICH RECORDER MARKED THIS ROUND'S TRACK.
+       *
+       * Additive and optional: `schemaVersion` does not move and `migrate()`
+       * does not change, so a round logged before the shell existed simply has
+       * no key rather than a wrong one. It matters because the two recorders do
+       * not produce comparable tracks — the web build loses the track whenever
+       * the page is backgrounded (five gaps totalling 782 s on 2026-09-14,
+       * n = 1 round), and any comparison across rounds has to be able to say
+       * which instrument was in the pocket.
+       */
+      recorder: globalThis.GolfNative ? 'native-k' : 'web',
     },
     note: null,
   };

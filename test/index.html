@@ -44,6 +44,7 @@
         runLockReachTests,
         runCaptureReachTests,
         runStoragePersistTests,
+        runNativeShellTests,
       } from './run.js';
 
       await runContrastTests();
@@ -57,6 +58,9 @@
       await runLockReachTests();
       await runCaptureReachTests();
       await runStoragePersistTests();
+      // Last on purpose: it stands a fake bridge up and shims
+      // navigator.geolocation, and it puts both back when it is done.
+      await runNativeShellTests();
       const results = getResults();
       const failed = results.filter((r) => !r.ok);
 
