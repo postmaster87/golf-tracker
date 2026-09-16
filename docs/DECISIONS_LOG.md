@@ -9,6 +9,74 @@ never "Fable decided".
 
 Opus's solo decisions are logged here too, marked (Opus).
 
+## 2026-09-16 - 3.1 PASS: the native shell is built to the spec; not the instrument until the carry
+- **Decision:** Fable reviewed Opus's five commits (`0edbb28` to `ebdff3d`,
+  44 files, +4,271 / -33) line by line against
+  `docs/native/SPEC_native-shell.md` at xhigh (Matt: `/effort xhigh`, "Go")
+  and signs the build. Every decision D1-D10, every Section 2-6 line and
+  every Section 7 wall holds: no file in the must-not-change list is in the
+  diff (`js/gps/gps.js`, `js/util/geo.js`, `js/round/*`, `js/analysis/*`,
+  `sw.js`, `js/data/revision.js`, `android/bakeoff/*`); `BUILD.id` v27,
+  `REVISION` 4, `schemaVersion` and `formatVersion` unmoved. The lifted
+  Kotlin (`DeviceState`, `FixCsv`, `LocationFix`, `SessionLog`, `Sessions`,
+  `Exporter`, `BakeoffApp`) diffs against the bake-off only by the package,
+  the spec's additions (`round_id`, `build`, `recorder`, `lastFixMs`,
+  `appendImported`, `jsJson`, `isSafeId`) and the folder-by-round-id rename.
+- **Fable's own runs, not Opus's:** browser suite **531 / 531** at 360x728
+  (n = 1); Kotlin JVM **10 / 10** (n = 1, `gradlew test`); `aapt dump
+  permissions` on the built APK: the eight named permissions and **no
+  INTERNET**, `versionName` v27, `versionCode` 2701; the emulator's smoke
+  round `r_fae282fa...` read back over `run-as`: 235 rows, span 272.4 s,
+  `task_removed` then `previous_exit reason=signaled status=9` then
+  `resume_on_process_start` and `updates_on` 1.217 s later, then
+  `recorder_halt` / `stop` / `log_close` at FINISH (n = 1 round). Fix gaps
+  over 2 s in that round: **two**, 2.023 s and 6.044 s (the kill); Opus's
+  report counts the closed interval and the post-kill run separately and
+  is right for each, the 2.023 s sits outside both. The 15 imported
+  folders carry exactly points + 1 header lines each, `meta.json`
+  `recorder: "import"`, the smoke round `"native-k"`. FT7's export
+  (`golf-tracker-20260914-1807.json`, `r_1792abc1...`) has 4,585 points and
+  4,583 distinct `ts`: three byte-identical rows at 1789165452854, checked
+  from the file, so 4,583 read back is Section 4 working as written.
+- **Departures accepted (REPORT_3.1 Section 8, all seven):** the fourth
+  `syncNativeRecorder` site in `stopGps()` - finish and abandon both
+  `persist()` the ended status before `ctx.stopGps()` (`screen-play.js`
+  2513 and 3347), so the stored round is `completed`/`abandoned` when it is
+  read and a round still `in_progress` is left recording (D8 holds); the
+  auto-lock control hidden in `screen-play.js`, the file it lives in; 2(d)
+  delivered through `createTrackWriter`; OPEN THE APP ANYWAY (the design
+  rule); `recorder_name` in meta.json; the insets so the page gets 728 CSS
+  px; and FT7 built to Section 4 over Section 8 (Section 8's "equals" was
+  written before the duplicate was known - Section 4 is the rule).
+- **Not in the spec, found in the review, accepted:** `startRecording` for
+  a different round than the one committed closes the old one
+  (`stop_for_new_round`, `superseded`) rather than leaving two live folders;
+  `trackedRoundIds` lists only folders that have a `fixes.csv`.
+- **Follow-ups (not defects, none touch a round):** (1) `stats()` line-scans
+  `fixes.csv` on every call and the play screen asks once per fix, so an
+  8,000-row round reads ~0.5 MB a second on a binder thread - count rows
+  once at open and increment; (2) a round restored while `in_progress` and
+  then resumed appends native rows to a folder whose `meta.json` says
+  `import` (every row still carries its own `provider`); (3) with
+  `denseTrack` off the track chip is blank in the shell although the
+  recorder records regardless; (4) `MainActivity` declares no
+  `configChanges`, so a night-mode flip recreates the Activity and reloads
+  the page mid-round (state is in storage; an open sheet is lost).
+- **The gate is unchanged:** the shell is not the instrument. v27 on Pages
+  is what he plays until a round-length locked-screen carry with music
+  scores 99% / no gap over 20 s on `tools/track-coverage.py` and Fable says
+  PASS in his chat. The phone install (REPORT_3.1 Section 10) runs only on
+  his word. `REVISION` 5 waits for the commit that makes the shell the
+  instrument (spec Section 10 item 1).
+- **Owed by Matt:** FT7 - leave the de-duplication (Fable recommends) or
+  keep every row; his usage number after this session for the cost note.
+- **Cost, n = 1 (the first xhigh build under the flip):** Opus at xhigh
+  126 min, 610k sub-agent tokens, 347 tool uses - about double the largest
+  priced run on file (2.1 through 1.1: 17-34 min, 194k-368k). Usage before
+  this Fable session: 37% (his reading). After: owed.
+- **Changed:** nothing by Fable in code. **Report:** `docs/handoff/REPORT_3.1.md`.
+  **Commit:** Opus `ebdff3d`, Fable this commit.
+
 ## 2026-09-16 - Ruling: the typed first-putt threshold is 20 ft; the native shell build starts
 - **Decision:** Matt's, recorded verbatim: *"Let's start the native app
   build for the tracker now. With the Green flow established at 20ft not
