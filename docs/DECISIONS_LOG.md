@@ -9,6 +9,24 @@ never "Fable decided".
 
 Opus's solo decisions are logged here too, marked (Opus).
 
+## 2026-09-16 - v28 pushed for tonight's walk: "the last time for the web app. Next test needs to be the phone"
+- **Decision:** his, verbatim: *"Okay let's do 2 but this is the last time
+  for the web app. Next test needs to be the phone"* (option 2 was v28
+  with the green flow, over v27 as installed). Fable bumped `BUILD.id` to
+  v28 with the `gt-shell-v28` cache (`7994207`), suite 540/540 at 360x728
+  (n = 1), pushed `main`, and hash-verified the deployed `js/data/build.js`
+  (sha256 d89e5b5c...) and `sw.js` (db0ee431...) against the commit on the
+  first clean check.
+- **Standing rule from it:** the next field test after tonight runs on the
+  native shell. That needs, in order: his phone install (REPORT_3.1
+  Section 10, on his word), the logged rounds moved across, and the
+  locked-screen carry scored against the bar - or his word to skip the
+  carry and play on it. Fable raises this before the next test, not after.
+- **Owed:** his phone check tonight (Settings shows Build v28; GREEN ▸ on
+  the footer; MARK BALL in the sheet); the FT7 answer; his usage number.
+- **Changed:** `js/data/build.js`, `sw.js` (the bump). **Commit:** `7994207`,
+  Fable this commit.
+
 ## 2026-09-16 - 3.2 PASS: the green flow is built to the spec; the push and the v28 bump wait on his word
 - **Decision:** Fable reviewed Opus's four commits (`29dd4fb` to `39ff544`,
   five files, +806 / -87, only `js/ui/screen-play.js`, the suite and the
