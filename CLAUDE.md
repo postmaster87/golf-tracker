@@ -34,6 +34,12 @@ the REPORT files record it.
   Fable writes that spec at xhigh after Matt sets it; Opus builds it at
   high. His standing permission, 2026-09-12: "Build extra effort when
   needed is fully permitted". No item goes to xhigh for comfort.
+- **xhigh classes run at xhigh end to end (Matt, 2026-09-16: "you can run
+  both on x-high and so can Opus for the build. go ahead").** For an item in
+  an xhigh class Fable writes the spec at xhigh, Opus builds it at xhigh
+  (`.claude/agents/opus-xhigh.md`) and Fable reviews and signs at xhigh.
+  Everything else: Opus at high (`opus.md`), Fable at medium. Ruling in
+  `docs/DECISIONS_LOG.md`, 2026-09-16.
 - **The effort setting is his hand, not ours.** Fable's session opens at
   medium (`modelSettings` in the global settings). Global Section 4 rule 3
   names the classes that need high and xhigh; Fable asks once, Matt sets

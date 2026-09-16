@@ -531,3 +531,51 @@ Opus's solo decisions are logged here too, marked (Opus).
   T-alone carry; his time this morning went to closing it, not to a build.
 - **Changed:** `docs/handoff/REPORT_2.5.md` (+ PDF), `docs/handoff/FOR_FABLE_LOG.md`,
   this file. No code. **Report:** `docs/handoff/REPORT_2.5.md`.
+## 2026-09-16 - Ruling: the xhigh classes run at xhigh for the spec, the build and the review
+- **Decision (Matt's, his words):** "Okay you have my new Claude usage rules.
+  I want you to spec the design on extra effort but Opus handles the build
+  and you review and sign off at high effort. Does that work for the team?"
+  then "you can run both on x-high and so can Opus for the build. go ahead".
+  Read back and standing: for an item in an xhigh class (a data model or
+  storage schema, the GPS precision pipeline, the strokes-gained engine, a
+  migration of logged rounds, the native recorder and its storage, "9 more
+  holes") Fable writes the spec at xhigh, Opus builds it at xhigh
+  (`.claude/agents/opus-xhigh.md`, new), and Fable reviews and signs at
+  xhigh. Everything else is unchanged: Opus at high (`opus.md`), Fable at
+  medium, and the effort in Fable's session is still set by his hand with
+  `/effort`.
+- **Why:** his word. Global CLAUDE.md Section 4 rule 3 already put the spec
+  at xhigh on his word and rule 4 the review "at the effort its class needs";
+  the change is Opus's build effort for those classes, which was high by the
+  opus agent file.
+- **Changed:** `.claude/agents/opus-xhigh.md` (new), `CLAUDE.md` Section 1
+  (one bullet), this file. **First use:** the native shell spec,
+  `docs/native/SPEC_native-shell.md`.
+
+## 2026-09-16 - 2.6: build v26 (the lie card fits his phone) - PASS for the course
+- **Decision:** v26 (`a553e2e`) may go on the phone on his go. Fable ran the
+  suite at 360x728: 516/516 (n = 1 run), and measured the live app at that
+  size with the card up after a mark: lie grid 177.2-317.2, body bottom
+  342.2, 25.0 px to spare, LOCK tab at 284 against the rightmost lie at 253
+  (n = 1 burst). Opus's report has the same numbers (n = 3 bursts).
+- **Why 728 and not the 759 the job named:** Fable's status-bar estimate
+  (21 CSS px) was a guess; Opus read the photograph in pixels - status bar
+  111 device px, gesture bar 45, page (2340-111-45)/3 = 728 - and checked
+  it against the footer height (430.3 on the photograph, 430.3 on the PC
+  under v25). The departure is accepted; 759 and 791 stay in the suite.
+- **Also fixed on the way, and it matters:** the fold test had been passing
+  vacuously - `.footer` is clamped to `78dvh` and `dvh` is 0 in a hidden
+  pane, so the footer collapsed to 19 px in the harness and the test never
+  saw a fold. The harness now restates the clamp from its own page height;
+  the mutation run (v25 CSS under v26 tests) fails exactly the 728 fold test.
+- **Residual, his call:** two footer hints are his words and wrap at 360 px:
+  "On the green: MARK CUP when you walk behind the hole, then enter the
+  putts." (three lines) leaves the bottom lie row 11.5 px short in the one
+  state that shows a card with it (a shot marked GREEN, no cup, MARK SHOT
+  pressed); "Cup marked. Putt out, then enter the putts and how long the
+  first one was." leaves +7.4. Every other state +25.
+- **Owed:** his phone check after the push (Settings Build v26; MARK TEE
+  SHOT, MARK SHOT 2, all six lies clear of the footer), and a read of the
+  status/gesture bar insets over adb at the next plug-in to confirm 728.
+- **Changed:** nothing by Fable in code. **Report:** `docs/handoff/REPORT_2.6.md`.
+  **Commit:** Opus `a553e2e`, Fable this commit.
