@@ -10,19 +10,44 @@ and decisions off you."
   project day to day: UI, styling, flow, screens, the play screen, the
   shot-detection ranking, docs, tests, commits, and the push on his word.
 - **Fable is the manager, reached only as a subagent Opus spawns**
-  (`.claude/agents/fable.md`, effort high; `fable-xhigh.md` only when Matt
-  has said "xhigh" in the chat for that item). Fable owns the data model
+  (`.claude/agents/`: `fable-low.md`, `fable-medium.md`, `fable.md` at high,
+  `fable-xhigh.md` - the ladder below). Fable owns the data model
   and every migration of logged rounds, the GPS precision pipeline, the
   strokes-gained engine and its benchmarks, and the storage and export
   rails; tests risky builds before they go to the course; makes
   master-level fixes. Opus RUNS those modules and never edits them - a need
   in any of them goes to `docs/handoff/FOR_FABLE.md` with the evidence, and
   Fable builds it.
-- **The effort setting is his hand, not ours.** His global rule, Section 4:
-  a data model / storage schema, the GPS precision pipeline, the
-  strokes-gained engine, and any migration of already-logged rounds are
-  xhigh, and only after he has said so. Everything else runs at high
-  without asking.
+- **The effort ladder** (global CLAUDE.md Section 4, rule 3, revised
+  2026-09-15). A spawn runs at the lowest effort its item class needs, and
+  Opus names the item, the class and the effort in its one-line cost note
+  before the spawn:
+  - **low** (`fable-low`): a readback, recording a ruling already made,
+    moving answered lines to the log, re-running a named check - the browser
+    suite - and reporting the counts.
+  - **medium** (`fable-medium`): a small well-specified fix, a decision
+    between options already laid out, checking a finished diff or build.
+  - **high** (`fable`): real design, a rule reading, a test verdict on a
+    risky build, a master-level fix.
+  - **xhigh** (`fable-xhigh`): a data model or storage schema, the GPS
+    precision pipeline, the strokes-gained engine, any migration of logged
+    rounds.
+
+  For an xhigh-class item Opus asks him once, in one line naming the item
+  and the class, and he sets the effort; his standing permission for those
+  classes is 2026-09-12: "Build extra effort when needed is fully
+  permitted". No item goes to xhigh for comfort. A run that finds its item
+  needs more does the part that does not, returns naming the part that does,
+  and Opus re-spawns at that effort. Fable's ceiling is 15 percent of his
+  weekly usage across all code sessions, his words 2026-09-15: "It should be
+  set to 15% of my weekly usage not monthly across all code sessions. If
+  more is needed that is my call to make."
+- **Who writes Fable-owned code** (global CLAUDE.md Section 4, rule 4).
+  Fable specs, Opus writes, Fable reviews the diff and signs - here that is
+  the data model, the GPS precision pipeline and the strokes-gained engine.
+  The review is itself a FOR_FABLE item, at the effort its class needs.
+  Migrations of already-logged rounds and any change to the GPS pipeline
+  stay xhigh on his word, unchanged.
 
 ## 2. How Opus calls Fable
 
@@ -37,7 +62,8 @@ FOR_FABLE.md with Matt's words on it VERBATIM (never a paraphrase), the
 evidence, and any decision he already made; one line to Matt in the chat
 naming the item and the expected cost.
 
-The call: the Agent tool, `subagent_type: "fable"`,
+The call: the Agent tool, `subagent_type` from the ladder in Section 1
+(`fable-low`, `fable-medium`, `fable`, `fable-xhigh`),
 `run_in_background: false`. The prompt repeats the item number, his words
 verbatim, the commit hash and his decisions. Opus waits and makes NO writes
 to the repo until Fable returns - sequential by construction, one writer at
