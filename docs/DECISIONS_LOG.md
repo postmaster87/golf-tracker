@@ -519,3 +519,15 @@ Opus's solo decisions are logged here too, marked (Opus).
   `docs/DECISIONS_LOG.md`, `CLAUDE.md` (new, the Opus-side contract).
 - **Report:** none - this was the setup session in Matt's own chat with
   Fable. **Commit:** `17dd43f`.
+
+## 2026-09-16 - 2.5: the bakeoff-3 reopen retest PASSES; the build is on hold
+- **Decision:** GPS Transistor at bakeoff-3 (`29de6bb`) passes the reopen
+  retest (n = 1) and the 15-min locked-and-still reading (n = 1); the scorer's
+  FAIL line on the app log is a pre-start last-known fix, not a gap, and is
+  recorded as an Opus follow-up. The Opus build spawn planned for this session
+  is held on his word: *"hold on the build. Let's finish the GPS test this
+  morning."*
+- **Why:** the reopen bug was the one thing between bakeoff-3 and the next
+  T-alone carry; his time this morning went to closing it, not to a build.
+- **Changed:** `docs/handoff/REPORT_2.5.md` (+ PDF), `docs/handoff/FOR_FABLE_LOG.md`,
+  this file. No code. **Report:** `docs/handoff/REPORT_2.5.md`.
