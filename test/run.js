@@ -4281,6 +4281,19 @@ export async function runCaptureReachTests() {
     });
     Object.assign(screen.el.style, { position: 'fixed', left: '0', top: '0', height: `${height}px`, width: `${width}px` });
     document.body.appendChild(screen.el);
+    /*
+     * THE FOOTER MUST BE AS TALL HERE AS IT IS ON THE PHONE, OR THERE IS NO FOLD.
+     *
+     * `.footer` is clamped to `78dvh`, and `dvh` is 0 in a hidden browser pane
+     * - the same zero that made `zoneOf` misread the lock zones (item 2.2).
+     * Clipped to nothing, the footer collapsed to its 19 px of padding, the
+     * body took the other 400, and the fold test below passed against a layout
+     * no phone has: it read a body bottom of 709 px at 360x728 where a phone
+     * reads 298 (found 2026-09-16, building v26; on his S26 the second row of
+     * lies was cut in half while this test was green). The clamp is restated
+     * from the harness's own page height, which is what `dvh` would be.
+     */
+    screen.el.querySelector('.footer').style.maxHeight = `${Math.round(height * 0.78)}px`;
     const press = (re) => [...screen.el.querySelectorAll('.footer button')].find((b) => re.test(b.textContent.trim()))?.click();
     const worst = () => {
       const card = screen.el.querySelector('.body > .capture');
@@ -4315,13 +4328,38 @@ export async function runCaptureReachTests() {
     return { width, height, limit: width - gutter, burst, pending };
   };
 
-  const narrow = await at(375, 812);
-  const narrower = await at(360, 780);
+  /*
+   * THE HEIGHT IS THE PAGE, NOT THE PHONE.
+   *
+   * v25 was measured at the phones' screen heights, 812 and 780, and passed
+   * with 55 and 24 px to spare - then the SAND / RECOVERY / GREEN row came
+   * back cut in half in a photograph of the installed app on his S26 (Matt,
+   * 2026-09-16). The screen is 1080x2340 at density 480, which is 360x780 CSS
+   * px, but the page is not the screen: Android's status bar (111 device px,
+   * painted with the `theme-color`) and the gesture bar (45) are not the app's
+   * to draw in. Read off that photograph, the hud starts 111 px down and the
+   * footer's border-top lands at 1004, giving a body bottom of 297.7 and a
+   * page of exactly (2295 - 111) / 3 = 728 CSS px. The footer measures 430.3
+   * px there against 430 on the PC, which is what says the reading is right.
+   *
+   * So 728 is his phone, and it is the size this group is held to. The two
+   * roomier heights are kept because they are the sizes the specification
+   * named (759 and 791 - a 21 px status bar); each one that passes is a phone
+   * with less chrome than his.
+   */
+  const sizes = [];
+  for (const [w, h] of [
+    [375, 791],
+    [360, 759],
+    [360, 728],
+  ]) {
+    sizes.push(await at(w, h));
+  }
 
   pocketLock.disable();
   style.remove();
 
-  for (const r of [narrow, narrower]) {
+  for (const r of sizes) {
     test(`at ${r.width} px the capture card's buttons all end before the lock strip`, () => {
       assert(r.burst.card === 'running', `no running capture card (${r.burst.card})`);
       assert(r.burst.n >= 7, `only ${r.burst.n} buttons in the capture card`);

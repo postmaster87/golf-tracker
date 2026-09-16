@@ -589,8 +589,9 @@ input[type='text'] {
 .body > .capture {
   border: 1px solid var(--line);
   border-radius: 14px;
-  /* 4 px at the sides, not 12: every pixel here comes off the lie buttons. */
-  padding: 10px 4px;
+  /* 4 px at the sides, not 12: every pixel here comes off the lie buttons.
+     8 px top and bottom since v26, for the same reason in the other axis. */
+  padding: 8px 4px;
   margin-bottom: 12px;
   background: var(--surface);
   /* The card fits the body; it never widens to its contents. */
@@ -651,7 +652,7 @@ input[type='text'] {
 }
 
 /*
- * THE WHOLE LIE GRID ABOVE THE FOOTER (build v25).
+ * THE WHOLE LIE GRID ABOVE THE FOOTER (build v25, remeasured for v26).
  *
  * The lie field is first in the card and the card first in the body
  * (js/ui/screen-play.js). In the card its box and label are slimmer than
@@ -659,19 +660,90 @@ input[type='text'] {
  * 360x780 (hud 61, hole nav 70, footer 430; sim, lock tab up, 2026-09-15). The
  * amber border stays - it is what says "input needed" - at 2 px, not 3. The
  * label is held to one line: a second line is a second row of height.
+ *
+ * v26 took another 6 px off the height above the grid (10/6/6 -> 8/4/4). The
+ * page his phone actually gives the app is 728 px, not 780 - see the play
+ * footer below - and the 24 px v25 had to spare at 780 was 29 px short there.
  */
 .body > .capture .field-required {
   border-width: 2px;
-  padding: 6px 2px 8px;
+  padding: 4px 2px 6px;
 }
 
 .body > .capture .req-label {
-  margin-bottom: 6px;
+  margin-bottom: 4px;
   font-size: 13px;
   letter-spacing: 0.02em;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/*
+ * THE PLAY FOOTER, TIGHTENED (build v26).
+ *
+ * A photograph of the installed app on his S26, hole 10, lie card up (Matt,
+ * 2026-09-16): the SAND / RECOVERY / GREEN row cut in half by the footer.
+ * v25 had been measured at 375x812 and 360x780 - the phones' SCREENS - and
+ * passed with 55 and 24 px to spare. The screen is not the page. His S26 is
+ * 1080x2340 at density 480 (360x780 CSS px), and Android keeps 111 device px
+ * at the top for the status bar and 45 at the bottom for the gesture bar, so
+ * the page the app gets is (2340 - 111 - 45) / 3 = 728 px. The footer read
+ * 430.3 px off that photograph against 430 measured here, which is what says
+ * the reading is right. 728 - 131 of hud and hole nav - 430 of footer leaves
+ * a 167 px body for a 140 px grid that starts 56 px down: 29 px short.
+ *
+ * So the footer gives the body 44 px (430.3 -> 385.8) and the card and the
+ * body's top padding give 10 more, all of it from height, none of it from the
+ * dead zones a wet thumb relies on. MARK SHOT stays the biggest control on
+ * the screen by 16 px, and nothing drops below 48 px - the smallest target
+ * Android will call a target. Scoped to the play screen: it is the only one
+ * with a six-control footer and a card that has to clear it.
+ *
+ * Measured after, at 360x728 with the previous mark's banner up: grid
+ * 177.2-317.2, body bottom 342.2, 25.0 px to spare (suite, 2026-09-16).
+ */
+.screen.play > .body {
+  /* The card is first in the body, so the body's own top padding is height
+     above the grid too. */
+  padding-top: 8px;
+}
+
+.screen.play > .footer {
+  /* 14 -> 12. The 16 px dead zone inside .btn-row - PENALTY beside UNDO - is
+     untouched; that is the pair a smeared touch must never confuse. And the
+     bottom padding stays at 10: that one is the gap to the gesture bar. */
+  gap: 12px;
+  padding-top: 6px;
+}
+
+/*
+ * The hint's own margin on top of the footer's 12 px gap put 16 px between a
+ * line of text and the button it describes. The gap alone is the dead zone.
+ *
+ * The hint is the one thing in this footer whose height is not fixed: at
+ * 360 px with the lock strip reserved it is one line for "At your ball: MARK
+ * SHOT 3." (the state in his photograph), two for "On the tee: MARK TEE SHOT
+ * before you hit." and three for the two green ones - each line 19 px off the
+ * body. The numbers below are the one-line case; the tee costs 19 of the 25
+ * px of spare and the green hints overrun it. Shortening those two strings is
+ * his call, not ours: they are his words.
+ */
+.screen.play > .footer > .hint {
+  margin-bottom: 0;
+}
+
+.screen.play > .footer > .btn {
+  min-height: 52px;
+}
+
+.screen.play > .footer > .btn.primary {
+  min-height: 64px;
+}
+
+/* Last, so MARK SHOT is 80 whether it is the primary action or not. */
+.screen.play > .footer > .btn.huge {
+  min-height: 80px;
 }
 
 .cap-head {

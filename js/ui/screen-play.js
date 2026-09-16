@@ -68,7 +68,10 @@ import {
  * taps and about as long as it takes to look at the ball.
  */
 export function playScreen(ctx) {
-  const el = h('div', { class: 'screen' });
+  // `play` is what the tightened footer in css/base.css hangs off (v26). This
+  // is the only screen whose footer carries six controls above a card that has
+  // to clear it, so it is the only one that pays for the height.
+  const el = h('div', { class: 'screen play' });
 
   /**
    * EDIT MODE
