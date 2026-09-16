@@ -94,7 +94,10 @@ Recommendations below are Opus's, not his.
    the median stand at a real shot is 62.9 s, so a 60 s gap can hide one.
    Under the Section 9 measure, no gap over 20 s means 100% covered, so the
    gap clause is the one that decides.
-3. **Typed first-putt distance threshold:** 15 ft (*recommendation*) or 20 ft.
+3. ~~**Typed first-putt distance threshold**~~ - **decided 2026-09-16: 20 ft.**
+   His words: *"With the Green flow established at 20ft not 15"*. The typed
+   distance is asked when the first putt is under 20 ft; at 20 ft and over the
+   GPS distance stands (Section 7 table: +/-8 ft costs 0.17 strokes at 20 ft).
 4. **Retire the in-app pocket lock** once the recorder is native, and use the
    phone's power button (*recommendation*: yes).
 5. **Penalties logged when they occur.** His earlier words: *"If there is a

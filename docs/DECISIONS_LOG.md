@@ -9,6 +9,25 @@ never "Fable decided".
 
 Opus's solo decisions are logged here too, marked (Opus).
 
+## 2026-09-16 - Ruling: the typed first-putt threshold is 20 ft; the native shell build starts
+- **Decision:** Matt's, recorded verbatim: *"Let's start the native app
+  build for the tracker now. With the Green flow established at 20ft not
+  15"*. The typed first-putt distance is asked only when the first putt is
+  under 20 ft; at 20 ft and over the GPS distance (cup to putt 1 mark)
+  stands. Closes `docs/HANDOFF-native-build.md` Section 4 item 3, where 15 ft
+  was Opus's recommendation, never his.
+- **Why:** his call. The cost table there (`expectedStrokes('green', ft,
+  { baseline: 'scratch' })`, scratch baseline badged derived) puts an 8 ft
+  error at 0.17 strokes from 20 ft and 0.34 from 15 ft.
+- **What it changed:** a ruling only; no code yet. The green flow (his
+  2026-09-15 workflow: cup, putts, score, then the app computes the shots
+  and asks the lies in question) is the next Opus job after the shell, at
+  high, from a spec Fable writes carrying this number. The native shell
+  build (`docs/native/SPEC_native-shell.md`, xhigh) is spawned to
+  `opus-xhigh` from this commit; the spec is unchanged.
+- **Commit:** this commit. **Report:** none yet; the shell's is
+  `docs/handoff/REPORT_3.1.md` when Opus returns.
+
 ## 2026-09-15 - Roles flipped: Fable runs the chat, Opus is the sub-agent; this repo is the measured trial
 - **Decision:** Fable is the main session in this repo (medium by default) and spawns
   `.claude/agents/opus.md` for every build; Opus builds Fable-owned code from Fable's
