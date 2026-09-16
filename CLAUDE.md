@@ -121,8 +121,9 @@ never "Fable decided".
 
 ## 4. Catch-up and tooling
 
-- **Newest cold start (2026-09-14): `docs/handoff/NEXT_CHAT_2026-09-14.md`**,
-  then the handoff below.
+- **Newest cold start (2026-09-15): `docs/handoff/NEXT_CHAT_2026-09-15.md`**
+  (the phone debug session and where everything stands), then
+  `docs/handoff/NEXT_CHAT_2026-09-14.md` and the handoff below.
 - **Cold start for the native build: `docs/HANDOFF-native-build.md` first**
   (2026-09-13). The Veenker course map is `docs/course-map/veenker/`.
 - Older cold start: `docs/CATCHUP-rev3-rev4.md`, then the rev 4 sections of
