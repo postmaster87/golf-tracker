@@ -19,7 +19,12 @@ golf-tracker-*.json
 
 # Native Android builds under android/: build output, Gradle and Kotlin state,
 # machine-specific SDK paths, IDE files.
+#
+# The shell (android/tracker/) copies the web build into its APK assets at build
+# time; that copy lands under app/build/generated/webAssets and is NEVER
+# committed - the files at the repo root are the one source of truth.
 android/**/build/
+android/tracker/app/build/generated/webAssets/
 android/**/.gradle/
 android/**/.kotlin/
 android/**/local.properties

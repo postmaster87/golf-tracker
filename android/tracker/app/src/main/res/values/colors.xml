@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      The app's own green, not the bake-off's teal or orange: on the phone this
+      icon must never be mistaken for GPS Custom or GPS Transistor, which never
+      feed a round.
+    -->
+    <color name="launcher_bg">#2E6B3E</color>
+</resources>
