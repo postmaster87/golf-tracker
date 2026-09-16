@@ -1256,6 +1256,9 @@ export function playScreen(ctx) {
     if (chosenLie === 'green') afterGreenMark(hl);
   }
 
+  /** The score card, reached from the green sheet with the putts already in. */
+  const openScoreCard = (hl) => openHoleEntry(hl, { fromSheet: true });
+
   /** Shared by the lie tapped during the burst and the lie answered after it. */
   function afterGreenMark(hl) {
     openGreenEntry(hl);
@@ -1774,6 +1777,19 @@ export function playScreen(ctx) {
             paint();
             done('saved');
             if (thenAdvance) advanceHole(1, { force: true });
+            /*
+             * HIS ORDER: the putts, then the score, then the questions.
+             *
+             * 2026-09-15: *"enter hole score (once this is entered the app needs
+             * to compute the shots and ask me questions about the lie. Shot 2
+             * rough or fairway, shot 3 green or fairway, etc..."*
+             *
+             * Only on a hole he did not mark — the pocket flow, which is the
+             * intended way to play. A hole that carries stroke marks already
+             * has its positions, and sending it to the track would offer to
+             * throw them away.
+             */
+            if (!strokeMarks(hl).length) openScoreCard(hl);
           },
         });
         wrap.appendChild(saveBtn);
@@ -2051,7 +2067,10 @@ export function playScreen(ctx) {
     footer.appendChild(
       h('button', {
         class: pri('putts'),
-        text: 'ENTER PUTTS ▸',
+        // One word, because the footer has no pixels to give (REPORT 2.6) and
+        // this sheet is now the whole green: both marks, the putts, and the
+        // way into the score.
+        text: 'GREEN ▸',
         disabled: Boolean(hl.manual),
         onClick: () => openGreenEntry(hl),
       })
@@ -2835,8 +2854,8 @@ export function playScreen(ctx) {
    * The first is arithmetic he already knows walking off the green. The second
    * is recognition, and it cannot even be built until the first is answered.
    */
-  async function openHoleEntry(hl) {
-    const card = await openHoleCard(hl);
+  async function openHoleEntry(hl, { fromSheet = false } = {}) {
+    const card = await openHoleCard(hl, { fromSheet });
     if (!card) return;
 
     const fullShots = Math.max(0, card.strokes - card.putts - card.penalties);
@@ -2873,13 +2892,25 @@ export function playScreen(ctx) {
     applyHoleEntry(hl, card, confirmed.rows, confirmed.cup);
   }
 
-  /** Stage one: the numbers he already knows. */
-  function openHoleCard(hl) {
+  /**
+   * Stage one: the numbers he already knows.
+   *
+   * `fromSheet` is the green flow arriving here with the putts already saved
+   * (his order: putts, then the score, then the questions). Those two fields
+   * are not asked again — he answered them on the green thirty seconds ago,
+   * and a form that re-asks an answered question is how the answer gets
+   * changed by accident.
+   */
+  function openHoleCard(hl, { fromSheet = false } = {}) {
     const draft = {
-      strokes: Math.max(holeStrokes(hl) ?? 0, hl.par),
-      putts: holePutts(hl) || 2,
+      // From the sheet the shots are not marked, so `holeStrokes` counts only
+      // the putts. Par, or one full shot plus the putts, whichever is more.
+      strokes: fromSheet
+        ? Math.max(hl.par, holePutts(hl) + 1)
+        : Math.max(holeStrokes(hl) ?? 0, hl.par),
+      putts: fromSheet ? holePutts(hl) : holePutts(hl) || 2,
       penalties: penaltyStrokes(hl),
-      firstPuttFt: null,
+      firstPuttFt: fromSheet ? (puttDistancesFt(hl)[0] ?? null) : null,
     };
 
     return sheet(`Hole ${hl.number} — how did it go?`, (done) => {
@@ -2947,16 +2978,25 @@ export function playScreen(ctx) {
       return frag(
         h('p', {
           class: 'note muted',
-          text: 'For a hole played with the phone in your pocket. Enter the score, then confirm where the track says you played from.',
+          text: fromSheet
+            ? `${draft.putts} putt${draft.putts === 1 ? '' : 's'} saved. Now the score, and the track finds the shots.`
+            : 'For a hole played with the phone in your pocket. Enter the score, then confirm where the track says you played from.',
         }),
         num('Strokes', 'strokes', 1, 20),
-        num('Putts', 'putts', 0, 10),
+        fromSheet ? null : num('Putts', 'putts', 0, 10),
         num('Penalty strokes', 'penalties', 0, 6),
         summary,
+        fromSheet
+          ? h('p', {
+              class: 'note muted',
+              text: 'Score minus putts minus penalties is what the track looks for.',
+            })
+          : null,
         // Asked here rather than after, because this is the number that decides
         // whether the hole produces any putting strokes gained at all — and the
-        // one field test 3 proved gets skipped when it is asked later.
-        draft.putts > 0 ? field('First putt distance (ft)', puttGrid) : null,
+        // one field test 3 proved gets skipped when it is asked later. From the
+        // sheet it is already answered and carried in.
+        !fromSheet && draft.putts > 0 ? field('First putt distance (ft)', puttGrid) : null,
         h('button', {
           class: 'btn primary',
           text: 'FIND MY SHOTS ▸',
@@ -3171,7 +3211,18 @@ export function playScreen(ctx) {
       JSON.stringify({ shots: hl.shots, greenEntry: hl.greenEntry, completedAt: hl.completedAt, cup: hl.cup })
     );
 
-    hl.shots = [];
+    /*
+     * THE BALL MARK SURVIVES THE WRITE.
+     *
+     * Everything else is replaced outright, but a putt carrying a GPS mark is
+     * the ball's resting place after the approach: it is what measures the
+     * first putt (`firstPuttM`) and what locates the hole for every earlier
+     * shot when no cup was marked. Clearing it turned a measured putt into an
+     * unmeasured one silently, which is the one thing design rule 5 forbids —
+     * and under the green flow it is now marked before this path ever runs.
+     * `setGreenEntry` below finds it again as `markedFirst`.
+     */
+    hl.shots = hl.shots.filter((s) => s.lie === 'green' && s.mark);
     hl.greenEntry = null;
     for (const row of rows) {
       addTrackShot(hl, { lie: row.lie, candidate: row.candidate, lieInferred: row.lieInferred });

@@ -5148,7 +5148,7 @@ export async function runGreenFlowTests() {
 
   /* ---- 30 ft: the measurement stands ---- */
   const long = greenScreen({ cupFt: 30 });
-  long.press(/^(GREEN|ENTER PUTTS)/);
+  long.press(/^GREEN/);
   await wait();
   const longSheet = {
     readout: puttField()?.querySelector('.stat')?.textContent ?? '',
@@ -5163,13 +5163,16 @@ export async function runGreenFlowTests() {
     distanceFt: longPutt?.distanceFt ?? null,
     marked: Boolean(longPutt?.mark),
     measuredFt: firstPuttM(long.hl) == null ? null : toFeet(firstPuttM(long.hl)),
+    // He marked this hole's shots, so SAVE is the end of it: the marks ARE the
+    // shots and there is nothing for the track to propose.
+    sheetAfter: openSheet()?.querySelector('h2')?.textContent ?? null,
   };
   long.screen.el.remove();
   closeSheet();
 
   /* ---- 12 ft: his thumb, or nothing ---- */
   const short = greenScreen({ cupFt: 12 });
-  short.press(/^(GREEN|ENTER PUTTS)/);
+  short.press(/^GREEN/);
   await wait();
   const shortSheet = {
     saveDisabled: sheetButton(/^SAVE$/)?.disabled ?? null,
@@ -5224,7 +5227,7 @@ export async function runGreenFlowTests() {
   });
   document.body.appendChild(ballScreen.el);
   [...ballScreen.el.querySelectorAll('.footer button')]
-    .find((b) => /^(GREEN|ENTER PUTTS)/.test(b.textContent.trim()))
+    .find((b) => /^GREEN/.test(b.textContent.trim()))
     ?.click();
   await wait();
   // Optional chaining throughout: against the old behaviour there is no ball
@@ -5256,6 +5259,88 @@ export async function runGreenFlowTests() {
   ballScreen.el.remove();
   closeSheet();
 
+  /* ---- the whole hole, phone in the pocket: putts, score, then the shots ---- */
+
+  /*
+   * A real 1 Hz pocket track under the sheet, not a stub: the point of the
+   * flow is that SAVE on the green leads to the score, the score leads to the
+   * track's proposals, and the ball and the cup are still there afterwards.
+   * Timestamps are anchored near now so `holeWindow` — which is bounded by
+   * marks and by now — actually contains the track.
+   */
+  const pocketRound = par4Round();
+  const pocketHl = pocketRound.holes[0];
+  const pocketStart = Date.now() - 22 * 60 * 1000;
+  const played = pocketHole({ startTs: pocketStart });
+  pocketRound.id = 'r_test_green_flow';
+  pocketRound.startedAt = new Date(pocketStart - 60000).toISOString();
+  await deleteTrack(pocketRound.id);
+  const trackWriter = createTrackWriter(pocketRound.id, { flushMs: 50, maxBuffer: 200 });
+  for (const pt of played.points) trackWriter.push(pt);
+  await trackWriter.close();
+
+  // On the green: the ball marked at the coin, the cup 12 ft away — so the
+  // first putt is his to type, which is also what carries into the card.
+  const ballOnGreen = played.at(366);
+  addShot(pocketHl, { lie: 'green', reduced: fakeReduced(ballOnGreen) });
+  setCup(pocketHl, fakeReduced(offsetM(ballOnGreen, feetToM(12), 0)));
+  const cupTs = pocketHl.cup.ts;
+  const pocketScreen = playScreen({
+    app: newAppState(),
+    round: pocketRound,
+    gps: heldGps(ballOnGreen),
+    params: {},
+    go() {},
+    persistRound() {},
+    persistApp() {},
+    startGps() {},
+    stopGps() {},
+    trackStats: () => null,
+  });
+  document.body.appendChild(pocketScreen.el);
+  [...pocketScreen.el.querySelectorAll('.footer button')]
+    .find((b) => /^GREEN/.test(b.textContent.trim()))
+    ?.click();
+  await wait();
+  [...(puttField()?.querySelectorAll('.hole-jump button') ?? [])]
+    .find((b) => b.textContent.trim() === '10')
+    ?.click();
+  await wait();
+  sheetButton(/^SAVE$/)?.click();
+  await wait();
+  const scoreCard = {
+    title: openSheet()?.querySelector('h2')?.textContent ?? null,
+    labels: [...(openSheet()?.querySelectorAll('.field .label') ?? [])].map((l) => l.textContent.trim()),
+    summary: [...(openSheet()?.querySelectorAll('.note') ?? [])].map((n) => n.textContent).join(' | '),
+    findsShots: Boolean(sheetButton(/^FIND MY SHOTS/)),
+  };
+  sheetButton(/^FIND MY SHOTS/)?.click();
+  // The track comes out of IndexedDB, so this stage is a round trip.
+  await wait(300);
+  const confirmCards = [...(openSheet()?.querySelectorAll('.card') ?? [])];
+  const confirm = { title: openSheet()?.querySelector('h2')?.textContent ?? null, cards: confirmCards.length };
+  [...(confirmCards[1]?.querySelectorAll('.seg-btn') ?? [])]
+    .find((b) => /^fairway$/i.test(b.textContent.trim()))
+    ?.click();
+  await wait();
+  sheetButton(/^SAVE HOLE$/)?.click();
+  await wait();
+  const written = {
+    lies: pocketHl.shots.map((s) => s.lie),
+    seqs: pocketHl.shots.map((s) => s.seq),
+    ballStillMarked: Boolean(pocketHl.shots.find((s) => s.lie === 'green')?.mark),
+    ballMovedM: pocketHl.shots.find((s) => s.lie === 'green')?.mark
+      ? distanceM(pocketHl.shots.find((s) => s.lie === 'green').mark, ballOnGreen)
+      : null,
+    cupTs: pocketHl.cup?.ts ?? null,
+    firstPuttFt: puttDistancesFt(pocketHl)[0],
+    strokes: holeStrokes(pocketHl),
+    sources: pocketHl.shots.map((s) => s.source),
+  };
+  pocketScreen.el.remove();
+  closeSheet();
+  await deleteTrack(pocketRound.id);
+
   test('under 20 ft SAVE waits for the number', () => {
     eq(shortSheet.saveDisabled, true, 'SAVE would have saved a 12 ft putt GPS cannot measure');
     assert(shortSheet.saidTypeIt, `the sheet never asked for it: "${shortSheet.readout}"`);
@@ -5281,6 +5366,38 @@ export async function runGreenFlowTests() {
     eq(secondBall.shots, 1, 'the hole grew a shot he did not play');
     assert(secondBall.movedM != null, 'there is no ball mark to have moved');
     near(secondBall.movedM, 6, 0.5, 'the mark did not move to the new burst');
+  });
+
+  test('SAVE on an unmarked hole goes straight to the score, putts carried in', () => {
+    assert(/how did it go/i.test(scoreCard.title ?? ''), `the sheet after SAVE was "${scoreCard.title}"`);
+    assert(scoreCard.findsShots, 'no way on to the shots from the score card');
+    assert(!scoreCard.labels.includes('Putts'), `the putts were asked twice: ${JSON.stringify(scoreCard.labels)}`);
+    assert(
+      !scoreCard.labels.some((l) => /First putt/i.test(l)),
+      `the first putt was asked twice: ${JSON.stringify(scoreCard.labels)}`
+    );
+    assert(scoreCard.labels.includes('Strokes'), `no strokes field: ${JSON.stringify(scoreCard.labels)}`);
+    // Two putts carried in against a default of 4 strokes: 2 full shots.
+    assert(/2 full shots/.test(scoreCard.summary), `the card counted: "${scoreCard.summary}"`);
+  });
+
+  test('a hole he marked saves and stops there', () => {
+    // The marked flow is unchanged: his marks ARE the shots, so there is
+    // nothing to propose and no card to answer.
+    eq(longSaved.sheetAfter, null, `SAVE opened "${longSaved.sheetAfter}" on a hole with marked shots`);
+  });
+
+  test('SAVE HOLE keeps the ball mark and the cup', () => {
+    assert(/confirm your shots/i.test(confirm.title ?? ''), `the shots stage was "${confirm.title}"`);
+    assert(confirm.cards >= 2, `${confirm.cards} shots proposed from the pocket track`);
+    eq(JSON.stringify(written.lies), JSON.stringify(['tee', 'fairway', 'green', 'green']), 'the hole as written');
+    eq(JSON.stringify(written.seqs), JSON.stringify([1, 2, 3, 4]), 'shot numbers');
+    assert(written.ballStillMarked, 'the hole write dropped the ball mark — the first putt is no longer measured');
+    assert(written.ballMovedM != null && written.ballMovedM < 1, `the ball mark moved ${written.ballMovedM} m`);
+    eq(written.cupTs, cupTs, 'the marked cup was replaced');
+    eq(written.firstPuttFt, 10, 'the typed first putt');
+    eq(written.strokes, 4, 'two full shots and two putts');
+    eq(JSON.stringify(written.sources), JSON.stringify(['track', 'track', 'gps', 'manual']), 'provenance');
   });
 }
 
