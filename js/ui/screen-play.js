@@ -146,8 +146,8 @@ export function playScreen(ctx) {
   let holeOrigin = null;
   /** Set once per hole when the missing-tee nudge has been raised. */
   let teeNudge = null;
-  /** Set when a cup capture was started from inside the putt sheet. */
-  let reopenPuttsAfterCup = false;
+  /** Set when a cup or ball capture was started from inside the putt sheet. */
+  let reopenPuttsAfterMark = false;
   /** A shot saved when its burst ended, whose lie is still being asked for. */
   let pendingLie = null;
 
@@ -1141,6 +1141,41 @@ export function playScreen(ctx) {
     if (!hl.manual && (reopenPutts || hl.shots.some((s) => s.lie === 'green'))) openGreenEntry(hl);
   }
 
+  /**
+   * THE BALL ON THE GREEN, MARKED FROM THE SHEET.
+   *
+   * His words, 2026-09-15: *"Workflow on the green mark the cup or my ball
+   * first whatever is easiest."* Until now the only way to mark the ball was
+   * MARK SHOT plus a lie tap of GREEN, which is the marked flow — with the
+   * phone in the pocket there was no way at all, and the ball mark is what
+   * measures the first putt (`firstPuttM`) and locates the hole for every
+   * earlier shot.
+   *
+   * No lie is asked, because there is nothing to ask: this button is on the
+   * green sheet and it says BALL. And no `learnGreen` from here — that
+   * accumulator is fed by the lie card's marks, and a second feeder into the
+   * course model is its own decision, not a side effect of this one.
+   */
+  function saveBall(hl, reduced, reopenPutts) {
+    const existing = hl.shots.find((s) => s.lie === 'green');
+    /*
+     * Built by `addShot` so the mark is exactly the shape every other mark on
+     * the hole carries. On a RE-MARK it then moves onto the putt that is
+     * already there and the spare is removed — a second tap is a correction,
+     * never a stroke he did not play.
+     */
+    const fresh = addShot(hl, { lie: 'green', reduced, source: 'gps' });
+    if (existing) {
+      existing.mark = fresh.mark;
+      removeShot(hl, fresh.id);
+    }
+    persist();
+    noteMark('Ball marked here.');
+    markWarning = reduced.quality === 'poor' ? poorMarkWarning('ball') : null;
+    paint();
+    if (!hl.manual && (reopenPutts || hl.shots.some((s) => s.lie === 'green'))) openGreenEntry(hl);
+  }
+
   function commit() {
     const { kind, chosenLie, reduced, club } = capture;
     capture = null;
@@ -1153,9 +1188,16 @@ export function playScreen(ctx) {
 
     const hl = hole();
 
+    if (kind === 'putt') {
+      const reopenPutts = reopenPuttsAfterMark;
+      reopenPuttsAfterMark = false;
+      saveBall(hl, reduced, reopenPutts);
+      return;
+    }
+
     if (kind === 'cup') {
-      const reopenPutts = reopenPuttsAfterCup;
-      reopenPuttsAfterCup = false;
+      const reopenPutts = reopenPuttsAfterMark;
+      reopenPuttsAfterMark = false;
       const tee = teeShot(hl)?.mark;
       const fromTeeM = tee ? distanceM(tee, reduced) : Infinity;
       if (fromTeeM < CUP_AT_TEE_M) {
@@ -1359,6 +1401,47 @@ export function playScreen(ctx) {
       const render = () => {
         wrap.replaceChildren();
 
+        /*
+         * THE TWO MARKS, IN EITHER ORDER, AT THE TOP OF THE SHEET.
+         *
+         * His words, 2026-09-15: *"Workflow on the green mark the cup or my
+         * ball first whatever is easiest."* Both are the same 3 s burst, both
+         * reopen this sheet when it ends, and neither asks a lie — so from the
+         * moment he reaches the green this one sheet is the whole green.
+         *
+         * The cup control used to live under Putt 1 and only appeared when
+         * there was no GPS distance to show, which hid it exactly when he had
+         * marked the ball and was walking behind the hole.
+         */
+        wrap.appendChild(
+          h(
+            'div',
+            { class: 'btn-row', style: { marginBottom: '12px' } },
+            h('button', {
+              // Primary until it is done: marking the cup from behind the hole
+              // is part of the routine on every green, and it is what makes
+              // every distance on the hole exact rather than approximate.
+              class: hl.cup ? 'btn sm dim' : 'btn primary',
+              text: hl.cup ? 'RE-MARK CUP' : 'MARK CUP',
+              onClick: () => {
+                done('markcup');
+                // Reopens this sheet once the cup is captured.
+                reopenPuttsAfterMark = true;
+                beginCapture('cup');
+              },
+            }),
+            h('button', {
+              class: ballMark ? 'btn sm dim' : 'btn primary',
+              text: ballMark ? 'RE-MARK BALL' : 'MARK BALL',
+              onClick: () => {
+                done('markball');
+                reopenPuttsAfterMark = true;
+                beginCapture('putt');
+              },
+            })
+          )
+        );
+
         wrap.appendChild(
           field(
             'Putts',
@@ -1500,22 +1583,9 @@ export function playScreen(ctx) {
                         render();
                       },
                     })
-                  : h('button', {
-                      // Primary, not dim: marking the cup from behind the hole
-                      // is part of the routine on every green, and it is what
-                      // makes every distance on the hole exact rather than
-                      // approximate. No longer disabled until a ball is marked
-                      // on the green — the ball on the fringe is exactly when
-                      // he wants it.
-                      class: hl.cup ? 'btn sm dim' : 'btn primary',
-                      text: hl.cup ? 'RE-MARK CUP' : 'MARK CUP',
-                      onClick: () => {
-                        done('markcup');
-                        // Reopens this sheet once the cup is captured.
-                        reopenPuttsAfterCup = true;
-                        beginCapture('cup');
-                      },
-                    });
+                  : // Nothing to measure between yet. The two marks that would
+                    // fix that are at the top of this sheet, either order.
+                    null;
 
           wrap.appendChild(
             field(
@@ -1726,6 +1796,13 @@ export function playScreen(ctx) {
       action: 'RE-MARK',
       onAction: () => {
         const hl = hole();
+        // A ball re-mark replaces the mark on the putt in place (`saveBall`),
+        // so there is nothing to take back first — and `undoLast` here would
+        // take the cup or the green entry, neither of which is this mark.
+        if (what === 'ball') {
+          beginCapture('putt');
+          return;
+        }
         undoLast(hl);
         persist();
         paint();

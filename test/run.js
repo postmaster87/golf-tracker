@@ -5204,6 +5204,58 @@ export async function runGreenFlowTests() {
     near(longSaved.measuredFt, 30, 0.5, 'mark-to-cup');
   });
 
+  /* ---- MARK BALL, from inside the sheet ---- */
+  const ballRound = par4Round();
+  const ballHole = ballRound.holes[0];
+  const ballAt = offsetM(TEE, 372, 1);
+  setCup(ballHole, fakeReduced(offsetM(TEE, 380, 1)));
+  const ballGps = heldGps(ballAt);
+  const ballScreen = playScreen({
+    app: newAppState(),
+    round: ballRound,
+    gps: ballGps,
+    params: {},
+    go() {},
+    persistRound() {},
+    persistApp() {},
+    startGps() {},
+    stopGps() {},
+    trackStats: () => null,
+  });
+  document.body.appendChild(ballScreen.el);
+  [...ballScreen.el.querySelectorAll('.footer button')]
+    .find((b) => /^(GREEN|ENTER PUTTS)/.test(b.textContent.trim()))
+    ?.click();
+  await wait();
+  // Optional chaining throughout: against the old behaviour there is no ball
+  // mark at all, and that has to read as a failed test, not a crashed run.
+  const greenMark = () => ballHole.shots.find((s) => s.lie === 'green')?.mark ?? null;
+  const beforeBall = { offered: Boolean(sheetButton(/^MARK BALL$/)) };
+  sheetButton(/^MARK BALL$/)?.click();
+  ballGps.endBurst();
+  await wait();
+  const firstBall = {
+    greens: ballHole.shots.filter((s) => s.lie === 'green').length,
+    marked: Boolean(ballHole.shots.find((s) => s.lie === 'green')?.mark),
+    club: ballHole.shots.find((s) => s.lie === 'green')?.club,
+    lieAsked: Boolean(document.querySelector('.lie-grid')),
+    reopened: /putts/i.test(openSheet()?.querySelector('h2')?.textContent ?? ''),
+    remarkOffered: Boolean(sheetButton(/^RE-MARK BALL$/)),
+    fromM: greenMark() ? distanceM(greenMark(), ballAt) : null,
+  };
+  // A second mark: the coin was replaced two paces away, not a second putt.
+  ballGps.at = offsetM(ballAt, 6, 0);
+  sheetButton(/^RE-MARK BALL$/)?.click();
+  ballGps.endBurst();
+  await wait();
+  const secondBall = {
+    greens: ballHole.shots.filter((s) => s.lie === 'green').length,
+    shots: ballHole.shots.length,
+    movedM: greenMark() ? distanceM(greenMark(), ballAt) : null,
+  };
+  ballScreen.el.remove();
+  closeSheet();
+
   test('under 20 ft SAVE waits for the number', () => {
     eq(shortSheet.saveDisabled, true, 'SAVE would have saved a 12 ft putt GPS cannot measure');
     assert(shortSheet.saidTypeIt, `the sheet never asked for it: "${shortSheet.readout}"`);
@@ -5211,6 +5263,24 @@ export async function runGreenFlowTests() {
     eq(shortTyped.saveDisabled, false, 'SAVE stayed disabled after a distance was tapped');
     eq(shortSaved.firstPuttFt, 10, 'the tapped distance is what was stored');
     eq(shortSaved.complete, true, 'the hole did not finish');
+  });
+
+  test('MARK BALL saves the ball on the green without asking a lie', () => {
+    assert(beforeBall.offered, 'the sheet has no way to mark the ball');
+    eq(firstBall.greens, 1, 'one putt-to-be on the green');
+    assert(firstBall.marked, 'the ball was not marked');
+    eq(firstBall.club, 'putter', 'a shot from the green is a putt');
+    eq(firstBall.lieAsked, false, 'a lie card came up for a mark that says BALL on it');
+    assert(firstBall.reopened, 'the sheet did not come back after the burst');
+    assert(firstBall.fromM != null && firstBall.fromM < 1, `the mark landed ${firstBall.fromM} m from the burst`);
+  });
+
+  test('RE-MARK BALL moves the mark rather than adding a stroke', () => {
+    assert(firstBall.remarkOffered, 'no RE-MARK BALL offered once a ball is marked');
+    eq(secondBall.greens, 1, 'a second putt appeared out of a correction');
+    eq(secondBall.shots, 1, 'the hole grew a shot he did not play');
+    assert(secondBall.movedM != null, 'there is no ball mark to have moved');
+    near(secondBall.movedM, 6, 0.5, 'the mark did not move to the new burst');
   });
 }
 
