@@ -11,6 +11,8 @@ import android.location.LocationManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.os.PowerManager
 import android.provider.Settings
 import android.util.TypedValue
@@ -52,9 +54,12 @@ import androidx.webkit.WebViewAssetLoader
  */
 class MainActivity : Activity() {
 
+    /** Read from the recorder's thread when a fix arrives, so volatile. */
+    @Volatile
     private var web: WebView? = null
     private var setupBox: LinearLayout? = null
     private var fileCallback: ValueCallback<Array<Uri>>? = null
+    private val ui = Handler(Looper.getMainLooper())
 
     /**
      * He opened the app with a grant still missing.
@@ -95,6 +100,30 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         show()
+        // Fixes reach the page only while this Activity is resumed. Nothing is
+        // queued while it is not: the log already has them, and `gps.js`'s
+        // revive logic (reviveGraceMs 3000) re-arms the watch on the way back.
+        FixBus.sink = { fix -> deliver(fix) }
+        Recorder.setResumed(this, true)
+    }
+
+    override fun onPause() {
+        FixBus.sink = null
+        super.onPause()
+    }
+
+    override fun onStop() {
+        // gps-on is left when the Activity stops - unless a round is recording,
+        // which keeps the service up regardless (spec Section 3).
+        Recorder.setResumed(this, false)
+        super.onStop()
+    }
+
+    /** One fix, onto the main thread, into the page. */
+    private fun deliver(fix: Fix) {
+        val v = web ?: return
+        val js = "window.__golfNativeFix(" + fix.jsJson() + ")"
+        ui.post { runCatching { v.evaluateJavascript(js, null) } }
     }
 
     override fun onRequestPermissionsResult(
