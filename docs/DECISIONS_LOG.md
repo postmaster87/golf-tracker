@@ -9,6 +9,13 @@ never "Fable decided".
 
 Opus's solo decisions are logged here too, marked (Opus).
 
+## 2026-09-16 - FT7 closed: the duplicate removal stays as built
+- **Decision:** his, verbatim: *"I don't fucking care. That is a BS round
+  anyways"*. The de-duplication on `fix_ms` in `TrackFiles.compactFromCsv`
+  (spec Section 4, first row wins) stands; FT7 reads back 4,583 of 4,585 and
+  nobody looks at it again. Nothing owed on it.
+- **Changed:** nothing. **Commit:** this commit.
+
 ## 2026-09-16 - v28 pushed for tonight's walk: "the last time for the web app. Next test needs to be the phone"
 - **Decision:** his, verbatim: *"Okay let's do 2 but this is the last time
   for the web app. Next test needs to be the phone"* (option 2 was v28
