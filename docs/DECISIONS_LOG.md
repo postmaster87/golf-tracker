@@ -579,3 +579,20 @@ Opus's solo decisions are logged here too, marked (Opus).
   status/gesture bar insets over adb at the next plug-in to confirm 728.
 - **Changed:** nothing by Fable in code. **Report:** `docs/handoff/REPORT_2.6.md`.
   **Commit:** Opus `a553e2e`, Fable this commit.
+
+## 2026-09-16 - v27 pushed: the two green hints fit, on his "shorten it and push"
+- **Decision:** v27 (`ddb3455`) reviewed and pushed by Fable. The two hints
+  are now "On the green: MARK CUP, then putts." (one line at 360 px, +26.3 px
+  under the lie grid in the state that was -11.5) and "Cup marked. Putt out,
+  then the putts and how long the first was." (two lines, +7.4, kept the
+  first-putt prompt on purpose - dropping it would have bought nothing the
+  lie grid needs). Suite 519/519 at 360x728 (Fable n = 1, Opus n = 4 incl.
+  mutation 518/519 on exactly the new test). Deployed `build.js` and `sw.js`
+  hash-verified against `ddb3455` (sha256 e4ae74f1... / 45bbd9f2...) four
+  checks after the push.
+- **Why:** his words. The residual from 2.6 was the only state that could
+  put a lie under the footer.
+- **Owed:** his phone check (Settings Build v27; MARK TEE SHOT, MARK SHOT 2,
+  GREEN, MARK SHOT 3 - all six lies clear of the footer, hint on one line).
+- **Changed:** nothing by Fable in code. **Report:** `docs/handoff/REPORT_2.6.md`
+  Section 9. **Commit:** Opus `ddb3455`, Fable this commit.
