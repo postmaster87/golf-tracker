@@ -76,6 +76,8 @@ import {
   REVISION,
   REVISION_HISTORY,
   revisionInfo,
+  revisionLabel,
+  isWorkingRevision,
   roundRevisionLabel,
 } from '../js/data/revision.js';
 import {
@@ -113,6 +115,7 @@ import * as pocketLock from '../js/ui/lock.js';
 import { sheet, closeSheet } from '../js/ui/dom.js';
 import { playScreen, firstPuttEntryMode, TYPED_PUTT_MAX_FT } from '../js/ui/screen-play.js';
 import { settingsScreen } from '../js/ui/screen-settings.js';
+import { homeScreen } from '../js/ui/screen-home.js';
 import {
   PERSISTENT,
   BEST_EFFORT,
@@ -2055,6 +2058,47 @@ test('migrate never invents a revision for a legacy round', () => {
 test('the round index carries the revision, null for legacy rounds', () => {
   eq(summarizeRound(par4Round()).revision, REVISION, 'stamped round');
   eq(summarizeRound({ id: 'x', holes: [] }).revision, null, 'legacy round is null, not undefined');
+});
+
+/*
+ * THE REVISION LIVES IN SETTINGS, AND NOWHERE ELSE.
+ *
+ * Matt, 2026-09-17, reading the bottom of the rev 5 home screen on his phone:
+ * "get it out of there and put it in the settings screen". Both halves are
+ * asserted together on purpose — deleting the home footer is only correct if
+ * the whole line it carried, "not yet played" marker included, survived
+ * somewhere he can still find it.
+ */
+const revScreenCtx = () => ({
+  app: newAppState(),
+  round: null,
+  gps: { current: null, running: false, error: null, fixCount: 0, staleSinceMs: () => null },
+  params: {},
+  go() {},
+  persistApp() {},
+  persistRound() {},
+  startGps() {},
+  stopGps() {},
+  trackStats: () => null,
+});
+
+test('the home screen shows no revision line', () => {
+  const text = homeScreen(revScreenCtx()).el.textContent;
+  assert(!text.includes(revisionLabel()), `"${revisionLabel()}" is still on the home screen`);
+  assert(!/not yet played/.test(text), 'the "not yet played" marker is still on the home screen');
+});
+
+test('the Settings build line carries the revision and its marker', () => {
+  const el = settingsScreen(revScreenCtx()).el;
+  const line = [...el.querySelectorAll('p')].map((p) => p.textContent).find((t) => t.startsWith('Build '));
+  assert(line, 'no Build line on the settings screen at all');
+  assert(line.includes(revisionLabel()), `no ${revisionLabel()} in ${JSON.stringify(line)}`);
+  assert(line.includes(revisionInfo()?.title ?? ''), `no revision title in ${JSON.stringify(line)}`);
+  eq(
+    line.includes('· not yet played'),
+    isWorkingRevision(),
+    `the marker disagrees with isWorkingRevision() in ${JSON.stringify(line)}`
+  );
 });
 
 /* ---------------------------------------------------------- track analysis */

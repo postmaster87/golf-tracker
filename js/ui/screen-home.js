@@ -2,7 +2,6 @@ import { h, card } from './dom.js';
 import { getCourse } from '../data/courses.js';
 import { roundTotals, fmtToPar } from '../round/round.js';
 import { loadRound } from '../data/store.js';
-import { revisionLabel, revisionInfo, isWorkingRevision } from '../data/revision.js';
 
 const NINE_LABEL = { front: 'Front 9 first', back: 'Back 9 first' };
 
@@ -139,26 +138,13 @@ export function homeScreen(ctx) {
   }
 
   /*
-   * Which build is actually on the phone.
-   *
-   * The service worker is network-first with a cache fallback, which is correct
-   * for staying playable on a course with no signal — but it means the build in
-   * your hand is not necessarily the one that was last deployed. Before this
-   * line there was no way to tell from inside the app, which made "did the new
-   * version make it to my phone?" unanswerable without a laptop.
-   *
-   * Marked when unshipped, because that is the state where a round is most
-   * likely to hit something new.
+   * No revision line down here any more. Matt, 2026-09-17, on the rev 5 build
+   * on his phone: "get it out of there and put it in the settings screen".
+   * Which build is on the phone is a question he asks in Settings, next to the
+   * build number and the update check — not something the home screen has to
+   * spend its last line on. Settings > BUILD carries the whole line, including
+   * the "not yet played" marker.
    */
-  el.appendChild(
-    h('p', {
-      class: 'note muted',
-      style: { textAlign: 'center', marginTop: '18px' },
-      text: `${revisionLabel()} — ${revisionInfo()?.title ?? 'untitled'}${
-        isWorkingRevision() ? ' · not yet played' : ''
-      }`,
-    })
-  );
 
   return { el };
 }

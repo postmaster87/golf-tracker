@@ -13,7 +13,7 @@ import { VEENKER } from '../data/courses.js';
 import { BASELINES, SOURCE, CATEGORY_DEFINITION } from '../analysis/benchmarks.js';
 import * as wakeLock from '../gps/wakelock.js';
 import { BUILD, buildLabel } from '../data/build.js';
-import { revisionLabel, revisionInfo } from '../data/revision.js';
+import { revisionLabel, revisionInfo, isWorkingRevision } from '../data/revision.js';
 import {
   PERSISTENT,
   UNKNOWN,
@@ -522,9 +522,19 @@ export function settingsScreen(ctx) {
      * to update is the only thing that reliably distinguishes "I have the
      * latest" from "the latest is sitting downloaded and waiting for a reload".
      */
+    /*
+     * The one place the revision is shown, since 2026-09-17. It used to sit at
+     * the bottom of the home screen as well; Matt's words on the rev 5 build:
+     * "get it out of there and put it in the settings screen". So this line has
+     * to carry everything that one did — including the "not yet played" marker,
+     * which is the part that says a round on this build is hitting something
+     * nobody has played yet.
+     */
     const buildLine = h('p', {
       class: 'note',
-      text: `Build ${buildLabel()} · ${revisionLabel()} — ${revisionInfo()?.title ?? ''}`,
+      text: `Build ${buildLabel()} · ${revisionLabel()} — ${revisionInfo()?.title ?? ''}${
+        isWorkingRevision() ? ' · not yet played' : ''
+      }`,
     });
     const updateLine = h('p', { class: 'note muted', text: 'Tap to check whether a newer build has been deployed.' });
     const reloadBtn = h('button', {
