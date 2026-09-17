@@ -9,6 +9,20 @@ never "Fable decided".
 
 Opus's solo decisions are logged here too, marked (Opus).
 
+## 2026-09-17 - The native app is the instrument: "yes no more webapp"
+- **Decision:** his, verbatim, to "Is the native Golf Tracker now the
+  instrument for your next round?": *"yes"*, then *"yes no more webapp"*. Every
+  round from here is recorded in Golf Tracker (`com.postmaster87.golftracker`).
+  The Pages build is no longer an instrument; no work goes into it unless he
+  says so.
+- **On his phone:** the rev 5 build (`2188ace`, `0cf25bf`) installed over v28
+  with `install -r` on his "yes", 15:48. Read off the screen: "rev 5 - The
+  native app - not yet played", 10 rounds before and after, grants and battery
+  whitelist unchanged.
+- **Owed:** `shipped` and `commit` on the rev 5 entry and `git tag rev5` after
+  his first round on it (`REVISIONS.md`, step 3).
+- **Changed:** nothing in code. **Commit:** this commit.
+
 ## 2026-09-17 - The native recorder's first run on his phone: PASS against his bar (n = 1)
 - **Decision:** Fable's verdict, scored with `tools/track-coverage.py` on the
   round's own `fixes.csv` / `events.csv` / `meta.json` (round `r_193ea10c`,
