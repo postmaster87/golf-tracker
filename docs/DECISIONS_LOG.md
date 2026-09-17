@@ -9,6 +9,29 @@ never "Fable decided".
 
 Opus's solo decisions are logged here too, marked (Opus).
 
+## 2026-09-17 - The native recorder's first run on his phone: PASS against his bar (n = 1)
+- **Decision:** Fable's verdict, scored with `tools/track-coverage.py` on the
+  round's own `fixes.csv` / `events.csv` / `meta.json` (round `r_193ea10c`,
+  pulled with `run-as`, nothing else taken off the phone). Golf Tracker v28,
+  recorder K, START 08:10:13 -> STOP 13:08:37, 298.4 min. **16,051 fixes,
+  100.0% covered, 0 gaps over 20 s, longest fix-to-fix interval 9.2 s, median
+  accuracy 6.4 m.** Bar: 99%, no gap over 20 s. One process the whole run (pid
+  22467, no `process_start`), 3,573 heartbeats, 3,572 saying recorder=1,
+  longest heartbeat interval 7.2 s, write failures 0. Screen off for 2,029 of
+  the beats, music playing for 676, one deep doze 12:35:09 -> 12:40:14 with no
+  gap across it. Battery 76% -> 45% over 5.0 h, whole phone, in his use.
+- **What it is not:** a round of golf. Shower, two drives, Coover Hall, some
+  walking-pace stretches 09:40-11:40; the noon walk did not happen (*"I got
+  super busy at work"*). Indoor accuracy reached 217.7 m worst case (09:00
+  hour); hourly medians 5.1 to 9.5 m. 290 intervals ran 5 to 10 s, all inside
+  the bar. n = 1.
+- **Why it counts:** the bar asks for a round-length locked carry with a music
+  app in use. This is 5 hours, mostly locked, music for ~56 min of beats, doze
+  included - longer and rougher than a nine.
+- **Owed, his word:** whether this makes the native app the instrument for the
+  next round. **Evidence:** `docs/roundDownloads/native-0917/` (gitignored).
+- **Changed:** nothing in code. **Commit:** this commit.
+
 ## 2026-09-17 - rev 5 and the restore toast: PASS; neither is on his phone yet
 - **Decision:** his, verbatim: *"Next build get that Radcliffe shit about rev4
   off the bottom of the app. We are on Rev5 now."* Opus `2188ace`: `REVISION`
