@@ -9,6 +9,45 @@ never "Fable decided".
 
 Opus's solo decisions are logged here too, marked (Opus).
 
+## 2026-09-17 - rev 5 and the restore toast: PASS; neither is on his phone yet
+- **Decision:** his, verbatim: *"Next build get that Radcliffe shit about rev4
+  off the bottom of the app. We are on Rev5 now."* Opus `2188ace`: `REVISION`
+  5, entry "The native app", `shipped` and `commit` null per `REVISIONS.md`
+  "How to bump it" step 1. The title is Fable's; his to change. Opus
+  `0cf25bf`: `TrackStore.importTrack` returns the fixes that read back, not
+  the rows handed over. Read line by line: the count goes through
+  `TrackFiles.compactFromCsv`, the reader `readTrack` uses; measured before
+  and after the append inside `synchronized(SessionLog)`, the same monitor
+  `appendImported`'s `@Synchronized` takes, so it is re-entrant and a live
+  recorder fix is not counted. Dedupe, schema, export format, IndexedDB path
+  untouched. Suite 540/540, Kotlin 11/11, `assembleDebug` succeeds (Opus n = 1;
+  Fable did not re-run - the phone was mid-test and the change is a count).
+- **Why:** found on his phone today. Fable restored his 9 rounds into the
+  native app; the toast said 28,413 track fixes, the store read back 28,411.
+  The 2 are FT7's repeats, closed below. The toast was counting the wrong thing.
+- **Cost:** Opus 11 min, 151k tokens (n = 1).
+- **Owed, his call:** rev 4's `shipped`, `commit` and `git tag rev4` were never
+  set though rounds were played on it. `meta.json` `imported_points` still
+  records rows written.
+- **Changed:** nothing by Fable in code. **Commit:** Opus `2188ace`, `0cf25bf`.
+
+## 2026-09-17 - The native app is on his phone and his rounds are in it
+- **Decision:** on his "install", then *"my phone is plugged in - why am I doing
+  all this. You do it"*: Golf Tracker v28 (versionCode 2801, built from
+  `bfb1553`) installed on the S26; four permissions read back granted, battery
+  whitelist, `RUN_ANY_IN_BACKGROUND` allow, standby bucket 5, checklist clear.
+  Rounds moved by Fable: the live export read out of Chrome on the phone over
+  DevTools (9 rounds, 28,413 points; Monday hash-equal to its corrected 39),
+  the 2026-09-16 round replaced with the corrected 40 (REPORT_3.3), restored
+  through the app's own Restore button. Read back from the app's store: rounds
+  9/9 byte-identical, tracks 8/9, 28,411 points - FT7's two repeats, as ruled.
+  Chrome's copy of the 09-16 round is still uncorrected; the web app is retired.
+- **Test running:** he started a round in Golf Tracker ~08:10, battery 76%,
+  locked, ~4 hours: shower, drive, Coover Hall, a walk before lunch. Scored on
+  heartbeats indoors (alive or killed) and the walk against his bar (99%, no
+  gap over 20 s). Fable usage at the start of the run: 46% (his reading).
+- **Changed:** nothing in the repo. **Commit:** this commit.
+
 ## 2026-09-16 - FT7 closed: the duplicate removal stays as built
 - **Decision:** his, verbatim: *"I don't fucking care. That is a BS round
   anyways"*. The de-duplication on `fix_ms` in `TrackFiles.compactFromCsv`
