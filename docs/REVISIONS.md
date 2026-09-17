@@ -21,8 +21,8 @@ should be a filter, not an act of memory.
 | Every round record | `round.revision`, stamped at creation, never rewritten. |
 | Round index (`gt:app`) | Carried in the summary, so History can filter without loading rounds. |
 | Export JSON | `exportedByRevision` on the file; each round keeps its own. |
-| Home screen | Footer line: `rev 4 — Radcliffe, and the shotgun start · not yet played`. |
-| Round summary | Data-quality card: `Recorded by rev 4 — Radcliffe, and the shotgun start.` |
+| Home screen | Footer line: `rev 5 — The native app · not yet played`. |
+| Round summary | Data-quality card: `Recorded by rev 5 — The native app.` |
 | Git | Tag `rev0`, `rev1`, … on the commit that was played. |
 
 `APP_VERSION` in `schema.js` and `version` in `package.json` both read `1.0.0`
@@ -140,7 +140,7 @@ is the build that carries it.
 
 ---
 
-## rev 4 — Radcliffe, and the shotgun start *(current, not yet played)*
+## rev 4 — Radcliffe, and the shotgun start *(no longer the working revision; its `shipped` date is still unset)*
 
 Everything in rev 3, plus the second course. **Built for field test 4**: two
 four-man best-ball tournaments at Radcliffe on 2026-08-22, 8:00 and 13:30, four
@@ -940,6 +940,32 @@ part of item 2 above.
 **Already shipped in rev 2, skipped by Matt's instruction on 2026-08-21:** the
 1–5 ft putt grid and MARK TEE SHOT naming. He was describing the build he had
 played, not the deployed one.
+
+---
+
+## rev 5 — The native app *(current, not yet played)*
+
+Bumped on his word, 2026-09-17: *"Next build get that Radcliffe shit about rev4
+off the bottom of the app. We are on Rev5 now."*
+
+**One Android app, `Golf Tracker`**, carrying the current screens as its own
+files inside the APK, with the GPS recorder and the track store native and **no
+INTERNET permission**. The recorder keeps the track for the length of a round
+whatever the phone is doing, and the native fix log *is* the dense track — there
+is no second copy. Built to `docs/native/SPEC_native-shell.md`; what was built
+and what the emulator proved are in
+[`docs/handoff/REPORT_3.1.md`](handoff/REPORT_3.1.md).
+
+**And the green flow.** GREEN in the footer opens one sheet that is the whole
+green: MARK CUP and MARK BALL in either order, then the putts. A first putt of
+20 ft or more takes the GPS distance and saves with nothing typed; under 20 ft
+the sheet will not save until the number is tapped. SAVE goes to the score card,
+and the shots and their lies come after it — not on the green. Built to
+`docs/SPEC_green-flow.md`;
+[`docs/handoff/REPORT_3.2.md`](handoff/REPORT_3.2.md) has the detail.
+
+**Not yet played.** No round has been recorded on rev 5, so there is no outcome
+to write here.
 
 ---
 

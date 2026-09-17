@@ -23,7 +23,7 @@
  */
 
 /** The revision this build IS. Stamped into every round it records. */
-export const REVISION = 4;
+export const REVISION = 5;
 
 /**
  * What each revision was, and when it was played.
@@ -111,6 +111,18 @@ export const REVISION_HISTORY = [
       'Veenker was the only course in the build. The starting hole is a setup control, ' +
       'so a shotgun start deals the round in the order it is actually played. ' +
       'Built for field test 4: two four-man best-ball tournaments on one nine.',
+  },
+  {
+    rev: 5,
+    commit: null,
+    shipped: null,
+    title: 'The native app',
+    summary:
+      'One Android app, Golf Tracker, carrying the screens as its own files, ' +
+      'with the GPS recorder and the track store native and no INTERNET permission. ' +
+      'And the green flow: one GREEN sheet with MARK CUP and MARK BALL, ' +
+      'a first putt of 20 ft or more taken from the GPS, ' +
+      'then the score card, then the shots and their lies.',
   },
 ];
 
