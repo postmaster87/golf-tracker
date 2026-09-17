@@ -9,6 +9,19 @@ never "Fable decided".
 
 Opus's solo decisions are logged here too, marked (Opus).
 
+## 2026-09-17 - The revision line comes off the home screen: PASS; waits for the next build on his phone
+- **Decision:** his, verbatim: *"get it out of there and put it in the
+  settings screen"* and *"I don't want the rev 5 .... on the home screen"*.
+  Opus `06e9101`: the home footer's revision paragraph is gone; Settings >
+  BUILD is the one place it shows and now carries " · not yet played" too.
+  Diff read by Fable: two UI files and two tests, nothing else. Suite 542/542,
+  both new tests shown to fail on the old code; `assembleDebug` succeeds
+  (Opus n = 1).
+- **Not on his phone:** his words, *"i need to use my phone it can wait until
+  the next revision"*. The phone shows the line until the next install.
+- **Cost:** Opus 8 min, 125k tokens (n = 1).
+- **Changed:** nothing by Fable in code. **Commit:** Opus `06e9101`.
+
 ## 2026-09-17 - The native app is the instrument: "yes no more webapp"
 - **Decision:** his, verbatim, to "Is the native Golf Tracker now the
   instrument for your next round?": *"yes"*, then *"yes no more webapp"*. Every
