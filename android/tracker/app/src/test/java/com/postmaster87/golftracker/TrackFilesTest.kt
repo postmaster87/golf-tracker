@@ -108,6 +108,38 @@ class TrackFilesTest {
     }
 
     @Test
+    fun `a restore counts the fixes stored, not the rows it wrote`() {
+        // Found on the phone 2026-09-17: a restore in the shell toasted 28,413
+        // track fixes and the store read back 28,411, because round r_1792abc1
+        // carries three byte-identical copies of t=1789165452854. The reader
+        // de-duplicating on fix_ms is correct and stays as built (his ruling,
+        // bfb1553) - so it is the COUNT that has to come from the reader.
+        //
+        // This is the arithmetic TrackStore.importTrack now does around the
+        // append: what reads back afterwards, minus what read back before.
+        val existing = sequenceOf(
+            header,
+            "1,1789165452000,,42.0414213,-93.6501613,3.3,,,,,fused,0,,,",
+        )
+        val rows = TrackFiles.importRows(
+            listOf(
+                // the field's own case: the same fix, three times, in one batch
+                doubleArrayOf(42.0370332, -93.6547743, 3.0, 1789165452854.0, 0.2, 346.0),
+                doubleArrayOf(42.0370332, -93.6547743, 3.0, 1789165452854.0, 0.2, 346.0),
+                doubleArrayOf(42.0370332, -93.6547743, 3.0, 1789165452854.0, 0.2, 346.0),
+                // and a fix this file already holds
+                doubleArrayOf(42.0414213, -93.6501613, 3.3, 1789165452000.0),
+            )
+        )
+        assertEquals("rows the append writes", 4, rows.size)
+
+        val before = TrackFiles.compactFromCsv(existing).points
+        val after = TrackFiles.compactFromCsv(existing + rows.asSequence()).points
+        assertEquals("what the store held before", 1, before)
+        assertEquals("fixes stored by this import", 1, after - before)
+    }
+
+    @Test
     fun `an imported row says it was imported, and invents no clock reading`() {
         val row = TrackFiles.importRows(
             listOf(doubleArrayOf(42.0, -93.0, 3.0, 1789165452854.0))

@@ -49,8 +49,24 @@ object TrackStore {
      * restore onto a phone that already has part of the track adds to it -
      * `readTrack` sorts and de-duplicates, which is what makes that safe.
      *
-     * Returns the number written; 0 means nothing was stored, which the caller
-     * must not report as success.
+     * RETURNS THE FIXES STORED, NOT THE ROWS WRITTEN, and those are not the same
+     * number. The reader de-duplicates on `fix_ms`, first row wins, and that is
+     * correct and stays (his ruling, `bfb1553`) - so a row whose fix time is
+     * already there is written and then never read. Reporting rows written
+     * over-reports by exactly those repeats: found in the field 2026-09-17, when
+     * a restore in the shell toasted 28,413 track fixes and the store read back
+     * 28,411, because round `r_1792abc1` carries three byte-identical copies of
+     * t=1789165452854.
+     *
+     * So the count is MEASURED through the same reader `readTrack` uses, rather
+     * than modelled from the rows - the two can then never drift apart - and it
+     * is measured around the append under the writer's own lock, because a fix
+     * the recorder wrote in between would otherwise be counted as part of the
+     * import.
+     *
+     * 0 means nothing was stored, which the caller must not report as success.
+     * A file that cannot be read back afterwards counts as 0 for the same
+     * reason: a track the reader cannot see is not a track the analysis has.
      */
     fun importTrack(ctx: Context, roundId: String, pointsJson: String): Int {
         if (!Sessions.isSafeId(roundId)) return 0
@@ -60,7 +76,12 @@ object TrackStore {
         if (rows.isEmpty()) return 0
         val dir = Sessions.dir(ctx, roundId)
         val fresh = !File(dir, "meta.json").exists()
-        val written = SessionLog.appendImported(ctx, roundId, rows, rows.size)
+        var written = 0
+        val stored = synchronized(SessionLog) {
+            val before = readablePoints(ctx, roundId)
+            written = SessionLog.appendImported(ctx, roundId, rows, rows.size)
+            if (written <= 0) 0 else (readablePoints(ctx, roundId) - before).coerceAtLeast(0)
+        }
         if (written > 0 && fresh) {
             runCatching {
                 File(dir, "meta.json").writeText(
@@ -68,7 +89,25 @@ object TrackStore {
                 )
             }
         }
-        return written
+        return stored
+    }
+
+    /**
+     * Points the round's fixes.csv reads back, through `compactFromCsv` - the
+     * one reader the web layer's track comes out of.
+     *
+     * Deliberately not `readTrackJson`: this is a count, and that entry point
+     * also moves `skippedNoAcc`, which is a read diagnostic for the Data card
+     * and must not tick twice for one import.
+     */
+    private fun readablePoints(ctx: Context, roundId: String): Int {
+        val f = fixesFile(ctx, roundId)
+        if (!f.exists()) return 0
+        return try {
+            f.bufferedReader().useLines { TrackFiles.compactFromCsv(it).points }
+        } catch (e: Exception) {
+            0
+        }
     }
 
     fun trackSize(ctx: Context, roundId: String): Int {

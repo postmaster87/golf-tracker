@@ -376,8 +376,13 @@ export async function readTrack(roundId) {
  * device that already has part of the track adds rather than replaces —
  * `readTrack` sorts by timestamp and is the thing that makes that safe.
  *
- * Returns the number of points written; 0 means nothing was stored, which the
- * caller must not report as success.
+ * Returns the number of points STORED — what the round's track holds because of
+ * this call; 0 means nothing was stored, which the caller must not report as
+ * success. In IndexedDB every filtered point is stored, so that is their count.
+ * The shell's store de-duplicates on fix time, so a repeat is written and never
+ * read, and the bridge returns what reads back rather than what it was handed
+ * (`TrackStore.importTrack`) — the restore toast counts the same fixes the
+ * analysis will.
  */
 export async function writeTrackChunk(roundId, points) {
   const pts = (points ?? []).filter((p) => Array.isArray(p) && Number.isFinite(p[3]));
