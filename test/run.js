@@ -2667,6 +2667,12 @@ group('course geometry');
       'hole 12 has no tee with both sets',
     );
     assert(holeG(11).teeIds.some((id) => holeG(18).teeIds.includes(id)), '11 and 18 share no tee');
+    const box = poly(199288462);
+    eq(JSON.stringify(box.holes), '[11,18]', '11/18 box holes');
+    eq(JSON.stringify(box.sets), '["blue","gold"]', '11/18 box sets');
+    const same = (a, b) => JSON.stringify([...a].sort()) === JSON.stringify([...b].sort());
+    assert(same(holeG(3).teeIds, [199288713, 1065730087, 199288714]), `hole 3 tees ${JSON.stringify(holeG(3).teeIds)}`);
+    assert(same(holeG(6).teeIds, [199288711, 199288712]), `hole 6 tees ${JSON.stringify(holeG(6).teeIds)}`);
     const p16 = G.points.find((p) => p.id === 'hole16-back-blue');
     assert(p16 && p16.source === 'markup', 'hole16-back-blue point missing or not markup');
   });

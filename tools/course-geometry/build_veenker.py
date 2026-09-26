@@ -37,10 +37,11 @@ OUT = os.path.join(ROOT, 'js', 'data', 'geometry', 'veenker.js')
 with contextlib.redirect_stdout(io.StringIO()):
     RM = runpy.run_path(os.path.join(MAP, 'rematch.py'))
 to_ll, xy, join_rings, in_ring, seg = RM['to_ll'], RM['xy'], RM['join_rings'], RM['in_ring'], RM['seg']
+key_for, dist_m = RM['key_for'], RM['dist_m']
 
 GREEN_CONTAIN_FALLBACK_M = 30
-TEE_NEAR_START_M = 60
-TEE_TIP_M = 5
+TEE_NEAR_START_M = 60   # rule (3): an untipped box joins the hole whose line starts nearest
+TEE_TIP_M = 10          # rule (1): a tip farther than this from every box sets no box
 LABEL_NEAR_LINE_M = 80
 
 failures = []
@@ -183,15 +184,6 @@ for h in holes:
     green_how[n] = how
     if green is not None and n not in green['holes']:
         green['holes'].append(n)
-    tee_ids = []
-    for t in tees:
-        d = dist_to_ring(first, t['ring'])
-        if d <= TEE_NEAR_START_M:
-            tee_ids.append((round(d, 3), str(t['id']), t['id']))
-            if n not in t['holes']:
-                t['holes'].append(n)
-    if not tee_ids:
-        fail(f'hole {n}: no tee polygon within {TEE_NEAR_START_M} m of the line start')
     out_holes.append({
         'number': n,
         'par': int(h['tags']['par']),
@@ -200,55 +192,91 @@ for h in holes:
         'osmId': h['id'],
         'line': [ll_pt(q) for q in line],
         'greenId': green['id'] if green else None,
-        # Nearest the line's first point first: teeIds[0] is the box the hole line starts on.
-        'teeIds': [i for _, _, i in sorted(tee_ids)],
+        'teeIds': [],
         'fairwayIds': [],
         'bunkerIds': [],
         '_line': line,
     })
 
-# ------------------------------------------- corrections: must be produced by the rules
+# ------------------------------------------------------------------- tees
+# Fable's corrected Section 1.2 rule (2026-09-26), in priority order.
 H = {h['number']: h for h in out_holes}
+tee_el = {e['id']: e for e in els if golf(e) == 'tee'}
+line_start = {h['number']: h['_line'][0] for h in out_holes}
+
+# (1) His markup tips are the authority: every keyed blue / yellow leader maps
+# its hole ('R7' is hole 8) and set onto the nearest tee polygon by dist_m.
+tipped = set()
+unmatched_tips = []
+for ln in markup:
+    if ln['color'] not in ('blue', 'yellow'):
+        continue
+    k = key_for(ln)
+    if k is None:
+        continue
+    n = 8 if k == 'R7' else int(k) if k.isdigit() else None
+    if n is None:
+        continue
+    colour = 'blue' if ln['color'] == 'blue' else 'gold'
+    ll = to_ll(*ln['tip'])
+    d, t = min(((dist_m(ll, tee_el[t['id']]), t) for t in tees), key=lambda x: (x[0], str(x[1]['id'])))
+    if d > TEE_TIP_M:
+        unmatched_tips.append((n, colour, d, t['id']))
+        continue
+    tipped.add(t['id'])
+    if n not in t['holes']:
+        t['holes'].append(n)
+    if colour not in t['sets']:
+        t['sets'].append(colour)
+
+# (2) Hole 9 has no tips: its tees are exactly the corrections file's ids, sets [].
+h9_ids = corr['hole9']['tee_osm_ids_near_line_start']
+tee_by_pid = {t['id']: t for t in tees}
+for tid in h9_ids:
+    t = tee_by_pid.get(tid)
+    if t is None:
+        fail(f'hole 9 tee {tid} (corrections) is not a tee polygon')
+    elif tid in tipped:
+        fail(f'hole 9 tee {tid} (corrections) carries a markup tip')
+    elif 9 not in t['holes']:
+        t['holes'].append(9)
+
+# (3) Every other untipped box: the hole whose line START is nearest, if <= 60 m.
+for t in tees:
+    if t['id'] in tipped or t['id'] in h9_ids:
+        continue
+    d, n = min((dist_m(line_start[n], tee_el[t['id']]), n) for n in sorted(line_start))
+    if d <= TEE_NEAR_START_M:
+        t['holes'].append(n)
+
+for t in tees:
+    t['sets'].sort(key=lambda s: ('blue', 'gold').index(s))
+    for n in t['holes']:
+        H[n]['teeIds'].append(t['id'])
+for h in out_holes:
+    # Nearest the line's first point first: teeIds[0] is the box the hole line starts on.
+    h['teeIds'].sort(key=lambda i: (round(dist_m(h['_line'][0], tee_el[i]), 3), str(i)))
+    if not h['teeIds']:
+        fail(f"hole {h['number']}: no tee polygon")
+
+# The corrections file's hole 8 ids must come out of the rules, never be typed in.
 c8 = corr['hole8']
 if H[8]['greenId'] != c8['green_osm_id']:
     fail(f"hole 8 green: rule gives {H[8]['greenId']}, corrections say {c8['green_osm_id']}")
 for tid in (c8['blue_tee_osm_id'], c8['gold_tee_osm_id']):
     if tid not in H[8]['teeIds']:
-        fail(f'hole 8 tee {tid} (corrections) is not among the rule\'s tees {H[8]["teeIds"]}')
-for tid in corr['hole9']['tee_osm_ids_near_line_start']:
-    if tid not in H[9]['teeIds']:
-        fail(f'hole 9 tee {tid} (corrections) is not among the rule\'s tees {H[9]["teeIds"]}')
-
-# ------------------------------------------------------------ tee sets from his tips
-tips = []
-for ln in markup:
-    if ln['color'] in ('blue', 'yellow'):
-        lat, lon = to_ll(*ln['tip'])
-        tips.append(('blue' if ln['color'] == 'blue' else 'gold', (lat, lon)))
-unmatched_tips = []
-for colour, ll in tips:
-    hit = False
-    for t in tees:
-        if dist_to_ring(ll, t['ring']) <= TEE_TIP_M:
-            hit = True
-            if colour not in t['sets']:
-                t['sets'].append(colour)
-    if not hit:
-        unmatched_tips.append((colour, ll))
-for t in tees:
-    t['sets'].sort(key=lambda s: ('blue', 'gold').index(s))
+        fail(f'hole 8 tee {tid} (corrections) is not among the rule tees {H[8]["teeIds"]}')
 
 # Hole 16's back blue: from the corrections file, never re-derived.
 p16 = corr['hole16_back_blue_tee_point']
 points = [{'id': 'hole16-back-blue', 'kind': 'tee', 'holes': [16], 'sets': ['blue'],
            'lat': p16['lat'], 'lon': p16['lon'], 'source': 'markup'}]
-# The one blue tip that matches no box must be that point (README: 48.5 m off).
-for colour, ll in unmatched_tips:
-    d = math.hypot(*(a - b for a, b in zip(xy(ll), xy((p16['lat'], p16['lon'])))))
-    if not (colour == 'blue' and d < 1.0):
-        # Reported, not fatal: an unmatched tip sets no polygon's colour.
-        print(f'note: {colour} tip matches no tee box within {TEE_TIP_M} m '
-              f'(nearest box {min(dist_to_ring(ll, t["ring"]) for t in tees):.1f} m)')
+# Every tip that set no box must be hole 16's blue, the corrections file's point.
+for n, colour, d, near in unmatched_tips:
+    if (n, colour) != (16, 'blue'):
+        fail(f'hole {n} {colour} tip is {d:.1f} m from the nearest tee box {near}')
+    else:
+        print(f'hole 16 blue tip: {d:.1f} m from the nearest box {near}, carried as the markup point')
 
 # ------------------------------------------------- fairways and bunkers: labels only
 for p in polys:
@@ -333,6 +361,7 @@ counts = {k: sum(1 for p in polys if p['kind'] == k) for k in KIND_ORDER}
 print('polygons:', counts, '| inner rings carried:', sum(len(p['inner']) for p in polys))
 for s in skipped:
     print('skipped:', s)
+print(f"tee boxes carrying tips: {len(tipped)}; tee boxes on no hole: {sum(1 for t in tees if not t['holes'])}")
 shared = [t['id'] for t in tees if len(t['holes']) > 1]
 print('tee boxes serving more than one hole:', [(i, tee_by_id[i]['holes']) for i in shared])
 
