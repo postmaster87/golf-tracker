@@ -2753,25 +2753,39 @@ group('course geometry');
     assert(!lieAt(G, { ...c, accuracyM: 3 }).inQuestion, 'centroid in question');
   });
 
-  // Test 6: from the box each hole's line starts on (teeIds[0]), n = 18.
-  const t6 = (G?.holes ?? []).map((h) => {
-    const tg = toGreen(G, h.number, ringCentroid(poly(h.teeIds[0]).ring));
-    const card = VEENKER.holes[h.number - 1].yards.blue;
-    return { n: h.number, tg, card, dev: (tg.centreYd - card) / card };
-  });
-  const worst = t6.reduce((a, b) => (Math.abs(b.dev) > Math.abs(a.dev) ? b : a), t6[0] ?? { n: '-', dev: NaN });
-  const worstTxt = `hole ${worst.n} ${(worst.dev * 100).toFixed(1)}%`;
-  console.log(`[course geometry] toGreen vs blue card, n = 18: largest deviation ${worstTxt}`);
-  test(`toGreen from each hole's first tee: front <= centre <= back, 10-60 m deep, centre within 12% of the blue card (n = 18; largest ${worstTxt})`, () => {
-    eq(t6.length, 18, 'holes');
-    const bad = [];
-    for (const { n, tg, card, dev } of t6) {
-      assert(tg.frontM <= tg.centreM && tg.centreM <= tg.backM, `hole ${n}: order ${tg.frontM}/${tg.centreM}/${tg.backM}`);
+  // Test 6a: from the box each hole's line starts on (teeIds[0]), n = 18.
+  // Fable's ruling on Section 3 item 6: the straight tee-to-green distance
+  // was the wrong ruler; the card measures along the line of play (6b).
+  test("toGreen from each hole's first tee: front <= centre <= back, 10-60 m deep (n = 18)", () => {
+    eq(G.holes.length, 18, 'holes');
+    for (const h of G.holes) {
+      const tg = toGreen(G, h.number, ringCentroid(poly(h.teeIds[0]).ring));
+      assert(tg.frontM <= tg.centreM && tg.centreM <= tg.backM, `hole ${h.number}: order ${tg.frontM}/${tg.centreM}/${tg.backM}`);
       const depth = tg.backM - tg.frontM;
-      assert(depth >= 10 && depth <= 60, `hole ${n}: depth ${depth.toFixed(1)} m`);
-      if (Math.abs(dev) > 0.12) bad.push(`hole ${n}: ${tg.centreYd} vs card ${card} (${(dev * 100).toFixed(1)}%)`);
+      assert(depth >= 10 && depth <= 60, `hole ${h.number}: depth ${depth.toFixed(1)} m`);
     }
-    assert(!bad.length, `outside 12%: ${bad.join('; ')}`);
+  });
+
+  // Test 6b: the OSM hole line follows the line of play, as the card does.
+  // Card set from the line's first box: blue if it carries blue, else gold.
+  const t6b = (G?.holes ?? []).map((h) => {
+    let lenM = 0;
+    for (let i = 1; i < h.line.length; i++) lenM += distanceM(h.line[i - 1], h.line[i]);
+    const sets = poly(h.teeIds[0])?.sets ?? [];
+    const set = sets.includes('blue') ? 'blue' : sets.includes('gold') ? 'gold' : 'blue';
+    const card = VEENKER.holes[h.number - 1].yards[set];
+    const yd = toYards(lenM);
+    return { n: h.number, yd, set, card, dev: (yd - card) / card };
+  });
+  const worst = t6b.reduce((a, b) => (Math.abs(b.dev) > Math.abs(a.dev) ? b : a), t6b[0] ?? { n: '-', dev: NaN });
+  const worstTxt = `hole ${worst.n} ${(worst.dev * 100).toFixed(1)}%`;
+  console.log(`[course geometry] hole line vs card, n = 18: largest deviation ${worstTxt}`);
+  test(`the hole line's length is within 8% of the card for its first box's set (n = 18; largest ${worstTxt})`, () => {
+    eq(t6b.length, 18, 'holes');
+    const bad = t6b
+      .filter((r) => !(Math.abs(r.dev) <= 0.08))
+      .map((r) => `hole ${r.n}: ${r.yd.toFixed(0)} vs ${r.set} card ${r.card} (${(r.dev * 100).toFixed(1)}%)`);
+    assert(!bad.length, `outside 8%: ${bad.join('; ')}`);
   });
 
   test('toGreen standing on the green: front is 0', () => {
