@@ -9,6 +9,46 @@ never "Fable decided".
 
 Opus's solo decisions are logged here too, marked (Opus).
 
+## 2026-09-26 - The Veenker course map in the app: Parts A, B, C PASS at xhigh; Part D not built; test 6 re-ruled
+- **Decision:** his, verbatim: *"I want to add the Veenker Map into the app to
+  test on the course. We have about 2 hours to get it done"* and, asked which
+  of live distance to green / lie from position / hole from position today's
+  test needs: *"all 3 but focus on 1 and 2"*. Spec `docs/SPEC_course-geometry.md`
+  (Fable at xhigh, `1e82415`; he set it: *"it is up"*). Opus-xhigh built Parts
+  A-C: `60e4778`, `3417517`, `3919afc`, `c940e9a`, v29 at `add742c`
+  (20 min, 238k tokens, n = 1).
+- **Review (Fable, xhigh):** `js/util/polygon.js` and `js/round/course-geometry.js`
+  read line by line against spec Sections 2.1-2.5: hold. Generator
+  `tools/course-geometry/build_veenker.py` re-run by Fable: byte-identical.
+  Its per-hole table matches Fable's independent computation on all 18 greens
+  (containment 18/18) and every tee box (n = 43 polygons). The walls: no diff
+  under `js/gps/`, `track-analysis.js`, `schema.js`, the storage files or
+  `lock.js`. Suite at `add742c`, Fable's own run: 562/563, the one red is
+  test 6, left red by design.
+- **Spec correction mid-build (Fable):** the 60 m line-start tee rule
+  over-assigned (boxes on both 3 and 6, both 14 and 17, one on 2/14/17). Rule
+  became: his markup tips first (26 boxes, sets from colour), the corrections
+  file for hole 9, nearest line start within 60 m for the untipped rest (3
+  boxes), everything else `holes: []`. The 11/18 box carries both holes and
+  both sets - his word that they share it.
+- **Test 6 ruling:** the straight tee-to-green distance was the wrong ruler;
+  the card measures along the line of play and the OSM hole line follows it.
+  Fable measured (n = 18): line length within 7.4% of the blue card on 17 holes
+  (hole 15's dogleg is in the line: 413 vs 420, -1.8%); hole 16's line starts
+  on the gold box and is within 2.7% of the gold card (472 vs 485). Test 6
+  split into the toGreen invariants and the line-vs-card check at 8%, set
+  taken from the first tee's markup colour. Opus `opus` (high) commit: `e0731dd` (4 min, 89k tokens, n = 1); suite 564/564, Fable's own run.
+- **Part D (hole from position) not built:** Opus measured the decisive
+  margin at hole 5's tee over hole 4 as 29 m against the spec's 60 m; only 5 of
+  36 tee/hole pairs reach 60 m. Left for a ruling with today's round data.
+- **Install:** the other session in this repo ("Golf cart path data fixes")
+  installs, on his word in its chat, with the rev 6 bump in its build commit -
+  his answers in Fable's chat: *"Other session installs (as it says)"*, *"Bump
+  to rev 6"*. APK at `add742c`: 8,474,709 bytes, versionName v29 (Opus, n = 1);
+  it rebuilds after the rev 6 commit.
+- **Cost:** Fable session at xhigh from ~15:15; usage before/after owed from
+  his page. **Changed by Fable:** the spec and this entry. **Commit:** this commit.
+
 ## 2026-09-17 - The revision line comes off the home screen: PASS; waits for the next build on his phone
 - **Decision:** his, verbatim: *"get it out of there and put it in the
   settings screen"* and *"I don't want the rev 5 .... on the home screen"*.
