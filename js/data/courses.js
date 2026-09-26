@@ -21,6 +21,8 @@ export const VEENKER = {
   name: 'Veenker Memorial',
   /** For the home shortcut, where the full name will not fit on one line. */
   shortName: 'Veenker',
+  /** Key of the generated course map (js/round/course-geometry.js); the data is not here. */
+  geometry: 'veenker',
   location: 'Ames, IA',
   par: 72,
   source: 'Iowa PGA / BlueGolf detailed scorecard, verified 2026-07-25; holes 7 and 10 corrected by Matt 2026-09-13',

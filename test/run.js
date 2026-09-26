@@ -7,7 +7,9 @@
  */
 
 import { GEO_FIXTURES } from './fixtures.js';
-import { distanceM, bearingDeg, radiiAt, toYards, toFeet, feetToM, weightedCentroid } from '../js/util/geo.js';
+import { distanceM, bearingDeg, radiiAt, toYards, toFeet, feetToM, weightedCentroid, enuOffset, offsetPoint } from '../js/util/geo.js';
+import { pointInRing, distanceToPolyline, ringCentroid, rayRingIntersections } from '../js/util/polygon.js';
+import { courseGeometry, lieAt, toGreen, nearestHole } from '../js/round/course-geometry.js';
 import { median, mad } from '../js/util/stats.js';
 import { reduceBurst, GpsService } from '../js/gps/gps.js';
 import { VEENKER, RADCLIFFE, playOrder, holeYards, newCustomCourse } from '../js/data/courses.js';
@@ -2635,6 +2637,163 @@ test('Veenker still alternates its nines', () => {
   eq(playOrder(VEENKER, 'front', 18)[0].number, 1, 'front start still starts at 1');
   eq(playOrder(VEENKER, 'front', 9).length, 9, 'nine at an eighteen-hole course');
 });
+
+/* ------------------------------------------------------ course geometry (map) */
+
+group('course geometry');
+
+{
+  // docs/SPEC_course-geometry.md Section 3. Every position here is built FROM
+  // the generated data (centroids, line points, offsets), never typed in.
+  const G = courseGeometry(VEENKER);
+  const poly = (id) => G?.polygons.find((p) => p.id === id) ?? null;
+  const holeG = (n) => G?.holes.find((h) => h.number === n) ?? null;
+  const inPoly = (pt, p) => pointInRing(pt, p.ring) && !(p.inner ?? []).some((r) => pointInRing(pt, r));
+
+  test('the data: 18 holes, greens and tees present, his corrections produced by the rules', () => {
+    assert(G, 'Veenker has no geometry');
+    eq(G.holes.length, 18, 'holes');
+    for (const h of G.holes) {
+      assert(poly(h.greenId)?.kind === 'green', `hole ${h.number}: green ${h.greenId} not in polygons`);
+      assert(h.teeIds.length >= 1 && h.teeIds.every((id) => poly(id)?.kind === 'tee'), `hole ${h.number}: tees`);
+    }
+    const h8 = holeG(8);
+    const h9 = holeG(9);
+    for (const id of [199418750, 1065750025]) assert(h8.teeIds.includes(id), `hole 8 tee ${id}`);
+    eq(h8.greenId, 1065750750, 'hole 8 green');
+    for (const id of [1065750754, 199289144, 1065727838]) assert(h9.teeIds.includes(id), `hole 9 tee ${id}`);
+    assert(
+      holeG(12).teeIds.some((id) => poly(id).sets.includes('blue') && poly(id).sets.includes('gold')),
+      'hole 12 has no tee with both sets',
+    );
+    assert(holeG(11).teeIds.some((id) => holeG(18).teeIds.includes(id)), '11 and 18 share no tee');
+    const p16 = G.points.find((p) => p.id === 'hole16-back-blue');
+    assert(p16 && p16.source === 'markup', 'hole16-back-blue point missing or not markup');
+  });
+
+  test('every ring is closed and every hole line ends inside its green', () => {
+    for (const p of G.polygons) {
+      for (const r of [p.ring, ...(p.inner ?? [])]) {
+        const a = r[0];
+        const b = r[r.length - 1];
+        assert(a.lat === b.lat && a.lon === b.lon, `polygon ${p.id} ring not closed`);
+      }
+    }
+    for (const h of G.holes) {
+      assert(pointInRing(h.line[h.line.length - 1], poly(h.greenId).ring), `hole ${h.number}: line end not in green`);
+    }
+  });
+
+  test('pointInRing: a green holds its centroid, and not 200 m north of it', () => {
+    const ring = poly(holeG(1).greenId).ring;
+    const c = ringCentroid(ring);
+    assert(pointInRing(c, ring), 'centroid not inside');
+    assert(!pointInRing(offsetPoint(c, { north: 200 }), ring), '200 m north is inside');
+  });
+
+  test('lieAt: green, sand, tee, fairway, rough, and off the map', () => {
+    eq(lieAt(G, ringCentroid(poly(holeG(1).greenId).ring)).lie, 'green', 'hole 1 green centroid');
+    const bunker = G.polygons.find((p) => p.kind === 'bunker' && inPoly(ringCentroid(p.ring), p));
+    const sand = lieAt(G, ringCentroid(bunker.ring));
+    eq(sand.lie, 'sand', 'bunker centroid');
+    eq(sand.feature?.kind, 'bunker', 'feature kind');
+    const blueTee = holeG(1).teeIds.map(poly).find((t) => t.sets.includes('blue'));
+    eq(lieAt(G, ringCentroid(blueTee.ring)).lie, 'tee', 'hole 1 blue tee centroid');
+    const others = G.polygons.filter((p) => p.kind === 'green' || p.kind === 'bunker' || p.kind === 'tee');
+    const fw = G.polygons.find((p) => {
+      if (p.kind !== 'fairway') return false;
+      const c = ringCentroid(p.ring);
+      return inPoly(c, p) && !others.some((o) => inPoly(c, o));
+    });
+    eq(lieAt(G, ringCentroid(fw.ring)).lie, 'fairway', `fairway ${fw.id} centroid`);
+    // 30 m square off hole 7's line, at the first place along it inside no polygon.
+    const line = holeG(7).line;
+    let rough = null;
+    for (let i = 1; i < line.length && !rough; i++) {
+      const a = line[i - 1];
+      const d = enuOffset(a, line[i]);
+      const len = Math.hypot(d.east, d.north);
+      for (const f of [0.5, 0.25, 0.75]) {
+        for (const side of [1, -1]) {
+          const pt = offsetPoint(a, {
+            north: f * d.north + (side * -d.east * 30) / len,
+            east: f * d.east + (side * d.north * 30) / len,
+          });
+          if (!rough && !G.polygons.some((p) => inPoly(pt, p))) rough = pt;
+        }
+      }
+    }
+    assert(rough, 'no point 30 m off hole 7 that is inside no polygon');
+    near(distanceToPolyline(rough, line), 30, 0.5, 'the point is 30 m off the line');
+    const r = lieAt(G, rough);
+    eq(r.lie, 'rough', '30 m off hole 7');
+    assert(Number.isFinite(r.edgeM), 'rough without edgeM');
+    const far = offsetPoint(ringCentroid(poly(holeG(1).greenId).ring), { north: 5000 });
+    eq(lieAt(G, far).lie, null, '5 km away');
+  });
+
+  test('lieAt band: 2 m inside a green edge with a 3 m fix is in question; the centroid is not', () => {
+    const ring = poly(holeG(1).greenId).ring;
+    const c = ringCentroid(ring);
+    const edge = rayRingIntersections(c, offsetPoint(c, { north: 100 }), ring)[0];
+    const pt = { ...offsetPoint(c, { north: edge - 2 }), accuracyM: 3 };
+    const r = lieAt(G, pt);
+    eq(r.lie, 'green', 'still green');
+    assert(r.inQuestion, `not in question (edgeM ${r.edgeM})`);
+    assert(
+      r.alternatives.includes('rough') || r.alternatives.length >= 1,
+      `no alternatives: ${JSON.stringify(r.alternatives)}`,
+    );
+    assert(!lieAt(G, { ...c, accuracyM: 3 }).inQuestion, 'centroid in question');
+  });
+
+  // Test 6: from the box each hole's line starts on (teeIds[0]), n = 18.
+  const t6 = (G?.holes ?? []).map((h) => {
+    const tg = toGreen(G, h.number, ringCentroid(poly(h.teeIds[0]).ring));
+    const card = VEENKER.holes[h.number - 1].yards.blue;
+    return { n: h.number, tg, card, dev: (tg.centreYd - card) / card };
+  });
+  const worst = t6.reduce((a, b) => (Math.abs(b.dev) > Math.abs(a.dev) ? b : a), t6[0] ?? { n: '-', dev: NaN });
+  const worstTxt = `hole ${worst.n} ${(worst.dev * 100).toFixed(1)}%`;
+  console.log(`[course geometry] toGreen vs blue card, n = 18: largest deviation ${worstTxt}`);
+  test(`toGreen from each hole's first tee: front <= centre <= back, 10-60 m deep, centre within 12% of the blue card (n = 18; largest ${worstTxt})`, () => {
+    eq(t6.length, 18, 'holes');
+    const bad = [];
+    for (const { n, tg, card, dev } of t6) {
+      assert(tg.frontM <= tg.centreM && tg.centreM <= tg.backM, `hole ${n}: order ${tg.frontM}/${tg.centreM}/${tg.backM}`);
+      const depth = tg.backM - tg.frontM;
+      assert(depth >= 10 && depth <= 60, `hole ${n}: depth ${depth.toFixed(1)} m`);
+      if (Math.abs(dev) > 0.12) bad.push(`hole ${n}: ${tg.centreYd} vs card ${card} (${(dev * 100).toFixed(1)}%)`);
+    }
+    assert(!bad.length, `outside 12%: ${bad.join('; ')}`);
+  });
+
+  test('toGreen standing on the green: front is 0', () => {
+    const tg = toGreen(G, 1, ringCentroid(poly(holeG(1).greenId).ring));
+    eq(tg.frontM, 0, 'frontM');
+    assert(tg.centreM <= tg.backM, 'centre beyond back');
+  });
+
+  test('nearestHole: each green centroid names its hole (18/18); the 11/18 box is not decisive', () => {
+    for (const h of G.holes) {
+      const r = nearestHole(G, ringCentroid(poly(h.greenId).ring));
+      assert(r && r.hole === h.number && r.onGreen, `hole ${h.number}: got ${JSON.stringify(r)}`);
+    }
+    const shared = holeG(11).teeIds.find((id) => holeG(18).teeIds.includes(id));
+    const r = nearestHole(G, ringCentroid(poly(shared).ring));
+    assert(r && (r.hole === 11 || r.hole === 18), `shared box: ${JSON.stringify(r)}`);
+    eq(r.marginM, 0, 'marginM');
+  });
+
+  test('Radcliffe has no map and every engine call says null', () => {
+    const R = courseGeometry(RADCLIFFE);
+    eq(R, null, 'courseGeometry(RADCLIFFE)');
+    const pt = ringCentroid(poly(holeG(1).greenId).ring);
+    eq(lieAt(R, pt), null, 'lieAt');
+    eq(toGreen(R, 1, pt), null, 'toGreen');
+    eq(nearestHole(R, pt), null, 'nearestHole');
+  });
+}
 
 /* ------------------------------------- missing tee shots and course learning */
 
