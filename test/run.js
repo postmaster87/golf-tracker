@@ -115,7 +115,7 @@ import {
 } from '../js/analysis/strokes-gained.js';
 import * as pocketLock from '../js/ui/lock.js';
 import { sheet, closeSheet } from '../js/ui/dom.js';
-import { playScreen, firstPuttEntryMode, TYPED_PUTT_MAX_FT } from '../js/ui/screen-play.js';
+import { playScreen, firstPuttEntryMode, TYPED_PUTT_MAX_FT, mapLieRow } from '../js/ui/screen-play.js';
 import { settingsScreen } from '../js/ui/screen-settings.js';
 import { homeScreen } from '../js/ui/screen-home.js';
 import {
@@ -2798,6 +2798,41 @@ group('course geometry');
     eq(lieAt(R, pt), null, 'lieAt');
     eq(toGreen(R, 1, pt), null, 'toGreen');
     eq(nearestHole(R, pt), null, 'nearestHole');
+  });
+}
+
+group('lie from the map (end of hole)');
+
+{
+  // docs/SPEC_course-geometry.md Part C1: the end-of-hole rows.
+  const G = courseGeometry(VEENKER);
+  const inPoly = (pt, p) => pointInRing(pt, p.ring) && !(p.inner ?? []).some((r) => pointInRing(pt, r));
+  const others = G.polygons.filter((p) => p.kind === 'green' || p.kind === 'bunker' || p.kind === 'tee');
+  const fw = G.polygons.find((p) => {
+    if (p.kind !== 'fairway') return false;
+    const c = ringCentroid(p.ring);
+    return inPoly(c, p) && !others.some((o) => o !== p && inPoly(c, o));
+  });
+  const bunker = G.polygons.find((p) => p.kind === 'bunker' && inPoly(ringCentroid(p.ring), p));
+  const stop = (pt) => ({ lat: pt.lat, lon: pt.lon, spreadM: 1.5, dwellMs: 40000, startTs: 0 });
+  const row = (pt) => mapLieRow(G, { candidate: stop(pt), lie: null, lieInferred: false });
+
+  test('a stop in a fairway and a stop in a bunker come preselected and flagged inferred', () => {
+    const a = row(ringCentroid(fw.ring));
+    eq(a.lie, 'fairway', 'fairway stop');
+    eq(a.lieInferred, true, 'fairway lieInferred');
+    const b = row(ringCentroid(bunker.ring));
+    eq(b.lie, 'sand', 'bunker stop');
+    eq(b.lieInferred, true, 'bunker lieInferred');
+  });
+
+  test('a stop 5 km off the map is left for him, and the tee row stays tee', () => {
+    const far = row(offsetPoint(ringCentroid(fw.ring), { north: 5000 }));
+    eq(far.lie, null, 'far lie');
+    eq(far.lieInferred, false, 'far lieInferred');
+    const tee = mapLieRow(G, { candidate: stop(ringCentroid(fw.ring)), lie: 'tee', lieInferred: false });
+    eq(tee.lie, 'tee', 'tee row');
+    eq(tee.lieInferred, false, 'tee row lieInferred');
   });
 }
 

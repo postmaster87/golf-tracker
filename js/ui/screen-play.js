@@ -15,7 +15,7 @@ import { SELECTABLE_CLUBS, clubLabel, clubFull } from '../data/clubs.js';
 import { LIES, LIE_LABELS, PENALTY_TYPES, isUnscored } from '../data/schema.js';
 import { getCourse, playOrder, holeYards } from '../data/courses.js';
 import { distanceM, toFeet, toYards } from '../util/geo.js';
-import { courseGeometry, toGreen } from '../round/course-geometry.js';
+import { courseGeometry, toGreen, lieAt } from '../round/course-geometry.js';
 import {
   currentHole,
   addShot,
@@ -97,6 +97,29 @@ export function firstPuttEntryMode({ gpsFt = null } = {}) {
  * the burst runs while the lie is being chosen, so marking a shot costs two
  * taps and about as long as it takes to look at the ball.
  */
+/**
+ * The course map's lie, preselected on an end-of-hole row and flagged as
+ * inferred (docs/SPEC_course-geometry.md, C1). Only on a row with no lie yet -
+ * the tee row stays 'tee' - and never off the map, in the water, or for a lie
+ * the row cannot offer (the rows have no GREEN). Nothing is written until he
+ * saves the hole, exactly as before. Returns the same row.
+ */
+export function mapLieRow(geometry, row) {
+  if (!geometry || row.lie) return row;
+  const c = row.candidate;
+  if (!Number.isFinite(c?.lat) || !Number.isFinite(c?.lon)) return row;
+  const said = lieAt(geometry, { lat: c.lat, lon: c.lon, accuracyM: candidateAccuracyM(c) });
+  if (!said?.lie || said.water || said.lie === 'green' || !LIES.includes(said.lie)) return row;
+  row.lie = said.lie;
+  row.lieInferred = true;
+  if (said.inQuestion) {
+    const kind = said.feature?.kind;
+    const other = said.alternatives[0] ?? (kind === 'bunker' ? 'sand' : kind) ?? 'edge';
+    row.mapNote = `map: ${said.lie}, ${Math.round(said.edgeM)} m from the ${other} - check`;
+  }
+  return row;
+}
+
 export function playScreen(ctx) {
   // `play` is what the tightened footer in css/base.css hangs off (v26). This
   // is the only screen whose footer carries six controls above a card that has
@@ -361,6 +384,12 @@ export function playScreen(ctx) {
       h('strong', { text: `GREEN ${g.centreYd}` }),
       document.createTextNode(` · F ${g.frontYd} · B ${g.backYd}${pm}`)
     );
+  }
+
+  /** The course map's lie at a mark or a track stop; null with no map or no position. */
+  function mapLieAt(p) {
+    if (!geometry || !Number.isFinite(p?.lat) || !Number.isFinite(p?.lon)) return null;
+    return lieAt(geometry, { lat: p.lat, lon: p.lon, accuracyM: p.accuracyM });
   }
 
   function tick() {
@@ -1132,6 +1161,21 @@ export function playScreen(ctx) {
     );
     wrap.appendChild(head);
     wrap.appendChild(bar);
+    /*
+     * What the course map says, as one muted line INSIDE the card and BELOW the
+     * grid, so the grid does not move. Never preselected: the lie is his tap -
+     * propose and confirm (docs/SPEC_course-geometry.md, C2).
+     */
+    const said = m ? mapLieAt(m) : null;
+    if (said?.lie && !said.water) {
+      const alt = said.alternatives[0];
+      wrap.appendChild(
+        h('p', {
+          class: 'note muted map-says',
+          text: `map says: ${said.lie}${said.inQuestion && alt ? `, edge - could be ${alt}` : ''}`,
+        })
+      );
+    }
     if (clubBlock) wrap.appendChild(clubBlock);
 
     wrap.appendChild(
@@ -3079,6 +3123,11 @@ export function playScreen(ctx) {
     });
   }
 
+  /** The course map's lie on an end-of-hole row (C1); see `mapLieRow`. */
+  function mapRow(row) {
+    return mapLieRow(geometry, row);
+  }
+
   /**
    * Stage two: recognition.
    *
@@ -3090,15 +3139,17 @@ export function playScreen(ctx) {
    * first place. "This needs to be trainable."
    */
   function openShotConfirm(hl, card, result) {
-    const rows = result.proposed.map((candidate, i) => ({
-      candidate,
-      // The first stop in the window is the tee shot by definition, exactly as
-      // the live capture path treats it. Everything after it is unset, because
-      // a highlighted default reads as already-chosen while still requiring the
-      // tap — the app promising one thing and demanding another.
-      lie: i === 0 ? 'tee' : null,
-      lieInferred: false,
-    }));
+    const rows = result.proposed.map((candidate, i) =>
+      mapRow({
+        candidate,
+        // The first stop in the window is the tee shot by definition, exactly as
+        // the live capture path treats it. Everything after it is unset, because
+        // a highlighted default reads as already-chosen while still requiring the
+        // tap — the app promising one thing and demanding another.
+        lie: i === 0 ? 'tee' : null,
+        lieInferred: false,
+      })
+    );
     const pool = [...result.rejected].sort((a, b) => b.score - a.score);
     /*
      * The hole position, which is not optional in the way it looks.
@@ -3169,6 +3220,7 @@ export function playScreen(ctx) {
                 },
                 { columns: 5 }
               ),
+              row.mapNote && row.lieInferred ? h('p', { class: 'note muted map-says', text: row.mapNote }) : null,
               h(
                 'div',
                 { class: 'btn-row' },
@@ -3189,7 +3241,7 @@ export function playScreen(ctx) {
                       class: 'btn sm dim',
                       text: 'PLAYED TWICE',
                       onClick: () => {
-                        rows.splice(i + 1, 0, { candidate: c, lie: null, lieInferred: false, replayed: true });
+                        rows.splice(i + 1, 0, mapRow({ candidate: c, lie: null, lieInferred: false, replayed: true }));
                         render();
                       },
                     })
@@ -3201,7 +3253,7 @@ export function playScreen(ctx) {
                         rows.splice(i, 1);
                         const next = pool.shift();
                         if (next) {
-                          rows.push({ candidate: next, lie: null, lieInferred: false });
+                          rows.push(mapRow({ candidate: next, lie: null, lieInferred: false }));
                           rows.sort((a, b) => a.candidate.startTs - b.candidate.startTs);
                         }
                         render();
