@@ -5721,3 +5721,63 @@ export async function runEnterScoreTests() {
     assert(!manual.present || manual.disabled, 'ENTER SCORE is live on a hand-entered hole');
   });
 }
+
+/*
+ * Part B of docs/SPEC_course-geometry.md: the HUD's second line reads the
+ * course map's front / centre / back for the hole being viewed.
+ */
+export async function runGreenDistanceTests() {
+  group('distance to green (play screen)');
+
+  const wait = (ms = 30) => new Promise((r) => setTimeout(r, ms));
+  const G = courseGeometry(VEENKER);
+  const hole1 = G.holes.find((x) => x.number === 1);
+  const teeC = ringCentroid(G.polygons.find((p) => p.id === hole1.teeIds[0]).ring);
+  const mount = (round, gps) => {
+    const screen = playScreen({
+      app: newAppState(),
+      round,
+      gps,
+      params: {},
+      go() {},
+      persistRound() {},
+      persistApp() {},
+      startGps() {},
+      stopGps() {},
+      trackStats: () => null,
+    });
+    document.body.appendChild(screen.el);
+    return screen;
+  };
+
+  const gps = heldGps(teeC);
+  const screen = mount(par4Round(), gps);
+  await wait();
+  const line = () => screen.el.querySelector('.hud-green')?.textContent ?? null;
+  const onFix = line();
+  const g = toGreen(G, 1, { lat: gps.last.lat, lon: gps.last.lon, accuracyM: gps.last.acc });
+  const expected = `GREEN ${g.centreYd} · F ${g.frontYd} · B ${g.backYd} · ±${g.uncertaintyYd} yd`;
+  gps.last = null;
+  [...screen.el.querySelectorAll('.holenav-arrow')].find((b) => /›/.test(b.textContent))?.click();
+  await wait();
+  const noFix = line();
+  screen.el.remove();
+
+  const rad = mount(createRound({ course: RADCLIFFE, teeSet: 'white', startingNine: 'front', type: 'practice' }), heldGps(teeC));
+  await wait();
+  const radEl = rad.el.querySelector('.hud-green');
+  rad.el.remove();
+  for (const s of document.querySelectorAll('.scrim')) s.remove();
+
+  test("on a Veenker round the HUD reads hole 1's green from the tee", () => {
+    eq(onFix, expected, 'green line');
+  });
+
+  test('with no current fix it says so', () => {
+    eq(noFix, 'GREEN — · no fix', 'green line');
+  });
+
+  test('on Radcliffe there is no green line at all', () => {
+    eq(radEl, null, '.hud-green');
+  });
+}

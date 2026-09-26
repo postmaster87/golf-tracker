@@ -360,6 +360,32 @@ input[type='text'] {
   line-height: 1;
 }
 
+/*
+ * The course map's distance line: a full-width second row of the HUD, there
+ * from the first paint of a Veenker round to the last, so the HUD is one
+ * height for the whole round. Radcliffe never creates it.
+ */
+.hud-map {
+  flex-wrap: wrap;
+  row-gap: 2px;
+}
+
+.hud-green {
+  flex: 0 0 100%;
+  font-size: 14px;
+  color: var(--ink-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.25;
+}
+
+.hud-green strong {
+  font-size: 17px;
+  font-weight: 800;
+  color: var(--ink);
+}
+
 .hud-meta {
   font-size: 14px;
   font-weight: 600;

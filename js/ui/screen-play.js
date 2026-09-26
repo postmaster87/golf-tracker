@@ -15,6 +15,7 @@ import { SELECTABLE_CLUBS, clubLabel, clubFull } from '../data/clubs.js';
 import { LIES, LIE_LABELS, PENALTY_TYPES, isUnscored } from '../data/schema.js';
 import { getCourse, playOrder, holeYards } from '../data/courses.js';
 import { distanceM, toFeet, toYards } from '../util/geo.js';
+import { courseGeometry, toGreen } from '../round/course-geometry.js';
 import {
   currentHole,
   addShot,
@@ -187,12 +188,25 @@ export function playScreen(ctx) {
    */
   const trackChip = h('div', { class: 'acc-chip', dataset: { q: 'none' } });
   const hudMeta = h('span', { class: 'hud-meta' });
+  /*
+   * The course map (docs/SPEC_course-geometry.md). Null for Radcliffe and every
+   * custom course, and then nothing below is created at all. Not in edit mode:
+   * a finished round has no GPS to measure from.
+   */
+  const geometry = editing ? null : courseGeometry(getCourse(ctx.app, round.courseId));
+  /*
+   * Distance to the CURRENT hole view's green (hole()), never a detected hole -
+   * he may be looking at 14 from the 15th tee and that is his call. One line,
+   * present from the first paint to the last, so the HUD is one height for the
+   * whole round: content changes, layout never does.
+   */
+  const hudGreen = geometry ? h('span', { class: 'hud-green' }) : null;
   const navRow = h('nav', { class: 'holenav' });
 
   el.appendChild(
     h(
       'header',
-      { class: 'hud' },
+      { class: hudGreen ? 'hud hud-map' : 'hud' },
       h('button', {
         class: 'icon-btn',
         text: '≡',
@@ -208,7 +222,10 @@ export function playScreen(ctx) {
           // alongside it — two controls for one action, one of which is known
           // not to work, is worse than one that does. Losing it also gives the
           // two chips the width they were being squeezed out of.
-          frag(accChip, trackChip)
+          frag(accChip, trackChip),
+      // Its own full-width row: between the menu button and the two chips there
+      // is about 70 px at 360 wide, and the line needs about 230.
+      hudGreen
     )
   );
 
@@ -317,8 +334,38 @@ export function playScreen(ctx) {
     if (!editing) tick();
   }, 2000);
 
+  /** When the green line last painted, and for which hole; at most once a second. */
+  let greenPainted = { at: -Infinity, hole: null };
+
+  function paintGreen() {
+    if (!hudGreen || pocketLock.isLocked()) return;
+    const number = hole()?.number;
+    const now = Date.now();
+    if (greenPainted.hole === number && now - greenPainted.at < 1000) return;
+    greenPainted = { at: now, hole: number };
+    const fix = ctx.gps.current;
+    const g = fix ? toGreen(geometry, number, { lat: fix.lat, lon: fix.lon, accuracyM: fix.acc }) : null;
+    if (!g) {
+      hudGreen.replaceChildren(h('strong', { text: 'GREEN —' }), document.createTextNode(' · no fix'));
+      return;
+    }
+    const pm = g.uncertaintyYd != null ? ` · ±${g.uncertaintyYd} yd` : ' yd';
+    if (g.frontM === 0) {
+      hudGreen.replaceChildren(
+        h('strong', { text: 'ON THE GREEN' }),
+        document.createTextNode(` · C ${g.centreYd} · B ${g.backYd} yd`)
+      );
+      return;
+    }
+    hudGreen.replaceChildren(
+      h('strong', { text: `GREEN ${g.centreYd}` }),
+      document.createTextNode(` · F ${g.frontYd} · B ${g.backYd}${pm}`)
+    );
+  }
+
   function tick() {
     paintTrackChip();
+    paintGreen();
     const fix = ctx.gps.current;
     /*
      * The hole's origin is the first fix after it becomes current — which is
