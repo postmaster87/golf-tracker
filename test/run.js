@@ -5448,3 +5448,111 @@ export async function runGreenFlowTests() {
 export function getResults() {
   return results;
 }
+
+/* --------------------------------------------- ENTER SCORE is the main button */
+
+/**
+ * Matt, 2026-09-26, on the play screen of a fresh hole in the native app:
+ * "there is a gigantic blank spot in the middle of the screen, a bold green
+ * mark tee shot larger than everything, then the most important thing I
+ * wanted to test - auto entry. Make it the main button in the center of the
+ * page that is blank title "Enter Score"".
+ *
+ * END-OF-HOLE ENTRY was last in the footer and only on a hole with no marks;
+ * on his 09-23 hole 3 (one tee mark) it did not exist. ENTER SCORE is in the
+ * body on every hole and opens the same score card.
+ */
+export async function runEnterScoreTests() {
+  group('ENTER SCORE is the main button on every hole');
+
+  const wait = (ms = 30) => new Promise((r) => setTimeout(r, ms));
+  const round = par4Round();
+  const hl = round.holes[0];
+  const gps = heldGps(TEE);
+  const screen = playScreen({
+    app: newAppState(),
+    round,
+    gps,
+    params: {},
+    go() {},
+    persistRound() {},
+    persistApp() {},
+    startGps() {},
+    stopGps() {},
+    trackStats: () => null,
+  });
+  document.body.appendChild(screen.el);
+
+  const enter = () =>
+    [...screen.el.querySelectorAll('.body button')].find((b) => b.textContent.trim() === 'ENTER SCORE') ?? null;
+  const footerTexts = () => [...screen.el.querySelectorAll('.footer button')].map((b) => b.textContent.trim());
+  const sheetTitle = () => document.querySelector('.scrim .sheet')?.textContent ?? '';
+  const closeSheets = () => {
+    for (const s of document.querySelectorAll('.scrim')) s.remove();
+  };
+
+  // An empty hole.
+  const empty = { btn: enter(), primary: enter()?.classList.contains('primary') ?? false, footer: footerTexts() };
+  enter()?.click();
+  await wait();
+  const opened = /how did it go/i.test(sheetTitle());
+  closeSheets();
+
+  // The tee shot marked: the hole 3 of 09-23 that had no entry at all.
+  [...screen.el.querySelectorAll('.footer button')].find((b) => /^MARK TEE SHOT$/.test(b.textContent.trim()))?.click();
+  const duringBurst = enter();
+  gps.endBurst();
+  await wait();
+  const marked = { count: hl.shots.length, btn: enter(), footer: footerTexts() };
+  const afterList = marked.btn?.closest('.enter-score')?.previousElementSibling?.classList.contains('shots') ?? false;
+  enter()?.click();
+  await wait();
+  const openedMarked = /how did it go/i.test(sheetTitle());
+  closeSheets();
+  screen.el.remove();
+
+  // A hand-entered hole.
+  const manualRound = par4Round();
+  manualRound.holes[0].manual = { strokes: 4, putts: 2 };
+  const manualScreen = playScreen({
+    app: newAppState(),
+    round: manualRound,
+    gps: heldGps(TEE),
+    params: {},
+    go() {},
+    persistRound() {},
+    persistApp() {},
+    startGps() {},
+    stopGps() {},
+    trackStats: () => null,
+  });
+  document.body.appendChild(manualScreen.el);
+  const manualBtn = [...manualScreen.el.querySelectorAll('.body button')].find((b) => b.textContent.trim() === 'ENTER SCORE') ?? null;
+  const manual = { present: Boolean(manualBtn), disabled: manualBtn?.disabled ?? true };
+  manualScreen.el.remove();
+  closeSheets();
+
+  test('on an empty hole ENTER SCORE is in the body, primary, and opens the score card', () => {
+    assert(empty.btn, 'no ENTER SCORE button in the body');
+    assert(empty.primary, 'ENTER SCORE is not the primary style');
+    assert(opened, `tapping it did not open the score card (sheet: ${JSON.stringify(sheetTitle())})`);
+  });
+
+  test('on a hole with a stroke mark it is there too, under the shot list, and opens the score card', () => {
+    assert(marked.count === 1, `expected the tee shot marked, have ${marked.count} shots`);
+    assert(marked.btn, 'no ENTER SCORE on a hole with one mark');
+    assert(afterList, 'ENTER SCORE is not directly under the shot list');
+    assert(openedMarked, 'tapping it on a marked hole did not open the score card');
+    assert(duringBurst == null, 'ENTER SCORE rendered while the capture card was up');
+  });
+
+  test('END-OF-HOLE ENTRY is no longer in the footer', () => {
+    for (const texts of [empty.footer, marked.footer]) {
+      assert(!texts.some((t) => /END-OF-HOLE/.test(t)), `footer: ${JSON.stringify(texts)}`);
+    }
+  });
+
+  test('on a hand-entered hole ENTER SCORE is disabled', () => {
+    assert(!manual.present || manual.disabled, 'ENTER SCORE is live on a hand-entered hole');
+  });
+}

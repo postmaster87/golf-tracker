@@ -709,6 +709,35 @@ input[type='text'] {
   padding-top: 8px;
 }
 
+/*
+ * ENTER SCORE (2026-09-26). Matt: "Make it the main button in the center of
+ * the page that is blank". On a hole with no stroke marks the body is a
+ * column and the button takes the space left, centred in it; `centred` is
+ * never set while a capture card is up, so the fold tests' layout is the
+ * block layout it always was. Everywhere else it sits under the shot list.
+ */
+.screen.play > .body.centred {
+  display: flex;
+  flex-direction: column;
+}
+
+.screen.play > .body.centred > * {
+  flex-shrink: 0;
+}
+
+.screen.play > .body.centred > .enter-score {
+  margin-block: auto;
+}
+
+.enter-score {
+  margin-top: 12px;
+}
+
+.enter-score > .note {
+  margin: 8px 0 0;
+  text-align: center;
+}
+
 .screen.play > .footer {
   /* 14 -> 12. The 16 px dead zone inside .btn-row - PENALTY beside UNDO - is
      untouched; that is the pair a smeared touch must never confuse. And the
@@ -741,7 +770,8 @@ input[type='text'] {
   min-height: 64px;
 }
 
-/* Last, so MARK SHOT is 80 whether it is the primary action or not. */
+/* Last, so a huge footer button is 80 whether it is the primary action or
+   not. MARK SHOT was one until 2026-09-26; NEXT HOLE still is. */
 .screen.play > .footer > .btn.huge {
   min-height: 80px;
 }

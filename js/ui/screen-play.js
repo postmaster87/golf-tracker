@@ -536,6 +536,26 @@ export function playScreen(ctx) {
 
     if (showScoring()) body.appendChild(tally(hl));
     body.appendChild(shotList(hl));
+
+    /*
+     * ENTER SCORE: THE MAIN THING ON THE PAGE.
+     *
+     * Matt, 2026-09-26, on hole 2 of a fresh hole in the native app: "there is
+     * a gigantic blank spot in the middle of the screen, a bold green mark tee
+     * shot larger than everything, then the most important thing I wanted to
+     * test - auto entry. Make it the main button in the center of the page
+     * that is blank title "Enter Score"". It was END-OF-HOLE ENTRY, last in
+     * the footer and only on a hole with no marks; on his 09-23 round he never
+     * found it, and on hole 3 (one tee mark) it was not there at all.
+     *
+     * On every hole. Centred in the empty body on a hole with no stroke marks;
+     * directly under the shot list otherwise. Never while a burst is running,
+     * and always after the capture card, so nothing the lie-card fold tests
+     * measure can move.
+     */
+    const centred = !capture && !strokeMarks(hl).length;
+    body.classList.toggle('centred', centred);
+    if (!capture) body.appendChild(enterScore(hl));
     paintActions(hl);
 
     /*
@@ -596,6 +616,20 @@ export function playScreen(ctx) {
       statBox('Putts', holePutts(hl) ?? 0),
       statBox('Pen', pen),
       statBox('Round', t.holes ? fmtToPar(t.toPar) : '—')
+    );
+  }
+
+  function enterScore(hl) {
+    return h(
+      'div',
+      { class: 'enter-score' },
+      h('button', {
+        class: 'btn primary huge',
+        text: 'ENTER SCORE',
+        disabled: Boolean(hl.manual),
+        onClick: () => openHoleEntry(hl),
+      }),
+      h('p', { class: 'note muted', text: 'Score first; the track finds the shots.' })
     );
   }
 
@@ -2048,7 +2082,10 @@ export function playScreen(ctx) {
       const n = strokeMarks(hl).length;
       footer.appendChild(
         h('button', {
-          class: `${pri('mark')} huge`,
+          // Not `huge` since 2026-09-26: ENTER SCORE in the body is the main
+          // control on the page, his words: "a bold green mark tee shot larger
+          // than everything".
+          class: pri('mark'),
           // The tee shot is named, not numbered. Every later mark names the shot
           // about to be played from here — the `seq` that `addShot` will store.
           // Penalty strokes are not in it: "If there is a penalty I will log it
@@ -2077,23 +2114,7 @@ export function playScreen(ctx) {
     );
     footer.appendChild(yardageBtn());
 
-    /*
-     * End-of-hole entry, offered when nothing was marked on this hole.
-     *
-     * That is not a failure state — under rev 2 it is the intended way to play.
-     * The phone stays in the pocket, the track records, and the hole is entered
-     * afterwards. A hole with marks on it already has its positions, so the
-     * button would only invite throwing them away.
-     */
-    if (!strokeMarks(hl).length) {
-      footer.appendChild(
-        h('button', {
-          class: 'btn',
-          text: 'END-OF-HOLE ENTRY ▸',
-          onClick: () => openHoleEntry(hl),
-        })
-      );
-    }
+    // End-of-hole entry is ENTER SCORE in the body now (2026-09-26, `paint`).
 
     /*
      * THE CUP CONTROL, AND THE TAP IT MUST NOT CATCH

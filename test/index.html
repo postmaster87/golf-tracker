@@ -46,6 +46,7 @@
         runGreenFlowTests,
         runStoragePersistTests,
         runNativeShellTests,
+        runEnterScoreTests,
       } from './run.js';
 
       await runContrastTests();
@@ -59,6 +60,7 @@
       await runLockReachTests();
       await runCaptureReachTests();
       await runGreenFlowTests();
+      await runEnterScoreTests();
       await runStoragePersistTests();
       // Last on purpose: it stands a fake bridge up and shims
       // navigator.geolocation, and it puts both back when it is done.
