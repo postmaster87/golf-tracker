@@ -9,6 +9,43 @@ never "Fable decided".
 
 Opus's solo decisions are logged here too, marked (Opus).
 
+## 2026-09-26 - ENTER SCORE on the play screen: PASS; rev 6; the build for today's holes
+- **Decision:** his, verbatim, looking at hole 2 of a fresh hole on his phone:
+  *"there is a gigantic blank spot in the middle of the screen, a bold green
+  mark tee shot larger than everything, then the most important thing I wanted
+  to test - auto entry. Make it the main button in the center of the page that
+  is blank title "Enter Score""*. Opus (high) `c838d79` (8 min, 144k tokens,
+  n = 1): ENTER SCORE in the body after the shot list, centred on a hole with
+  no stroke marks, on every hole, opens `openHoleEntry`; END-OF-HOLE ENTRY gone
+  from the footer; MARK TEE SHOT no longer `huge`. Fable's choices in the spec:
+  every hole, not only unmarked ones (his 09-23 hole 3 had one tee mark and
+  therefore no way to a score); `openHoleEntry` and `applyHoleEntry` untouched.
+- **Review (Fable, medium):** diff read: two UI files, four tests, nothing
+  else. Suite 546/546 (Opus's run); the three new behaviour tests fail against
+  the f9c48dd screen. Not fixed, his call: the Android back key exits the app
+  from an open sheet; ENTER SCORE half below the fold while the 20 s
+  tee-mark banner is up on a marked hole; two hints still name MARK TEE SHOT
+  as the thing to do; ENTER SCORE also shows on completed holes.
+- **The 09-23 round, pulled by Fable over adb** (`files/rounds/r_7d878f59`
+  and the WebView store): recorder PASS, 195.7 min, 11,606 fixes, 0 gaps over
+  20 s, median accuracy 3.8 m, battery 40 to 22 percent (n = 1). Logged: holes
+  1, 3, 4, 6 only. His words: *"cart path only means just that - the cart
+  cannot leave the path so I rode and did a lot of extra walking but at times
+  the phone was left in the cart. I forgot to start the round until my 3rd
+  approach shot on hole 1"*. He deletes the round himself.
+- **Demo on his phone (adb), stopped on his "stop":** NEXT off hole 1 opened
+  the putt sheet, by design (the green-entry catch, `goToHole`); hole 1 of
+  today's test round saved as 5 by the demo, his to delete.
+- **rev 6:** his word relayed from the map session, *"Bump to rev 6"*.
+  `REVISION = 6`; rev 5 closed with commit `0cf25bf` (the APK installed
+  2026-09-17) and shipped 2026-09-23, the first round stamped 5 on his phone
+  [measured]; `git tag rev5 0cf25bf`. Rev 4's close-out stays owed, his call.
+- **Coordination:** two Fable sessions in this repo today, one writer at a
+  time by message; the map session handed the tree back clean at `75bdeff`.
+  Fable installs the rev 6 APK on his word in this chat; no push.
+- **Changed by Fable:** `js/data/revision.js`, `docs/REVISIONS.md`, this
+  entry. **Commit:** this commit.
+
 ## 2026-09-26 - The Veenker course map in the app: Parts A, B, C PASS at xhigh; Part D not built; test 6 re-ruled
 - **Decision:** his, verbatim: *"I want to add the Veenker Map into the app to
   test on the course. We have about 2 hours to get it done"* and, asked which

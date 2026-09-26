@@ -23,7 +23,7 @@
  */
 
 /** The revision this build IS. Stamped into every round it records. */
-export const REVISION = 5;
+export const REVISION = 6;
 
 /**
  * What each revision was, and when it was played.
@@ -114,8 +114,12 @@ export const REVISION_HISTORY = [
   },
   {
     rev: 5,
-    commit: null,
-    shipped: null,
+    // The build installed on his phone at 15:48 on 2026-09-17 (2188ace set the
+    // number; 0cf25bf was the head of that APK). The first round it recorded
+    // is r_7d878f59, Veenker front nine, 2026-09-23 [measured: the round's
+    // own `revision` stamp]. The 09-17 test round on the phone is stamped 4.
+    commit: '0cf25bf',
+    shipped: '2026-09-23',
     title: 'The native app',
     summary:
       'One Android app, Golf Tracker, carrying the screens as its own files, ' +
@@ -123,6 +127,17 @@ export const REVISION_HISTORY = [
       'And the green flow: one GREEN sheet with MARK CUP and MARK BALL, ' +
       'a first putt of 20 ft or more taken from the GPS, ' +
       'then the score card, then the shots and their lies.',
+  },
+  {
+    rev: 6,
+    commit: null,
+    shipped: null,
+    title: 'ENTER SCORE, and the Veenker map',
+    summary:
+      'ENTER SCORE is the main button on the play screen, on every hole: the score first, ' +
+      'then the track proposes the shots and asks the lie. ' +
+      'The Veenker course map is in the app: live distance to the green on the HUD, ' +
+      'the lie proposed from position after a mark and on the end-of-hole rows.',
   },
 ];
 

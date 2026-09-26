@@ -943,7 +943,9 @@ played, not the deployed one.
 
 ---
 
-## rev 5 — The native app *(current, not yet played)*
+## rev 5 — The native app
+
+`0cf25bf` · played **2026-09-23** (Veenker front nine, cart path only, r_7d878f59)
 
 Bumped on his word, 2026-09-17: *"Next build get that Radcliffe shit about rev4
 off the bottom of the app. We are on Rev5 now."*
@@ -964,8 +966,35 @@ and the shots and their lies come after it — not on the green. Built to
 `docs/SPEC_green-flow.md`;
 [`docs/handoff/REPORT_3.2.md`](handoff/REPORT_3.2.md) has the detail.
 
-**Not yet played.** No round has been recorded on rev 5, so there is no outcome
-to write here.
+**Outcome:** the recorder held: 195.7 min, 11,606 fixes, 0 gaps over 20 s,
+median accuracy 3.8 m (n = 1). The logging did not: the round was started at
+the third shot of hole 1, the phone rode in the cart on a cart-path-only day,
+and only four holes carry anything. His read of the play screen afterwards
+(2026-09-26): *"there is a gigantic blank spot in the middle of the screen, a
+bold green mark tee shot larger than everything, then the most important thing
+I wanted to test - auto entry."* There was no place to enter a score.
+
+---
+
+## rev 6 — ENTER SCORE, and the Veenker map *(current, not yet played)*
+
+Bumped on his word, 2026-09-26, given in the map session: *"Bump to rev 6"*.
+
+**ENTER SCORE** is the main button on the play screen, centred in the body on
+an empty hole and under the shot list on a marked one, on every hole. It opens
+the score card, then the track proposes the shots and asks the lie of each.
+END-OF-HOLE ENTRY left the footer; MARK TEE SHOT stays there at normal height.
+Commit `c838d79`.
+
+**The Veenker course map in the app** (`docs/SPEC_course-geometry.md`): the
+HUD's second row reads the distance to the current hole's green, front, centre
+and back with its uncertainty; after a mark the lie card says what the map
+says; the end-of-hole rows come preselected from the map, flagged inferred,
+with a check note near an edge. Parts A to C built; Part D (the hole from
+position) not built, awaiting his ruling. Commits `60e4778` to `e0731dd`,
+v29 at `add742c`.
+
+**Not yet played.**
 
 ---
 
