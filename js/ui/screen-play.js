@@ -120,6 +120,32 @@ export function mapLieRow(geometry, row) {
   return row;
 }
 
+/**
+ * The heading of one end-of-hole row, in Matt's form (2026-09-26, hole 10):
+ * "Shot 1 - Lie = Tee Box, Distance to the hole = n ... Numbers are always
+ * measured with distance to hole not the last shot or any other garbage."
+ *
+ * The distance is from the row's track position to the marked cup; with no
+ * cup, to the centre of that hole's green on the course map, and the text says
+ * so ("center of the green and I can enter pin sheet distances in manually
+ * later"); with neither, "not known". Never the track's own cup offer - that is
+ * an inferred position he has not accepted - and never a distance to anything
+ * else. Display only: the row and its candidate are not changed.
+ */
+export function shotRowHeading(row, index, { cup = null, geometry = null, holeNumber = null } = {}) {
+  const lie = row.lie ? (row.lie === 'tee' ? 'Tee Box' : LIE_LABELS[row.lie] ?? row.lie) : '?';
+  const c = row.candidate;
+  const pos = Number.isFinite(c?.lat) && Number.isFinite(c?.lon) ? { lat: c.lat, lon: c.lon } : null;
+  let dist = 'not known';
+  if (pos && cup && Number.isFinite(cup.lat) && Number.isFinite(cup.lon)) {
+    dist = `${Math.round(toYards(distanceM(pos, cup)))} yd`;
+  } else if (pos) {
+    const g = toGreen(geometry, holeNumber, pos);
+    if (g) dist = `${g.centreYd} yd (green centre)`;
+  }
+  return `Shot ${index + 1} - Lie = ${lie}, Distance to the hole = ${dist}`;
+}
+
 export function playScreen(ctx) {
   // `play` is what the tightened footer in css/base.css hangs off (v26). This
   // is the only screen whose footer carries six controls above a card that has
@@ -3195,21 +3221,17 @@ export function playScreen(ctx) {
 
         rows.forEach((row, i) => {
           const c = row.candidate;
-          // Dwell leads because dwell is what ranked it. `departureM` used to
-          // read "ball went 25 yd" and sit first; measured, that number
-          // describes the walk back to the cart, not the shot.
-          const bits = [`stood ${Math.round(c.dwellMs / 1000)} s`];
-          if (c.departureM != null) bits.push(`next stop ${Math.round(toYards(c.departureM))} yd away`);
-          if (Number.isFinite(c.arrivalSpeed)) {
-            bits.push(c.arrivalSpeed > 2.5 ? 'arrived by cart' : 'arrived on foot');
-          }
-
+          // One line, his form: shot, lie, distance to the hole. Dwell, the
+          // next stop and cart/foot are gone from the row (his "any other
+          // garbage", 2026-09-26); the candidate still carries them in data.
           list.appendChild(
             h(
               'div',
-              { class: 'card' },
-              h('h2', { text: i === 0 ? 'Tee shot' : `Shot ${i + 1}` }),
-              h('p', { class: 'note muted', text: bits.join(' · ') }),
+              { class: 'card shot-row' },
+              h('h2', {
+                class: 'shot-row-head',
+                text: shotRowHeading(row, i, { cup: hl.cup, geometry, holeNumber: hl.number }),
+              }),
               segmented(
                 LIES.filter((l) => l !== 'green').map((l) => ({ value: l, label: LIE_LABELS[l] })),
                 row.lie,
@@ -3309,7 +3331,7 @@ export function playScreen(ctx) {
       return frag(
         h('p', {
           class: 'note muted',
-          text: `The track found ${result.found} stop${result.found === 1 ? '' : 's'} on this hole. These are the ${result.proposed.length} most shot-like, oldest first.`,
+          text: `${result.proposed.length} shot position${result.proposed.length === 1 ? '' : 's'} found from your phone's track, in the order played. Confirm or reject each.`,
         }),
         list,
         saveBtn

@@ -284,6 +284,16 @@ input[type='text'] {
   margin: 0 0 8px;
 }
 
+/* End-of-hole row heading: his own words, so his own case, and it wraps
+   rather than clipping at 360 px. */
+.card h2.shot-row-head {
+  font-size: 15px;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
 .muted {
   color: var(--ink-3);
 }

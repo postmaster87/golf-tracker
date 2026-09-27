@@ -115,7 +115,7 @@ import {
 } from '../js/analysis/strokes-gained.js';
 import * as pocketLock from '../js/ui/lock.js';
 import { sheet, closeSheet } from '../js/ui/dom.js';
-import { playScreen, firstPuttEntryMode, TYPED_PUTT_MAX_FT, mapLieRow } from '../js/ui/screen-play.js';
+import { playScreen, firstPuttEntryMode, TYPED_PUTT_MAX_FT, mapLieRow, shotRowHeading } from '../js/ui/screen-play.js';
 import { settingsScreen } from '../js/ui/screen-settings.js';
 import { homeScreen } from '../js/ui/screen-home.js';
 import {
@@ -2850,6 +2850,42 @@ group('lie from the map (end of hole)');
   });
 }
 
+group('end-of-hole row reads shot, lie, distance to the hole');
+
+{
+  // Matt, 2026-09-26: "Shot 1 - Lie = Tee Box, Distance to the hole = n ...
+  // Numbers are always measured with distance to hole".
+  const G = courseGeometry(VEENKER);
+  const hole10 = G.holes.find((x) => x.number === 10);
+  const greenC = ringCentroid(G.polygons.find((p) => p.id === hole10.greenId).ring);
+  const pos = offsetPoint(greenC, { north: 250 });
+  const stop = { ...pos, spreadM: 1.5, dwellMs: 75000, departureM: 20, arrivalSpeed: 1, startTs: 0 };
+  const cup = offsetPoint(greenC, { east: 8 });
+  const cupYd = Math.round(toYards(distanceM(pos, cup)));
+  const centreYd = Math.round(toYards(distanceM(pos, greenC)));
+
+  test('with a marked cup: Shot 1 - Lie = Tee Box, Distance to the hole = <to the cup> yd', () => {
+    const t = shotRowHeading({ candidate: stop, lie: 'tee' }, 0, { cup, geometry: G, holeNumber: 10 });
+    eq(t, `Shot 1 - Lie = Tee Box, Distance to the hole = ${cupYd} yd`, 'heading');
+  });
+
+  test('no cup: distance to the green centre, and it says so', () => {
+    const t = shotRowHeading({ candidate: stop, lie: 'fairway' }, 1, { cup: null, geometry: G, holeNumber: 10 });
+    eq(t, `Shot 2 - Lie = Fairway, Distance to the hole = ${centreYd} yd (green centre)`, 'heading');
+  });
+
+  test('no cup and no course map: not known, never a guess', () => {
+    const t = shotRowHeading({ candidate: stop, lie: null }, 2, { cup: null, geometry: null, holeNumber: 10 });
+    eq(t, 'Shot 3 - Lie = ?, Distance to the hole = not known', 'heading');
+  });
+
+  test('PLAYED TWICE (same candidate) carries the same distance as the row it copies', () => {
+    const a = shotRowHeading({ candidate: stop, lie: 'rough' }, 1, { cup, geometry: G, holeNumber: 10 });
+    const b = shotRowHeading({ candidate: stop, lie: null, replayed: true }, 2, { cup, geometry: G, holeNumber: 10 });
+    eq(b.split(', ')[1], a.split(', ')[1], 'distance part');
+  });
+}
+
 /* ------------------------------------- missing tee shots and course learning */
 
 group('a tee shot can be put back');
@@ -5577,10 +5613,15 @@ export async function runGreenFlowTests() {
   await wait(300);
   const confirmCards = [...(openSheet()?.querySelectorAll('.card') ?? [])];
   const confirm = { title: openSheet()?.querySelector('h2')?.textContent ?? null, cards: confirmCards.length };
+  const rowHead = (i) => openSheet()?.querySelectorAll('.card.shot-row')[i]?.querySelector('h2')?.textContent ?? null;
+  const rowText = [...(openSheet()?.querySelectorAll('.card.shot-row') ?? [])].map((c) => c.textContent).join(' | ');
+  const head0 = rowHead(0);
+  const headBefore = rowHead(1);
   [...(confirmCards[1]?.querySelectorAll('.seg-btn') ?? [])]
     .find((b) => /^fairway$/i.test(b.textContent.trim()))
     ?.click();
   await wait();
+  const headAfter = rowHead(1);
   sheetButton(/^SAVE HOLE$/)?.click();
   await wait();
   const written = {
@@ -5643,6 +5684,20 @@ export async function runGreenFlowTests() {
     // The marked flow is unchanged: his marks ARE the shots, so there is
     // nothing to propose and no card to answer.
     eq(longSaved.sheetAfter, null, `SAVE opened "${longSaved.sheetAfter}" on a hole with marked shots`);
+  });
+
+  test('a track row shows no dwell, next stop or cart/foot - only shot, lie, distance to the hole', () => {
+    assert(rowText, 'no shot rows on the confirm sheet');
+    assert(!/stood|next stop|arrived/i.test(rowText), `the row still says: "${rowText}"`);
+    assert(/^Shot 1 - Lie = Tee Box, Distance to the hole = \d+ yd$/.test(head0 ?? ''), `row 1 reads "${head0}"`);
+  });
+
+  test('the row heading follows a lie tap', () => {
+    // Before the tap the row shows whatever it holds (the course map may have
+    // preselected a lie); it must not already read Fairway, or the tap proves nothing.
+    assert(/^Shot 2 - Lie = (?!Fairway,)[^,]+, Distance to the hole = \d+ yd$/.test(headBefore ?? ''), `before: "${headBefore}"`);
+    assert(/^Shot 2 - Lie = Fairway, Distance to the hole = \d+ yd$/.test(headAfter ?? ''), `after: "${headAfter}"`);
+    eq(headAfter.split(', ')[1], headBefore.split(', ')[1], 'the distance changed with the lie');
   });
 
   test('SAVE HOLE keeps the ball mark and the cup', () => {
