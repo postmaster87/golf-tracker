@@ -387,12 +387,30 @@ input[type='text'] {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  line-height: 1.25;
+  /* 0.9, not 1: the 4 px it saves is what keeps the lie grid above the fold
+     at his 360x728 page. Digits have no descenders; nothing is clipped. */
+  line-height: 0.9;
+  font-variant-numeric: tabular-nums;
 }
 
+/* Readable at arm's length in daylight (Matt, 2026-09-27: "I never saw them
+   yesterday"): centre biggest, F and B next, letters in full ink. */
 .hud-green strong {
-  font-size: 17px;
+  font-size: 40px;
   font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+}
+
+.hud-green b {
+  font-size: 24px;
+  font-weight: 800;
+  color: var(--ink);
+}
+
+.hud-green .g-lbl {
+  font-size: 15px;
+  font-weight: 700;
   color: var(--ink);
 }
 

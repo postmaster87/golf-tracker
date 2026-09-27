@@ -5859,6 +5859,30 @@ export async function runGreenDistanceTests() {
   await wait();
   const line = () => screen.el.querySelector('.hud-green')?.textContent ?? null;
   const onFix = line();
+  /*
+   * Matt, 2026-09-27: "I never saw them yesterday". The line's sizes and its
+   * fit at 360 px, read with the shipped stylesheet on a three-digit readout.
+   */
+  const css = await fetch('../css/base.css').then((r) => r.text());
+  const style = document.createElement('style');
+  style.textContent = css;
+  document.head.appendChild(style);
+  Object.assign(screen.el.style, { position: 'fixed', left: '0', top: '0', width: '360px', height: '728px' });
+  const gl = screen.el.querySelector('.hud-green');
+  gl.querySelector('strong').textContent = '488';
+  for (const b of gl.querySelectorAll('b')) b.textContent = '503';
+  gl.querySelector('small').textContent = ' · ±12 yd';
+  const big = {
+    centre: getComputedStyle(gl.querySelector('strong')).fontSize,
+    fb: [...gl.querySelectorAll('b')].map((b) => getComputedStyle(b).fontSize),
+    letters: [...gl.querySelectorAll('.g-lbl')].map((x) => getComputedStyle(x).color),
+    ink: getComputedStyle(gl.querySelector('strong')).color,
+    spill: gl.scrollWidth - gl.clientWidth,
+    right: gl.querySelector('small').getBoundingClientRect().right,
+    edge: gl.getBoundingClientRect().right,
+  };
+  style.remove();
+  Object.assign(screen.el.style, { position: '', left: '', top: '', width: '', height: '' });
   const g = toGreen(G, 1, { lat: gps.last.lat, lon: gps.last.lon, accuracyM: gps.last.acc });
   const expected = `GREEN ${g.centreYd} · F ${g.frontYd} · B ${g.backYd} · ±${g.uncertaintyYd} yd`;
   gps.last = null;
@@ -5875,6 +5899,14 @@ export async function runGreenDistanceTests() {
 
   test("on a Veenker round the HUD reads hole 1's green from the tee", () => {
     eq(onFix, expected, 'green line');
+  });
+
+  test('the green line reads at arm length: centre 40 px, F and B 24 px, full ink, no clip at 360 px', () => {
+    eq(big.centre, '40px', 'centre number');
+    eq(JSON.stringify(big.fb), JSON.stringify(['24px', '24px']), 'F and B numbers');
+    assert(big.letters.every((c) => c === big.ink), `letters are not in full ink: ${JSON.stringify(big.letters)} vs ${big.ink}`);
+    assert(big.spill <= 0, `the line overflows by ${big.spill} px`);
+    assert(big.right <= big.edge, `"yd" ends at ${big.right} px, the line at ${big.edge}`);
   });
 
   test('with no current fix it says so', () => {

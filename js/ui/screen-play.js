@@ -386,6 +386,13 @@ export function playScreen(ctx) {
   /** When the green line last painted, and for which hole; at most once a second. */
   let greenPainted = { at: -Infinity, hole: null };
 
+  /*
+   * Matt, 2026-09-27: "I never saw them yesterday". The centre number is the
+   * biggest thing in the HUD, F and B next; the text reads exactly as before.
+   * Every state carries one <strong>, so the row is one height all round.
+   */
+  const lbl = (text) => h('span', { class: 'g-lbl', text });
+
   function paintGreen() {
     if (!hudGreen || pocketLock.isLocked()) return;
     const number = hole()?.number;
@@ -395,20 +402,29 @@ export function playScreen(ctx) {
     const fix = ctx.gps.current;
     const g = fix ? toGreen(geometry, number, { lat: fix.lat, lon: fix.lon, accuracyM: fix.acc }) : null;
     if (!g) {
-      hudGreen.replaceChildren(h('strong', { text: 'GREEN —' }), document.createTextNode(' · no fix'));
+      hudGreen.replaceChildren(lbl('GREEN '), h('strong', { text: '—' }), document.createTextNode(' · no fix'));
       return;
     }
     const pm = g.uncertaintyYd != null ? ` · ±${g.uncertaintyYd} yd` : ' yd';
     if (g.frontM === 0) {
       hudGreen.replaceChildren(
-        h('strong', { text: 'ON THE GREEN' }),
-        document.createTextNode(` · C ${g.centreYd} · B ${g.backYd} yd`)
+        lbl('ON THE GREEN'),
+        lbl(' · C '),
+        h('strong', { text: `${g.centreYd}` }),
+        lbl(' · B '),
+        h('b', { text: `${g.backYd}` }),
+        h('small', { text: ' yd' })
       );
       return;
     }
     hudGreen.replaceChildren(
-      h('strong', { text: `GREEN ${g.centreYd}` }),
-      document.createTextNode(` · F ${g.frontYd} · B ${g.backYd}${pm}`)
+      lbl('GREEN '),
+      h('strong', { text: `${g.centreYd}` }),
+      lbl(' · F '),
+      h('b', { text: `${g.frontYd}` }),
+      lbl(' · B '),
+      h('b', { text: `${g.backYd}` }),
+      h('small', { text: pm })
     );
   }
 
