@@ -9,6 +9,24 @@ never "Fable decided".
 
 Opus's solo decisions are logged here too, marked (Opus).
 
+## 2026-09-28 - 4.2: build v32 (shot places, the pool revised) - PASS for his phone
+- **Decision:** Opus (high) `77f89df` from spec Section 11, 12 min and 194k
+  sub-agent tokens (n = 1). Fable's review at medium: the three rules and one
+  call site as written, nothing on the must-not-touch list changed, suite
+  580/580 at 360x728 (Fable n = 1).
+- **Score:** shots 2+ at Veenker: v30 23/32, v31 20/32, 4.2 26/32 (n = 32
+  shots, 15 holes, 3 rounds). In-sample: these shots showed the faults the
+  revision was written against. Radcliffe, no map: 2/9 against 6/9 (n = 9).
+- **Why PASS:** the fault he named is gone on the 2026-09-27 replay (no stop
+  beside the tee offered on holes 14 and 1), and every rule changed has a
+  reason that is not the score. His next round is the out-of-sample test.
+- **Known, not fixed:** a stop on the green's edge can take a slot (2 of 4,
+  n = 4); no-map courses; the MARK CUP button on the next-hole prompt.
+- **Owed:** install on his word; D1 (the hole position from the map's green
+  centre, his pin sheet numbers to correct it) at xhigh on his word.
+- **Report:** `docs/handoff/REPORT_4.2.md`. **Commit:** Opus `77f89df`, Fable
+  this commit.
+
 ## 2026-09-28 - 4.1: build v31 (shot places) - built to spec PASS; the preselection rule NOT good enough; revision 4.2
 - **Decision:** Opus (high) `7ad929c` from `docs/SPEC_shot-places.md`, 31 min
   and 455k sub-agent tokens (n = 1). Fable's review at medium: diff matches
