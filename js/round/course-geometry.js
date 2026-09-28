@@ -11,6 +11,7 @@
  */
 
 import { VEENKER_GEOMETRY } from '../data/geometry/veenker.js';
+import { VEENKER_FRAMES } from '../data/geometry/veenker-frames.js';
 import { distanceM, toYards, yardsToM, enuOffset, offsetPoint } from '../util/geo.js';
 import {
   pointInRing,
@@ -530,4 +531,24 @@ export function layupPoint(geometry, holeNumber, layup, tee) {
     return play ? circleOnPath(play.path, tee, R, false) : null;
   }
   return null;
+}
+
+/* ------------------------------------ the pictures (docs/SPEC_hole-overview.md 4.3) */
+
+/** The hole pictures' frames for a course (generated, js/data/geometry/veenker-frames.js); null without them. */
+export function courseFrames(course) {
+  return course?.geometry === 'veenker' ? VEENKER_FRAMES : null;
+}
+
+/**
+ * Where `pos` falls on a hole's picture: `{ x, y }` in image pixels, y down.
+ * The generator (tools/course-geometry/build_hole_images.py) cut the photo with
+ * this same formula. Outside the image is outside [0, widthPx] x [0, heightPx].
+ */
+export function framePx(frame, pos) {
+  if (!frame || !pos) return null;
+  const o = enuOffset(frame.origin, pos);
+  const u = o.east * frame.up.east + o.north * frame.up.north;
+  const v = o.east * frame.up.north - o.north * frame.up.east;
+  return { x: (v - frame.v0M) / frame.mPerPx, y: frame.heightPx - (u - frame.u0M) / frame.mPerPx };
 }

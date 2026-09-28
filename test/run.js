@@ -160,6 +160,7 @@ import {
 } from '../js/data/store.js';
 // The Hole Overview (docs/SPEC_hole-overview.md), stage 1.
 import { holePath, holeFeatures, teeOrigin, playPath, holeNumbers, layupPoint } from '../js/round/course-geometry.js';
+import { courseFrames, framePx } from '../js/round/course-geometry.js';
 
 /* ------------------------------------------------------- storage safety net */
 
@@ -2967,6 +2968,69 @@ group('hole overview (numbers)');
     eq(playPath(R, 1, pt), null, 'playPath');
     eq(holeNumbers(R, 1, pt), null, 'holeNumbers');
     eq(layupPoint(R, 1, { ref: 'green', yards: 100 }, pt), null, 'layupPoint');
+  });
+}
+
+/**
+ * The hole pictures (docs/SPEC_hole-overview.md 4.4). Async for the image
+ * loads, in the shell tests' shape: the I/O first, then assert synchronously.
+ */
+export async function runHoleOverviewPictureTests() {
+  group('hole overview (pictures)');
+
+  const G = courseGeometry(VEENKER);
+  const F = courseFrames(VEENKER);
+  const frames = F?.holes ?? [];
+  const base = new URL('../', import.meta.url);
+  const loaded = await Promise.all(
+    frames.map(
+      (fr) =>
+        new Promise((resolve) => {
+          const img = new Image();
+          img.onload = () => resolve({ fr, ok: true, w: img.naturalWidth, h: img.naturalHeight });
+          img.onerror = () => resolve({ fr, ok: false });
+          img.src = new URL(fr.file, base).href;
+        }),
+    ),
+  );
+  const inImage = (fr, pos) => {
+    const p = framePx(fr, pos);
+    return p.x >= 0 && p.x <= fr.widthPx && p.y >= 0 && p.y <= fr.heightPx;
+  };
+
+  test('the frame places a position: every control point within 1.0 px of its recorded x, y (n = 36)', () => {
+    eq(frames.length, 18, 'frames');
+    let n = 0;
+    for (const fr of frames) {
+      for (const c of fr.control) {
+        const p = framePx(fr, c);
+        const d = Math.hypot(p.x - c.x, p.y - c.y);
+        assert(d <= 1.0, `hole ${fr.number} ${c.name}: ${d.toFixed(3)} px`);
+        n++;
+      }
+    }
+    eq(n, 36, 'control points');
+  });
+
+  test('everything numbered is in the picture: features, the green centre, the blue and gold tees', () => {
+    eq(frames.length, 18, 'frames');
+    for (const fr of frames) {
+      const H = holePath(G, fr.number);
+      const pts = [['green centre', H[H.length - 1]], ...holeFeatures(G, fr.number).map((f) => [f.name, f.at])];
+      for (const set of ['blue', 'gold']) {
+        const t = teeOrigin(G, fr.number, set);
+        if (t) pts.push([`${set} tee`, t]);
+      }
+      for (const [what, pos] of pts) assert(inImage(fr, pos), `hole ${fr.number}: ${what} is outside the picture`);
+    }
+  });
+
+  test('the files are what the module says: 18 images load at their recorded size', () => {
+    eq(loaded.length, 18, 'images');
+    for (const r of loaded) {
+      assert(r.ok, `${r.fr.file} did not load`);
+      eq(`${r.w} x ${r.h}`, `${r.fr.widthPx} x ${r.fr.heightPx}`, r.fr.file);
+    }
   });
 }
 
