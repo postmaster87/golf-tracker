@@ -158,6 +158,8 @@ import {
   deleteRound,
   upsertRoundSummary,
 } from '../js/data/store.js';
+// The Hole Overview (docs/SPEC_hole-overview.md), stage 1.
+import { holePath, holeFeatures, teeOrigin, playPath, holeNumbers, layupPoint } from '../js/round/course-geometry.js';
 
 /* ------------------------------------------------------- storage safety net */
 
@@ -2817,6 +2819,154 @@ group('course geometry');
     eq(lieAt(R, pt), null, 'lieAt');
     eq(toGreen(R, 1, pt), null, 'toGreen');
     eq(nearestHole(R, pt), null, 'nearestHole');
+  });
+}
+
+/* ------------------------------------ the Hole Overview (docs/SPEC_hole-overview.md) */
+
+group('hole overview (numbers)');
+
+{
+  // Section 3.9. Positions come from the data (centroids, path points, offsets);
+  // expected yardages are Fable's prototype, an independent implementation,
+  // tolerance 1 yd.
+  const G = courseGeometry(VEENKER);
+  const poly = (id) => G.polygons.find((p) => p.id === id);
+  const feature = (rows, name) => rows.find((f) => f.name === name);
+  const yd = (rows, name, reach, carry, msg) => {
+    const f = feature(rows, name);
+    assert(f, `${msg}: no ${name}`);
+    near(f.reachYd, reach, 1, `${msg} ${name} reach`);
+    near(f.carryYd, carry, 1, `${msg} ${name} carry`);
+    return f;
+  };
+  const fromTee = (n, set) => holeNumbers(G, n, teeOrigin(G, n, set)).features;
+  /** `sM` metres down hole `n`'s path, `leftM` metres to its left (negative: right). */
+  const down = (n, sM, leftM = 0) => {
+    const H = holePath(G, n);
+    let acc = 0;
+    for (let i = 1; i < H.length; i++) {
+      const d = enuOffset(H[i - 1], H[i]);
+      const L = Math.hypot(d.east, d.north);
+      if (sM <= acc + L) {
+        const p = offsetPoint(H[i - 1], { east: (d.east * (sM - acc)) / L, north: (d.north * (sM - acc)) / L });
+        return offsetPoint(p, { east: (-d.north / L) * leftM, north: (d.east / L) * leftM });
+      }
+      acc += L;
+    }
+    return null;
+  };
+
+  test('the tee for a set: the farther box, his markup point, none, a shared box', () => {
+    eq(teeOrigin(G, 10, 'blue').id, 1065741882, 'hole 10 blue: the farther of the two blue boxes');
+    const t16 = teeOrigin(G, 16, 'blue');
+    eq(t16.id, 'hole16-back-blue', 'hole 16 blue');
+    eq(t16.source, 'markup', 'hole 16 blue source');
+    eq(t16.accuracyM, null, 'hole 16 blue accuracyM');
+    eq(teeOrigin(G, 10, 'blue').source, 'map', 'a box is the map');
+    eq(teeOrigin(G, 1, 'white'), null, 'hole 1 white');
+    eq(teeOrigin(G, 11, 'blue').id, teeOrigin(G, 18, 'blue').id, 'holes 11 and 18 blue');
+  });
+
+  test('what is numbered: Table 1, all 18 holes (25 bunkers, 5 creek crossings, n = 30)', () => {
+    const TABLE_1 = {
+      3: 'B1 bunker R',
+      4: 'B1 bunker L; B2 bunker R; B3 bunker L',
+      5: 'B1 bunker R',
+      6: 'B1 bunker L',
+      7: 'W1 creek C',
+      8: 'B1 bunker L; B2 bunker R',
+      9: 'B1 bunker R; B2 bunker R',
+      10: 'B1 bunker L; B2 bunker R; B3 bunker L',
+      11: 'W1 creek C; B1 bunker L; B2 bunker R; B3 bunker R',
+      12: 'B1 bunker L; B2 bunker R',
+      13: 'B1 bunker R',
+      14: 'B1 bunker R',
+      15: 'W1 creek C; B1 bunker L; B2 bunker R',
+      16: 'W1 creek C; W2 creek C; B1 bunker L',
+      17: 'B1 bunker R; B2 bunker R',
+    };
+    let n = 0;
+    for (let h = 1; h <= 18; h++) {
+      const fs = holeFeatures(G, h);
+      n += fs.length;
+      const got = fs.map((f) => `${f.name} ${f.kind === 'bunker' ? 'bunker' : f.mode === 'cross' ? 'creek' : f.kind} ${f.side}`);
+      eq(got.join('; '), TABLE_1[h] ?? '', `hole ${h}`);
+    }
+    eq(n, 30, 'rows');
+  });
+
+  test('a greenside bunker is numbered on one hole: its green', () => {
+    const on = (id, h) => holeFeatures(G, h).some((f) => f.id === id);
+    assert(on(1065746512, 13) && !on(1065746512, 2), 'bunker 1065746512: hole 13 and not hole 2');
+    assert(on(1065741609, 16) && !on(1065741609, 2) && !on(1065741609, 4), 'bunker 1065741609: hole 16, not 2 or 4');
+  });
+
+  test("a bunker's reach and carry; a pond gets no number", () => {
+    yd(fromTee(3, 'blue'), 'B1', 278, 293, 'hole 3 blue');
+    for (const h of [2, 3, 5]) eq(holeFeatures(G, h).filter((f) => f.kind === 'water').length, 0, `hole ${h} water`);
+  });
+
+  test('the creek from the tee: holes 7, 11, 15 and 16', () => {
+    yd(fromTee(7, 'blue'), 'W1', 360, 398, 'hole 7 blue');
+    yd(fromTee(11, 'blue'), 'W1', 63, 90, 'hole 11 blue');
+    yd(fromTee(15, 'blue'), 'W1', 244, 255, 'hole 15 blue');
+    yd(fromTee(15, 'gold'), 'W1', 211, 223, 'hole 15 gold');
+    yd(fromTee(16, 'blue'), 'W1', 80, 99, 'hole 16 blue');
+    yd(fromTee(16, 'blue'), 'W2', 457, 477, 'hole 16 blue');
+    yd(fromTee(16, 'gold'), 'W1', 17, 35, 'hole 16 gold');
+    yd(fromTee(16, 'gold'), 'W2', 394, 415, 'hole 16 gold');
+  });
+
+  test('the creek on his own line: hole 7, 300 yd down, on the line and 30 m either side', () => {
+    const s = 300 * 0.9144;
+    for (const [leftM, reach, carry] of [[0, 59, 97], [30, 35, 74], [-30, 84, 116]]) {
+      const w = yd(holeNumbers(G, 7, down(7, s, leftM)).features, 'W1', reach, carry, `${leftM} m left`);
+      eq(w.ownLine, true, `${leftM} m left: ownLine`);
+    }
+  });
+
+  test('behind him, and standing in it', () => {
+    const H7 = holePath(G, 7);
+    eq(feature(holeNumbers(G, 7, H7[H7.length - 1]).features, 'W1').behind, true, 'hole 7 green centroid: W1 behind');
+    const b = poly(1065747078); // hole 3's B1
+    const c = ringCentroid(b.ring);
+    assert(pointInRing(c, b.ring), 'fixture: the centroid is inside the bunker');
+    const f = holeNumbers(G, 3, c).features.find((x) => x.name === 'B1');
+    eq(f.reachM, 0, 'reachM');
+    eq(f.inside, true, 'inside');
+  });
+
+  test('layup points: from the green, from the tee, none that far, no tee', () => {
+    const H7 = holePath(G, 7);
+    const C7 = H7[H7.length - 1];
+    const g = layupPoint(G, 7, { ref: 'green', yards: 100 }, null);
+    near(distanceToPolyline(g, H7), 0, 0.05, 'green 100 is on the path, m');
+    near(toYards(distanceM(g, C7)), 100, 0.1, 'green 100 from the green centroid, yd');
+    const tee = teeOrigin(G, 7, 'blue');
+    const t = layupPoint(G, 7, { ref: 'tee', yards: 250 }, tee);
+    near(distanceToPolyline(t, playPath(G, 7, tee).path), 0, 0.05, 'tee 250 is on his line, m');
+    near(toYards(distanceM(t, tee)), 250, 0.1, 'tee 250 from the blue tee, yd');
+    eq(layupPoint(G, 8, { ref: 'green', yards: 400 }, null), null, 'hole 8 green 400');
+    eq(layupPoint(G, 7, { ref: 'tee', yards: 250 }, null), null, 'tee with no tee');
+  });
+
+  test("the page's green is the play screen's: holeNumbers(...).green deep-equals toGreen", () => {
+    const H7 = holePath(G, 7);
+    for (const o of [teeOrigin(G, 7, 'blue'), { ...down(7, 300 * 0.9144, 12), accuracyM: 3.2 }, H7[H7.length - 1]]) {
+      eq(JSON.stringify(holeNumbers(G, 7, o).green), JSON.stringify(toGreen(G, 7, o)), `from ${JSON.stringify(o)}`);
+    }
+  });
+
+  test('Radcliffe has no map: every function says null or []', () => {
+    const R = courseGeometry(RADCLIFFE);
+    const pt = teeOrigin(G, 7, 'blue');
+    eq(holePath(R, 1), null, 'holePath');
+    eq(JSON.stringify(holeFeatures(R, 1)), '[]', 'holeFeatures');
+    eq(teeOrigin(R, 1, 'blue'), null, 'teeOrigin');
+    eq(playPath(R, 1, pt), null, 'playPath');
+    eq(holeNumbers(R, 1, pt), null, 'holeNumbers');
+    eq(layupPoint(R, 1, { ref: 'green', yards: 100 }, pt), null, 'layupPoint');
   });
 }
 
