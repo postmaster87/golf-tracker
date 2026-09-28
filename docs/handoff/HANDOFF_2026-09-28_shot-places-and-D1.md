@@ -24,7 +24,7 @@ word in your chat.
 |---|---|---|
 | The phone (S26, serial `RFGL4275NVH`) | native Golf Tracker, build v30, rev 6, installed 2026-09-27 08:44 | `adb shell dumpsys package com.postmaster87.golftracker`, read 2026-09-28 |
 | `origin/main` | `35b29bd`, build v28, the last web deploy | `git log origin/main -1` |
-| Local `main` | the commit that carries this file, on top of `a7e0b58`; build v34; clean; 15 commits ahead of the phone's build v30 (`d18ec74`) are this session's and are listed in Section 2 | `git log -1`, `git status` |
+| Local `main` | the commit that carries this file, on top of `a7e0b58`; build v34; clean; every commit after `d18ec74` (build v30, the phone's build) is this session's, `990ad0a` onward: 11 at `860df05` [measured, `git rev-list --count d18ec74..860df05`], plus the one that corrected this line | `git log -1`, `git status` |
 | `REVISION` | 6, untouched by this session | `js/data/revision.js` |
 | Suite | 604/604 at 360x728 | Fable's run at `a7e0b58`, n = 1 |
 
