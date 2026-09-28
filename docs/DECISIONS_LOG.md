@@ -9,6 +9,34 @@ never "Fable decided".
 
 Opus's solo decisions are logged here too, marked (Opus).
 
+## 2026-09-28 - 5.2: D1 corrections and the PIN SHEET sheet, build v34 - PASS; handed to "Latest build setup"
+- **Decision:** Opus (xhigh) `a7e0b58` from `docs/SPEC_hole-position.md`
+  Sections 9 and 12, 28 min and 426k sub-agent tokens (n = 1). One run for
+  the corrections and Part B together: the corrections are engine input, and
+  one run is one Fable review instead of two. Fable's review at xhigh
+  (`docs/handoff/REPORT_5.2.md` Section 7): C3 and C8 read line by line in
+  `round.js` and `strokes-gained.js`; C4's two sentences and their condition
+  read in `screen-summary.js`; the sheet opened and typed into at 360x728;
+  nothing on the must-not-touch list changed; suite 604/604 (Fable n = 1);
+  the third column of the before-and-after table recomputed by Fable, 9 of 9
+  rounds equal, 2 shots refused by C8, both on the abandoned 2026-09-26 14:51
+  round.
+- **Not proven, and said so:** the pin sheet has not been typed from a real
+  tournament sheet against a marked cup; the side numbers are paces from the
+  nearer side edge and he has not confirmed that; v31 to v34 have not run on
+  his phone.
+- **His ruling on who gets it, 2026-09-28, verbatim:** *"give it to the
+  Latest Build Setup session when you are done. Hurry it up if you can"*. The
+  session "Latest build setup", id `local_d430b468`, this repo. Handoff:
+  `docs/handoff/HANDOFF_2026-09-28_shot-places-and-D1.md`. This session did
+  not push and did not install.
+- **Cost:** Opus 31, 12, 34 and 28 min; 455k, 194k, 486k and 426k sub-agent
+  tokens (n = 1 each). Weekly Fable, account-wide with other sessions live,
+  82 percent at the session's first read and 89 percent at the last read
+  before the 17:00 Central reset; 2 percent after it. Effort medium, high for
+  the shot-places spec, medium, xhigh from "build D1" to this sign-off.
+- **Commit:** Opus `a7e0b58`, Fable this commit.
+
 ## 2026-09-28 - 5.1: D1 Part A, build v33 - PASS against the spec, three corrections owed; the deploy is not this session's
 - **Decision:** Opus (xhigh) `ccae4e3` from `docs/SPEC_hole-position.md`, 34
   min and 486k sub-agent tokens (n = 1). Fable's review at xhigh
