@@ -1611,6 +1611,495 @@ body.has-lock-tab .pin-sheet .pin-cols > :nth-child(3) {
   margin-bottom: 0;
 }
 
+/* -------------------------------------------------------- hole overview */
+
+/*
+ * THE HOLE OVERVIEW (docs/SPEC_hole-overview.md Section 6).
+ *
+ * Over the play screen it opens inside the play screen's own element, below
+ * the HUD, and covers the hole navigation row, the body and the footer. The
+ * play screen underneath is never rebuilt - the capture, the lie being asked
+ * for and the UNDO banner are still there when PLAY closes it - and PLAY sits
+ * exactly where MAP was, because the page's top bar is the same row.
+ */
+.screen.play {
+  position: relative;
+}
+
+/* MAP, a fourth control at the right end of the row (6.2). Every label holds to
+   one line so the row is the height it always was. */
+.holenav.has-map {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.8fr) minmax(0, 1fr) minmax(0, 1.2fr);
+}
+
+.holenav.has-map button {
+  padding-inline: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.hole-overview {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--bg);
+  color: var(--ink);
+}
+
+.screen.play > .hole-overview.ho-over {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 20;
+}
+
+.screen.map > .hole-overview {
+  flex: 1;
+}
+
+.screen.map .ho-bar {
+  padding-top: calc(8px + env(safe-area-inset-top));
+}
+
+.ho-bar {
+  flex: 0 0 auto;
+}
+
+.ho-bar .ho-close {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+
+.ho-title {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  line-height: 1.1;
+  white-space: nowrap;
+  overflow: hidden;
+  font-variant-numeric: tabular-nums;
+}
+
+.ho-title strong {
+  font-size: 21px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.ho-title small {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--ink-2);
+}
+
+.ho-sub,
+.ho-creek {
+  flex: 0 0 auto;
+  padding: 4px 12px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+
+.ho-sub {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ink-2);
+}
+
+.ho-sub .seg {
+  margin: 6px 0 4px;
+  gap: 10px;
+}
+
+.ho-sub .seg-btn {
+  min-height: 48px;
+  font-size: 15px;
+}
+
+/* 16 px, never smaller; two unbreakable halves, so a line that does not fit
+   breaks after the blue number rather than shrinking or scrolling (6.3). */
+.ho-creek {
+  font-size: 16px;
+  font-weight: 800;
+  line-height: 1.3;
+  color: var(--ink);
+}
+
+.ho-creek .ho-cc {
+  white-space: nowrap;
+}
+
+.ho-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 10px 12px 12px;
+}
+
+body.has-lock-tab .ho-scroll {
+  padding-right: calc(12px + var(--lock-tab-gutter));
+}
+
+.ho-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+/* The picture and the numbers side by side at 360 px; the picture's own box
+   holds the photo's shape whether or not the photo loads. */
+.ho-pic {
+  position: relative;
+  flex: 0 1 150px;
+  min-width: 96px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-2);
+  cursor: pointer;
+}
+
+.ho-pic > img,
+.ho-pic > svg {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.hole-overview.no-photo .ho-pic > img {
+  visibility: hidden;
+}
+
+.ho-marks {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.hole-overview.filled .ho-nums,
+.hole-overview.filled .ho-layups {
+  display: none;
+}
+
+.hole-overview.filled .ho-main {
+  justify-content: center;
+}
+
+.hole-overview.filled .ho-pic {
+  flex: none;
+  min-width: 0;
+}
+
+/* The map's shapes over the photo: ink on a halo of the surface colour, so they
+   read on grass and trees in every theme. With no photo, a tint says which is
+   which. */
+.ho-shapes path,
+.ho-shapes polyline {
+  fill: none;
+  fill-rule: evenodd;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.ho-shapes .ho-halo {
+  stroke: var(--surface);
+  stroke-width: 4px;
+  stroke-opacity: 0.85;
+}
+
+.ho-shapes .ho-halo.fairway {
+  stroke-width: 3px;
+}
+
+.ho-shapes .ho-shape {
+  stroke: var(--ink);
+  stroke-width: 1.6px;
+}
+
+.ho-shapes .ho-shape.fairway {
+  stroke-width: 1px;
+}
+
+.ho-shapes .ho-shape.water,
+.ho-shapes .ho-shape.pond {
+  stroke-dasharray: 5 3;
+}
+
+.ho-shapes .ho-path {
+  stroke: var(--ink);
+  stroke-width: 1.4px;
+  stroke-dasharray: 2 4;
+}
+
+.hole-overview.no-photo .ho-shape.green {
+  fill: var(--good);
+  fill-opacity: 0.3;
+}
+
+.hole-overview.no-photo .ho-shape.fairway {
+  fill: var(--good);
+  fill-opacity: 0.12;
+}
+
+.hole-overview.no-photo .ho-shape.bunker {
+  fill: var(--warn);
+  fill-opacity: 0.25;
+}
+
+.hole-overview.no-photo .ho-shape.water,
+.hole-overview.no-photo .ho-shape.pond {
+  fill: var(--accent);
+  fill-opacity: 0.25;
+}
+
+.ho-live .ho-ring {
+  fill: var(--accent);
+  fill-opacity: 0.18;
+  stroke: var(--accent);
+  stroke-width: 1.5px;
+  vector-effect: non-scaling-stroke;
+}
+
+.ho-mk {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  padding: 0 3px;
+  border: 1.5px solid var(--ink);
+  border-radius: 5px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.25;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
+.hole-overview.filled .ho-mk {
+  font-size: 13px;
+}
+
+.ho-mk.bunker {
+  border-color: var(--warn);
+}
+
+.ho-mk.water {
+  border-color: var(--accent);
+}
+
+.ho-mk.tee {
+  background: var(--ink);
+  color: var(--surface);
+}
+
+.ho-mk.layup {
+  border-style: dashed;
+  font-size: 10px;
+}
+
+.ho-mk.you-dot {
+  width: 12px;
+  height: 12px;
+  padding: 0;
+  border: 2px solid var(--surface);
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 1px var(--ink);
+}
+
+.ho-mk.you-arrow {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font-size: 20px;
+  text-shadow: 0 0 2px var(--surface), 0 0 2px var(--surface);
+}
+
+/* The numbers: YOU's green centre 40 px like the play screen's, every other
+   YOU number 24, the TEE numbers 18 (6.5). */
+.ho-nums {
+  flex: 1 1 172px;
+  min-width: 0;
+  display: grid;
+  gap: 10px;
+  align-content: start;
+}
+
+.ho-col h3,
+.ho-lay-head h3 {
+  margin: 0 0 2px;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  color: var(--ink-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ho-col .ho-none {
+  margin: 0 0 2px;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ink-2);
+}
+
+.ho-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  column-gap: 6px;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+}
+
+.ho-row .k {
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.ho-row .v {
+  margin-left: auto;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.ho-col[data-col='you'] .v {
+  font-size: 24px;
+}
+
+.ho-col[data-col='you'] .ho-c {
+  font-size: 40px;
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+
+.ho-col[data-col='tee'] .v {
+  font-size: 18px;
+}
+
+.ho-row .v.word {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--ink-2);
+}
+
+.ho-fb .v {
+  margin-left: 0;
+}
+
+.ho-row .ho-tag {
+  flex-basis: 100%;
+  text-align: right;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--warn);
+}
+
+.ho-layups {
+  margin-top: 14px;
+}
+
+.ho-lay-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.ho-lay-head .btn {
+  width: auto;
+  padding: 6px 14px;
+}
+
+.ho-layup {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  column-gap: 12px;
+  width: 100%;
+  min-height: 52px;
+  /* 10, not 8: a gap of exactly 8 measures 7.99 at a fractional offset. */
+  margin: 0 0 10px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--ink);
+  text-align: left;
+  font-variant-numeric: tabular-nums;
+}
+
+.ho-lk {
+  display: grid;
+  min-width: 0;
+}
+
+.ho-lk strong,
+.ho-lk small {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ho-lk strong {
+  font-size: 16px;
+}
+
+.ho-lk small {
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+.ho-lv {
+  display: grid;
+  justify-items: end;
+  line-height: 1.05;
+}
+
+.ho-lv small {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  color: var(--ink-3);
+}
+
+.ho-lv b {
+  font-weight: 800;
+}
+
+.ho-lv.you b {
+  font-size: 24px;
+}
+
+.ho-lv.tee b {
+  font-size: 18px;
+}
+
+.ho-unread,
+.ho-said {
+  color: var(--bad);
+  font-weight: 700;
+}
+
+.ho-said {
+  margin: 0 0 10px;
+}
+
 @media (min-width: 620px) {
   #app {
     max-width: 560px;

@@ -164,6 +164,8 @@ import { holePath, holeFeatures, teeOrigin, playPath, holeNumbers, layupPoint } 
 import { courseFrames, framePx } from '../js/round/course-geometry.js';
 import { SCHEMA_VERSION, newCourseNotes, newLayup } from '../js/data/schema.js';
 import { courseNotesKey, loadCourseNotes, saveCourseNotes, allCourseNotesIds, onStorageError } from '../js/data/store.js';
+// The Hole Overview (docs/SPEC_hole-overview.md), stage 2: the page.
+import { holeOverview, mapScreen } from '../js/ui/hole-overview.js';
 
 /* ------------------------------------------------------- storage safety net */
 
@@ -7551,4 +7553,703 @@ export async function runPinSheetTests() {
       eq(f.saveAtEnd, true, `${mode}: SAVE on screen with the sheet at the end`);
     }
   });
+}
+
+/* ------------------------------------------ the Hole Overview page (Part D) */
+
+/**
+ * docs/SPEC_hole-overview.md 6.6 and 6.7. Matt, 2026-09-28: *"I want to
+ * integrate the map in to the app and have a "hole Overview" page I can toggle
+ * to."* The real play screen and its MAP control, the real page and its layup
+ * sheets, the shipped stylesheet, at his page size, 360 x 728.
+ */
+export async function runHoleOverviewPageTests() {
+  group('hole overview (page)');
+
+  const wait = (ms = 30) => new Promise((r) => setTimeout(r, ms));
+  const G = courseGeometry(VEENKER);
+  const css = await fetch('../css/base.css').then((r) => r.text());
+  const style = document.createElement('style');
+  // A phone draws overlay scrollbars, which take no width; a desktop runner
+  // draws a classic one (see 'the capture card stays out of the lock strip').
+  style.textContent = `${css}\n.body, .ho-scroll { scrollbar-width: none; }\n.body::-webkit-scrollbar, .ho-scroll::-webkit-scrollbar { display: none; }`;
+  document.head.appendChild(style);
+
+  const closeAll = () => {
+    for (const s of document.querySelectorAll('.scrim, .toast')) s.remove();
+  };
+  const clearNotes = () => {
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const k = localStorage.key(i);
+      if (k?.startsWith('gt:course:')) localStorage.removeItem(k);
+    }
+  };
+  const veenkerRound = (teeSet = 'blue', hole = 1) => {
+    const r = createRound({ course: VEENKER, teeSet, startingNine: 'front', type: 'practice' });
+    r.currentHoleIndex = r.holes.findIndex((x) => x.number === hole);
+    return r;
+  };
+  const fixAtPos = (pos, acc = 2.5) => ({ lat: pos.lat, lon: pos.lon, acc, ts: Date.now() });
+  /** The play screen at 360 x 728, live on `round` or in edit mode with `params.roundId`. */
+  const mount = (round, { params = {}, fix } = {}) => {
+    const gps = heldGps(TEE);
+    if (fix !== undefined) gps.last = fix;
+    const saved = [];
+    const screen = playScreen({
+      app: newAppState(),
+      round: params.roundId ? null : round,
+      gps,
+      params,
+      go() {},
+      persistRound(r) {
+        saved.push(r ?? round);
+      },
+      persistApp() {},
+      startGps() {},
+      stopGps() {},
+      trackStats: () => null,
+    });
+    Object.assign(screen.el.style, { position: 'fixed', left: '0', top: '0', width: '360px', height: '728px' });
+    document.body.appendChild(screen.el);
+    // `dvh` can read 0 in a hidden pane; restated as the page height's 78 %.
+    screen.el.querySelector('.footer').style.maxHeight = `${Math.round(728 * 0.78)}px`;
+    return {
+      screen,
+      gps,
+      saved,
+      done: () => {
+        screen.el.remove();
+        closeAll();
+      },
+    };
+  };
+  const mapBtn = (m) => m.screen.el.querySelector('.holenav-map');
+  const pageOf = (m) => m.screen.el.querySelector('.hole-overview');
+  const open = async (m) => {
+    mapBtn(m)?.click();
+    await wait();
+    return pageOf(m);
+  };
+  const col = (p, c) => p?.querySelector(`.ho-col[data-col="${c}"]`) ?? null;
+  const greenOf = (c) => {
+    const out = {};
+    for (const e of c?.querySelectorAll('[data-row="green"] [data-f], [data-row="fb"] [data-f]') ?? []) out[e.dataset.f] = e.textContent;
+    return out;
+  };
+  const press = (m, re) => [...m.screen.el.querySelectorAll('.footer button')].find((b) => re.test(b.textContent.trim()))?.click();
+  const sheetEl = () => document.querySelector('.scrim .sheet');
+  const type = (el, v) => {
+    if (!el) return;
+    el.value = v;
+    el.dispatchEvent(new Event('input'));
+  };
+  const tap = (root, label) => [...(root?.querySelectorAll('button') ?? [])].find((b) => b.textContent.trim() === label)?.click();
+  const creekLine = (p) => {
+    const c = p?.querySelector('.ho-creek');
+    return c && !c.hidden ? c.textContent : null;
+  };
+  const creekShown = (p) => {
+    const c = p?.querySelector('.ho-creek');
+    if (!c || c.hidden) return false;
+    const r = c.getBoundingClientRect();
+    const pr = p.getBoundingClientRect();
+    return r.height > 0 && r.top >= pr.top && r.bottom <= pr.bottom;
+  };
+
+  /* ---- 1: MAP is always there ---- */
+  const one = {};
+  {
+    const r = par4Round();
+    const m = mount(r);
+    await wait();
+    one.fresh = Boolean(mapBtn(m));
+    press(m, /^MARK TEE SHOT$/);
+    m.gps.endBurst();
+    await wait();
+    one.shots = r.holes[0].shots.length;
+    one.marked = Boolean(mapBtn(m));
+    press(m, /^MARK SHOT 2$/);
+    m.gps.endBurst();
+    await wait();
+    one.pendingCard = m.screen.el.querySelector('.body > .capture')?.dataset.burst ?? null;
+    one.pending = Boolean(mapBtn(m));
+    m.done();
+
+    const c = par4Round();
+    setManualHole(c.holes[0], { strokes: 4, putts: 2 });
+    one.complete = isHoleComplete(c.holes[0]);
+    const cm = mount(c);
+    await wait();
+    one.completed = Boolean(mapBtn(cm));
+    cm.done();
+
+    const rad = mount(createRound({ course: RADCLIFFE, teeSet: 'white', startingNine: 'front', type: 'practice' }));
+    await wait();
+    one.radcliffe = Boolean(mapBtn(rad));
+    one.radNav = rad.screen.el.querySelectorAll('.holenav > button').length;
+    rad.done();
+
+    const finished = par4Round();
+    finished.status = 'completed';
+    try {
+      saveRound(finished);
+      const e = mount(null, { params: { roundId: finished.id } });
+      await wait();
+      one.editing = /^EDITING/.test(e.screen.el.querySelector('.hud-meta')?.textContent ?? '');
+      one.edit = Boolean(mapBtn(e));
+      e.done();
+    } finally {
+      restoreStorage();
+    }
+  }
+
+  test('1. MAP is always there: a fresh hole, after a mark, a lie pending, a completed hole; not on Radcliffe or in edit mode', () => {
+    eq(one.fresh, true, 'a fresh hole');
+    eq(one.shots, 1, 'fixture: the tee shot marked');
+    eq(one.marked, true, 'after a mark');
+    eq(one.pendingCard, 'done', 'fixture: a lie pending');
+    eq(one.pending, true, 'with a lie pending');
+    eq(one.complete, true, 'fixture: a completed hole');
+    eq(one.completed, true, 'on a completed hole');
+    eq(one.radcliffe, false, 'Radcliffe');
+    eq(one.radNav, 3, 'Radcliffe: the row keeps its three controls');
+    eq(one.editing, true, 'fixture: edit mode');
+    eq(one.edit, false, 'edit mode');
+  });
+
+  /* ---- 2: one green ---- */
+  const two = {};
+  {
+    const pos = layupPoint(G, 1, { ref: 'green', yards: 150 }, null);
+    const m = mount(par4Round(), { fix: fixAtPos(pos, 3.2) });
+    await wait();
+    two.line = m.screen.el.querySelector('.hud-green')?.textContent ?? '';
+    const p = await open(m);
+    two.you = greenOf(col(p, 'you'));
+    two.head = col(p, 'you')?.querySelector('h3')?.textContent ?? null;
+    two.want = toGreen(G, 1, { lat: pos.lat, lon: pos.lon, accuracyM: 3.2 });
+    m.done();
+  }
+
+  test("2. one green: with a held fix the page's YOU green numbers are the play screen's green line", () => {
+    const g = /^GREEN (\d+) · F (\d+) · B (\d+) · ±(\d+) yd$/.exec(two.line);
+    assert(g, `the play screen's line reads "${two.line}"`);
+    eq(two.you.C, g[1], 'centre');
+    eq(two.you.F, g[2], 'front');
+    eq(two.you.B, g[3], 'back');
+    eq(`${two.you.F} ${two.you.C} ${two.you.B}`, `${two.want.frontYd} ${two.want.centreYd} ${two.want.backYd}`, 'toGreen');
+    eq(two.head, `YOU ±${g[4]} yd`, "the column header, the fix's own accuracy");
+  });
+
+  /* ---- 3: no fix ---- */
+  const three = {};
+  {
+    const m = mount(par4Round(), { fix: null });
+    await wait();
+    const p = await open(m);
+    const you = col(p, 'you');
+    three.noFix = you?.querySelector('.ho-none')?.textContent ?? null;
+    three.youNums = [...(you?.querySelectorAll('.v') ?? [])].map((e) => e.textContent);
+    three.tee = greenOf(col(p, 'tee'));
+    three.want = toGreen(G, 1, teeOrigin(G, 1, 'gold'));
+    m.done();
+  }
+
+  test('3. no fix: YOU reads "no fix" and every number is a dash; TEE still has its numbers', () => {
+    eq(three.noFix, 'no fix', 'YOU');
+    assert(three.youNums.length >= 3, `fixture: ${three.youNums.length} YOU numbers`);
+    assert(three.youNums.every((t) => t === '—'), `YOU numbers: ${JSON.stringify(three.youNums)}`);
+    eq(`${three.tee.F}/${three.tee.C}/${three.tee.B}`, `${three.want.frontYd}/${three.want.centreYd}/${three.want.backYd}`, 'TEE green');
+  });
+
+  /* ---- 4: going there costs nothing ---- */
+  const four = {};
+  {
+    const r = par4Round();
+    const m = mount(r);
+    await wait();
+    const snap = () => {
+      const card = m.screen.el.querySelector('.body > .capture');
+      return {
+        card,
+        burst: card?.dataset.burst ?? null,
+        banner: [...m.screen.el.querySelectorAll('.body > .banner')].map((b) => b.textContent).join(' | '),
+        hole: r.currentHoleIndex,
+        saved: m.saved.length,
+        round: JSON.stringify(r),
+      };
+    };
+    const openAndClose = async () => {
+      const p = await open(m);
+      const opened = Boolean(p);
+      p?.querySelector('.ho-close')?.click();
+      await wait();
+      return opened && !pageOf(m);
+    };
+    press(m, /^MARK TEE SHOT$/);
+    m.gps.endBurst();
+    await wait();
+    press(m, /^MARK SHOT 2$/);
+    await wait();
+    const a = snap();
+    const ok1 = await openAndClose();
+    four.running = { a, b: snap(), ok: ok1 };
+    m.gps.endBurst();
+    await wait();
+    const c = snap();
+    const ok2 = await openAndClose();
+    four.pending = { c, d: snap(), ok: ok2 };
+    m.done();
+  }
+
+  test('4. going there costs nothing: the capture, the lie pending and the UNDO banner survive; the hole and the round do not move; nothing is saved', () => {
+    const { a, b, ok } = four.running;
+    eq(ok, true, 'the page opened and PLAY closed it');
+    eq(a.burst, 'running', 'fixture: shot 2 capturing, its lie being asked for');
+    assert(/UNDO/.test(a.banner), `fixture: the UNDO banner is up ("${a.banner}")`);
+    assert(b.card === a.card, 'the capture card was rebuilt');
+    eq(b.banner, a.banner, 'the UNDO banner');
+    eq(b.hole, a.hole, 'currentHoleIndex');
+    eq(b.saved, a.saved, 'persistRound calls');
+    eq(b.round, a.round, 'the round');
+    const { c, d, ok: ok2 } = four.pending;
+    eq(ok2, true, 'the page opened and PLAY closed it, lie pending');
+    eq(c.burst, 'done', 'fixture: the lie pending on a saved shot');
+    assert(d.card === c.card, 'the pending-lie card was rebuilt');
+    eq(d.hole, c.hole, 'currentHoleIndex, lie pending');
+    eq(d.saved, c.saved, 'persistRound calls, lie pending');
+    eq(d.round, c.round, 'the round, lie pending');
+  });
+
+  /* ---- 5: looking is not moving ---- */
+  const five = {};
+  {
+    const r = par4Round();
+    const m = mount(r);
+    await wait();
+    const p = await open(m);
+    five.before = p?.querySelector('.ho-title strong')?.textContent ?? null;
+    p?.querySelector('.ho-next')?.click();
+    await wait();
+    five.after = p?.querySelector('.ho-title strong')?.textContent ?? null;
+    five.index = r.currentHoleIndex;
+    five.nav = m.screen.el.querySelector('.holenav-current strong')?.textContent ?? null;
+    five.saved = m.saved.length;
+    m.done();
+  }
+
+  test("5. looking is not moving: the page's next-hole arrow changes the hole shown, never currentHoleIndex", () => {
+    eq(five.before, 'HOLE 1', 'the page opens on the current hole');
+    eq(five.after, 'HOLE 2', 'after the arrow');
+    eq(five.index, 0, 'currentHoleIndex');
+    eq(five.nav, '1', "the play screen's hole");
+    eq(five.saved, 0, 'persistRound calls');
+  });
+
+  /* ---- 6: layups through the sheets ---- */
+  const six = {};
+  {
+    clearNotes();
+    const r = par4Round();
+    const before = JSON.stringify(r);
+    const m = mount(r);
+    await wait();
+    const p = await open(m);
+    const stored = () =>
+      loadCourseNotes('veenker')
+        .layups.map((l) => `${l.hole} ${l.ref} ${l.yards} ${l.label ?? '-'}`)
+        .join('; ');
+    tap(p, '+ LAYUP');
+    await wait();
+    six.title = sheetEl()?.querySelector('h2')?.textContent ?? null;
+    type(sheetEl()?.querySelector('.ho-in-yards'), '100');
+    tap(sheetEl(), 'SAVE');
+    await wait();
+    six.added = stored();
+    six.rows = p.querySelectorAll('.ho-layup').length;
+    const id = loadCourseNotes('veenker').layups[0]?.id ?? null;
+    p.querySelector('.ho-layup')?.click();
+    await wait();
+    type(sheetEl()?.querySelector('.ho-in-yards'), '110');
+    type(sheetEl()?.querySelector('.ho-in-label'), 'short of the bunker');
+    tap(sheetEl(), 'SAVE');
+    await wait();
+    six.edited = stored();
+    six.editedId = loadCourseNotes('veenker').layups[0]?.id === id;
+    p.querySelector('.ho-layup')?.click();
+    await wait();
+    tap(sheetEl(), 'DELETE');
+    await wait();
+    six.asked = sheetEl()?.querySelector('h2')?.textContent ?? null;
+    six.beforeConfirm = stored();
+    tap(sheetEl(), 'DELETE');
+    await wait();
+    six.deleted = stored();
+    six.toast = document.querySelector('.toast span')?.textContent ?? null;
+    tap(document.querySelector('.toast'), 'RESTORE');
+    await wait();
+    six.restored = stored();
+    six.restoredId = loadCourseNotes('veenker').layups[0]?.id === id;
+    six.rowsAfter = p.querySelectorAll('.ho-layup').length;
+    six.round = JSON.stringify(r) === before;
+    six.saved = m.saved.length;
+    m.done();
+    restoreStorage();
+  }
+
+  test("6. layups through the sheets: add, edit, delete, restore change his course notes; the round's JSON is byte-identical", () => {
+    eq(six.title, 'Hole 1 — new layup', 'the + LAYUP sheet');
+    eq(six.added, '1 green 100 -', 'added');
+    eq(six.rows, 1, 'its row on the page');
+    eq(six.edited, '1 green 110 short of the bunker', 'edited');
+    eq(six.editedId, true, 'the same layup, edited in place');
+    eq(six.asked, 'Delete this layup?', 'delete asks once');
+    eq(six.beforeConfirm, '1 green 110 short of the bunker', 'nothing removed before the confirmation');
+    eq(six.deleted, '', 'deleted');
+    eq(six.toast, 'Layup deleted.', 'the toast');
+    eq(six.restored, '1 green 110 short of the bunker', 'restored');
+    eq(six.restoredId, true, 'the same layup restored');
+    eq(six.rowsAfter, 1, 'its row back on the page');
+    eq(six.round, true, "the round's JSON");
+    eq(six.saved, 0, 'persistRound calls');
+  });
+
+  /* ---- 7: fit at 360 x 728 ---- */
+  const seven = {};
+  {
+    clearNotes();
+    const notes = loadCourseNotes('veenker');
+    notes.layups.push(
+      newLayup({ hole: 11, ref: 'green', yards: 60, label: 'short of the creek' }),
+      newLayup({ hole: 11, ref: 'tee', yards: 100, teeSet: 'blue' })
+    );
+    saveCourseNotes(notes);
+    const rect = (e) => e.getBoundingClientRect();
+    const px = (e) => parseFloat(getComputedStyle(e).fontSize);
+    const digits = (e) => /\d/.test(e.textContent);
+    const label = (e) => e.textContent.trim() || e.className;
+    const measure = async (hole) => {
+      const m = mount(veenkerRound('blue', hole), { fix: fixAtPos(teeOrigin(G, hole, 'blue'), 3) });
+      await wait();
+      const mapR = rect(mapBtn(m));
+      const p = await open(m);
+      const sc = p.querySelector('.ho-scroll');
+      const you = col(p, 'you');
+      const tee = col(p, 'tee');
+      const centre = you.querySelector('.ho-c');
+      const out = { features: holeFeatures(G, hole).length, layups: p.querySelectorAll('.ho-layup').length };
+      out.sideways = Math.max(
+        p.scrollWidth - p.clientWidth,
+        sc.scrollWidth - sc.clientWidth,
+        document.documentElement.scrollWidth - document.documentElement.clientWidth
+      );
+      out.centre = px(centre);
+      const youNums = [...you.querySelectorAll('.v'), ...p.querySelectorAll('.ho-lv.you b')].filter((e) => e !== centre && digits(e));
+      const teeNums = [...tee.querySelectorAll('.v'), ...p.querySelectorAll('.ho-lv.tee b')].filter(digits);
+      out.youCount = youNums.length;
+      out.youMin = Math.min(...youNums.map(px));
+      out.teeCount = teeNums.length;
+      out.teeMin = Math.min(...teeNums.map(px));
+      const targets = [...p.querySelectorAll('button, [role="button"]')].filter((e) => rect(e).width > 0);
+      out.targets = targets.length;
+      out.small = targets.filter((e) => rect(e).width < 48 || rect(e).height < 48).map(label);
+      out.close = [];
+      for (let i = 0; i < targets.length; i++) {
+        for (let j = i + 1; j < targets.length; j++) {
+          const a = rect(targets[i]);
+          const b = rect(targets[j]);
+          const gap = Math.max(b.left - a.right, a.left - b.right, b.top - a.bottom, a.top - b.bottom);
+          if (gap < 8) out.close.push(`${label(targets[i])} / ${label(targets[j])}: ${gap.toFixed(1)} px`);
+        }
+      }
+      const bar = p.querySelector('.ho-bar');
+      const creek = p.querySelector('.ho-creek');
+      const barTop = rect(bar).top;
+      const creekTop = creek.hidden ? null : rect(creek).top;
+      sc.scrollTop = sc.scrollHeight;
+      out.scrolled = sc.scrollTop;
+      out.barMoved = Math.abs(rect(bar).top - barTop);
+      out.creekMoved = creekTop == null ? null : Math.abs(rect(creek).top - creekTop);
+      const playR = rect(p.querySelector('.ho-close'));
+      out.playVsMap = Math.max(
+        Math.abs(playR.left - mapR.left),
+        Math.abs(playR.top - mapR.top),
+        Math.abs(playR.width - mapR.width),
+        Math.abs(playR.height - mapR.height)
+      );
+      if (!creek.hidden) {
+        const [a, b] = creek.querySelectorAll('.ho-cc');
+        out.creek = {
+          px: px(creek),
+          spill: creek.scrollWidth - creek.clientWidth,
+          first: a?.textContent ?? null,
+          broke: Boolean(a && b && rect(b).top > rect(a).top + 1),
+        };
+      }
+      m.done();
+      return out;
+    };
+    for (const hole of [11, 16, 1]) seven[hole] = await measure(hole);
+    restoreStorage();
+  }
+
+  test('7. fit at 360x728 on hole 11 (4 features, 2 layups), 16 (3 features, the creek line) and 1 (none)', () => {
+    eq(`${seven[11].features} ${seven[11].layups}`, '4 2', 'fixture: hole 11');
+    eq(seven[16].features, 3, 'fixture: hole 16');
+    eq(seven[1].features, 0, 'fixture: hole 1');
+    assert(seven[11].scrolled > 0, 'fixture: hole 11 scrolls, so the top bar is held to a scroll');
+    for (const hole of [11, 16, 1]) {
+      const f = seven[hole];
+      assert(f.sideways <= 0, `hole ${hole}: ${f.sideways} px of sideways scroll`);
+      eq(f.centre, 40, `hole ${hole}: YOU green centre, px`);
+      assert(f.youCount >= 2 && f.youMin >= 24, `hole ${hole}: a YOU number is ${f.youMin} px (n = ${f.youCount})`);
+      assert(f.teeCount >= 1 && f.teeMin >= 18, `hole ${hole}: a TEE number is ${f.teeMin} px (n = ${f.teeCount})`);
+      eq(f.small.join(', '), '', `hole ${hole}: tap targets under 48 px`);
+      eq(f.close.join('; '), '', `hole ${hole}: tap targets under 8 px apart`);
+      assert(f.barMoved < 0.5, `hole ${hole}: the top bar moved ${f.barMoved} px with the scroll`);
+      assert(f.playVsMap < 0.5, `hole ${hole}: PLAY is ${f.playVsMap} px from where MAP was`);
+    }
+    const c = seven[16].creek;
+    assert(c, 'hole 16: no creek line');
+    assert(c.px >= 16, `hole 16: the creek line is ${c.px} px`);
+    assert(c.spill <= 0, `hole 16: the creek line scrolls sideways by ${c.spill} px`);
+    assert(c.broke && /\(your mark\) ·$/.test(c.first), `hole 16: the line breaks after the blue number ("${c.first}")`);
+    assert(seven[16].creekMoved < 0.5, `hole 16: the creek line moved ${seven[16].creekMoved} px with the scroll`);
+  });
+
+  /* ---- 8: no photo ---- */
+  const eight = {};
+  {
+    const F = courseFrames(VEENKER);
+    const broken = { ...F, holes: F.holes.map((fr) => ({ ...fr, file: `img/veenker/no-such-photo-${fr.number}.webp` })) };
+    const pos = layupPoint(G, 7, { ref: 'green', yards: 250 }, null);
+    const make = async (frames) => {
+      const host = document.createElement('div');
+      Object.assign(host.style, { position: 'fixed', left: '0', top: '0', width: '360px', height: '629px', display: 'flex', flexDirection: 'column' });
+      const page = holeOverview({
+        course: VEENKER,
+        geometry: G,
+        frames,
+        teeSet: 'blue',
+        holes: VEENKER.holes.map((x) => x.number),
+        holeNumber: 7,
+        getFix: () => fixAtPos(pos, 3),
+      });
+      page.el.style.flex = '1';
+      host.appendChild(page.el);
+      document.body.appendChild(host);
+      const img = page.el.querySelector('.ho-photo');
+      for (let i = 0; i < 60 && !img.complete; i++) await wait(50);
+      await wait();
+      const out = {
+        noPhoto: page.el.classList.contains('no-photo'),
+        loaded: img.naturalWidth > 0,
+        hidden: getComputedStyle(img).visibility === 'hidden',
+        shapes: page.el.querySelectorAll('.ho-shapes .ho-shape').length,
+        marks: [...page.el.querySelectorAll('.ho-mk')].map((e) => e.textContent).filter(Boolean).sort().join(','),
+        dot: page.el.querySelectorAll('.ho-mk.you-dot').length,
+        nums: page.el.querySelector('.ho-nums').textContent,
+        picH: page.el.querySelector('.ho-pic').getBoundingClientRect().height,
+      };
+      page.close();
+      host.remove();
+      closeAll();
+      return out;
+    };
+    eight.photo = await make(F);
+    eight.none = await make(broken);
+  }
+
+  test('8. no photo: the outlines and the markers are drawn, the numbers are unchanged', () => {
+    eq(eight.photo.loaded, true, 'fixture: the photo loads when it is there');
+    eq(eight.photo.noPhoto, false, 'fixture: no no-photo state with the photo');
+    eq(eight.none.loaded, false, 'fixture: the photo request failed');
+    eq(eight.none.noPhoto, true, 'the page knows the photo is missing');
+    eq(eight.none.hidden, true, 'the broken image is not shown');
+    assert(eight.none.shapes > 0 && eight.none.shapes === eight.photo.shapes, `outlines: ${eight.none.shapes} vs ${eight.photo.shapes}`);
+    eq(eight.none.marks, eight.photo.marks, 'markers');
+    assert(/W1/.test(eight.none.marks) && /T/.test(eight.none.marks), `fixture: markers ${eight.none.marks}`);
+    eq(eight.none.dot, 1, 'his position');
+    eq(eight.none.nums, eight.photo.nums, 'the numbers');
+    near(eight.none.picH, eight.photo.picH, 0.5, 'the picture keeps its size');
+  });
+
+  /* ---- 9: one tap back ---- */
+  const nine = {};
+  {
+    const r = veenkerRound('gold', 5);
+    const m = mount(r);
+    await wait();
+    nine.opened = Boolean(await open(m));
+    pageOf(m)?.querySelector('.ho-close')?.click();
+    await wait();
+    nine.closed = !pageOf(m);
+    nine.nav = m.screen.el.querySelector('.holenav-current strong')?.textContent ?? null;
+    nine.index = r.currentHoleIndex;
+    nine.map = Boolean(mapBtn(m));
+    nine.saved = m.saved.length;
+    m.done();
+  }
+
+  test('9. one tap back: with the page open, PLAY returns to the play screen on the same hole', () => {
+    eq(nine.opened, true, 'the page opened');
+    eq(nine.closed, true, 'PLAY closed it');
+    eq(nine.nav, '5', "the play screen's hole");
+    eq(nine.index, 4, 'currentHoleIndex');
+    eq(nine.map, true, 'MAP is there to go again');
+    eq(nine.saved, 0, 'persistRound calls');
+  });
+
+  /* ---- 10: the creek carry off the tee stays ---- */
+  const ten = { bySet: {}, states: {}, others: {} };
+  {
+    for (const set of ['blue', 'gold', 'white']) {
+      const got = { playScreen: [] };
+      for (const hole of [15, 16]) {
+        const m = mount(veenkerRound(set, hole));
+        await wait();
+        got.playScreen.push(/CREEK CARRY/.test(m.screen.el.textContent));
+        got[hole] = creekLine(await open(m));
+        m.done();
+      }
+      ten.bySet[set] = got;
+    }
+    clearNotes();
+    const notes = loadCourseNotes('veenker');
+    for (const y of [40, 60, 80, 100, 120]) notes.layups.push(newLayup({ hole: 15, ref: 'green', yards: y }));
+    saveCourseNotes(notes);
+    const H15 = holePath(G, 15);
+    const state = async (fix, act) => {
+      const m = mount(veenkerRound('blue', 15), { fix });
+      await wait();
+      const p = await open(m);
+      const extra = await act?.(p);
+      const out = { line: creekShown(p) ? creekLine(p) : null, ...extra };
+      m.done();
+      return out;
+    };
+    ten.states.noFix = await state(null);
+    ten.states.onGreen = await state(fixAtPos(H15[H15.length - 1], 3));
+    ten.states.scrolled = await state(fixAtPos(teeOrigin(G, 15, 'blue'), 3), async (p) => {
+      const sc = p.querySelector('.ho-scroll');
+      sc.scrollTop = sc.scrollHeight;
+      await wait();
+      return { scrollTop: sc.scrollTop };
+    });
+    ten.states.filled = await state(fixAtPos(teeOrigin(G, 15, 'blue'), 3), async (p) => {
+      p.querySelector('.ho-pic')?.click();
+      await wait();
+      return { filled: p.classList.contains('filled') };
+    });
+    restoreStorage();
+    for (const hole of [7, 11]) {
+      const m = mount(veenkerRound('blue', hole));
+      await wait();
+      ten.others[hole] = creekLine(await open(m));
+      m.done();
+    }
+  }
+
+  test('10. the creek carry off the tee stays: holes 15 and 16, blue and gold, on every round and in every state; nowhere else', () => {
+    const l15 = ten.bySet.blue[15] ?? '';
+    const l16 = ten.bySet.blue[16] ?? '';
+    const m15 = /^CREEK CARRY BLUE (\d+) · GOLD (\d+)$/.exec(l15);
+    assert(m15, `hole 15 reads "${l15}"`);
+    near(Number(m15[1]), 255, 1, 'hole 15 blue');
+    near(Number(m15[2]), 223, 1, 'hole 15 gold');
+    const m16 = /^CREEK CARRY BLUE (\d+) \(your mark\) · GOLD (\d+)$/.exec(l16);
+    assert(m16, `hole 16 reads "${l16}"`);
+    near(Number(m16[1]), 477, 1, 'hole 16 blue');
+    near(Number(m16[2]), 415, 1, 'hole 16 gold');
+    assert(!/\b99\b/.test(l16) && !/\b35\b/.test(l16), `hole 16's crossing in front of the tee is on the line: "${l16}"`);
+    for (const set of ['gold', 'white']) {
+      eq(ten.bySet[set][15], l15, `hole 15 on a ${set} round`);
+      eq(ten.bySet[set][16], l16, `hole 16 on a ${set} round`);
+    }
+    for (const set of ['blue', 'gold', 'white']) eq(ten.bySet[set].playScreen.join(','), 'false,false', `the play screen, ${set} round`);
+    eq(ten.states.noFix.line, l15, 'with no fix');
+    eq(ten.states.onGreen.line, l15, 'with a fix on the green');
+    assert(ten.states.scrolled.scrollTop > 0, 'fixture: the table scrolled');
+    eq(ten.states.scrolled.line, l15, 'with the table scrolled to its end');
+    eq(ten.states.filled.filled, true, 'fixture: the picture fills the screen');
+    eq(ten.states.filled.line, l15, 'with the picture filling the screen');
+    eq(ten.others[7], null, 'hole 7');
+    eq(ten.others[11], null, 'hole 11');
+  });
+
+  /* ---- 11: a pond has no number ---- */
+  const eleven = {};
+  for (const hole of [3, 5]) {
+    const m = mount(veenkerRound('blue', hole), { fix: fixAtPos(teeOrigin(G, hole, 'blue'), 3) });
+    await wait();
+    const p = await open(m);
+    eleven[hole] = {
+      rows: [...p.querySelectorAll('.ho-col [data-row]')].map((e) => e.dataset.row),
+      w: [...p.querySelectorAll('.ho-mk')].filter((e) => /^W/.test(e.textContent)).length,
+      ponds: p.querySelectorAll('.ho-shapes .ho-shape.pond').length,
+    };
+    m.done();
+  }
+
+  test('11. a pond has no number: holes 3 and 5 have no water row and no W marker', () => {
+    for (const hole of [3, 5]) {
+      const e = eleven[hole];
+      assert(e.ponds >= 1, `fixture: hole ${hole}'s picture draws no pond`);
+      assert(e.rows.includes('B1'), `fixture: hole ${hole}'s rows ${JSON.stringify(e.rows)}`);
+      eq(e.rows.filter((r) => /^W/.test(r)).length, 0, `hole ${hole}: water rows`);
+      eq(e.w, 0, `hole ${hole}: W markers`);
+    }
+  });
+
+  /* ---- 12 (6.7): the page from the home screen ---- */
+  const twelve = {};
+  {
+    clearNotes();
+    const app = newAppState();
+    app.settings.teeByCourse = { veenker: 'gold' };
+    const went = [];
+    const s = mapScreen({ app, round: null, params: { courseId: 'veenker' }, go: (screen) => went.push(screen) });
+    Object.assign(s.el.style, { position: 'fixed', left: '0', top: '0', width: '360px', height: '728px' });
+    document.body.appendChild(s.el);
+    await wait();
+    const p = s.el.querySelector('.hole-overview');
+    twelve.you = Boolean(col(p, 'you'));
+    twelve.teeHead = col(p, 'tee')?.querySelector('h3')?.textContent ?? null;
+    twelve.tee = greenOf(col(p, 'tee'));
+    twelve.want = toGreen(G, 1, teeOrigin(G, 1, 'gold'));
+    twelve.pressed = p.querySelector('.ho-sub .seg-btn[aria-pressed="true"]')?.textContent ?? null;
+    twelve.close = p.querySelector('.ho-close')?.textContent ?? null;
+    for (let i = 0; i < 14; i++) p.querySelector('.ho-next')?.click();
+    await wait();
+    twelve.hole = p.querySelector('.ho-title strong')?.textContent ?? null;
+    twelve.creek = creekLine(p);
+    tap(p, '+ LAYUP');
+    await wait();
+    type(sheetEl()?.querySelector('.ho-in-yards'), '150');
+    tap(sheetEl(), 'SAVE');
+    await wait();
+    twelve.notes = loadCourseNotes('veenker')
+      .layups.map((l) => `${l.hole} ${l.ref} ${l.yards}`)
+      .join('; ');
+    p.querySelector('.ho-close')?.click();
+    await wait();
+    twelve.went = went.join(',');
+    s.el.remove();
+    closeAll();
+    restoreStorage();
+  }
+
+  test('12. (6.7) the page from home: no round, the TEE column, the creek line on hole 15, a layup typed there is in his notes', () => {
+    eq(twelve.you, false, 'no YOU column: GPS is not started');
+    eq(twelve.pressed, 'GOLD', 'the tee-set selector starts at teeByCourse');
+    assert(/^GOLD TEE ±\d+ yd$/.test(twelve.teeHead ?? ''), `the TEE column reads "${twelve.teeHead}"`);
+    eq(`${twelve.tee.F}/${twelve.tee.C}/${twelve.tee.B}`, `${twelve.want.frontYd}/${twelve.want.centreYd}/${twelve.want.backYd}`, 'TEE green, hole 1');
+    eq(twelve.close, 'HOME', 'HOME where PLAY is');
+    eq(twelve.hole, 'HOLE 15', 'fixture: hole 15');
+    assert(/^CREEK CARRY BLUE \d+ · GOLD \d+$/.test(twelve.creek ?? ''), `hole 15's creek line: "${twelve.creek}"`);
+    eq(twelve.notes, '15 green 150', 'the layup in his course notes');
+    eq(twelve.went, 'home', 'HOME goes home');
+  });
+
+  style.remove();
 }

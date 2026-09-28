@@ -23,6 +23,7 @@ import { summaryScreen } from './ui/screen-summary.js';
 import { historyScreen } from './ui/screen-history.js';
 import { settingsScreen } from './ui/screen-settings.js';
 import { trendsScreen } from './ui/screen-trends.js';
+import { mapScreen } from './ui/hole-overview.js';
 
 const SCREENS = {
   home: homeScreen,
@@ -32,6 +33,8 @@ const SCREENS = {
   history: historyScreen,
   settings: settingsScreen,
   trends: trendsScreen,
+  // The Hole Overview from the home screen (docs/SPEC_hole-overview.md 6.7).
+  map: mapScreen,
 };
 
 const root = document.getElementById('app');

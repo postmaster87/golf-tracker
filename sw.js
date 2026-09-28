@@ -68,6 +68,7 @@ const SHELL = [
   './js/ui/screen-summary.js',
   './js/ui/screen-history.js',
   './js/ui/screen-settings.js',
+  './js/ui/hole-overview.js',
 ];
 
 self.addEventListener('install', (e) => {

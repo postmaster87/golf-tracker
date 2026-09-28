@@ -2,6 +2,7 @@ import { h, card } from './dom.js';
 import { getCourse } from '../data/courses.js';
 import { roundTotals, fmtToPar } from '../round/round.js';
 import { loadRound } from '../data/store.js';
+import { courseGeometry, courseFrames } from '../round/course-geometry.js';
 
 const NINE_LABEL = { front: 'Front 9 first', back: 'Back 9 first' };
 
@@ -93,6 +94,18 @@ export function homeScreen(ctx) {
       onClick: () => ctx.go('trends'),
     })
   );
+  // The Hole Overview without a round (docs/SPEC_hole-overview.md 6.7, his
+  // ruling 14): only for a course with a map and its pictures.
+  if (courseGeometry(course) && courseFrames(course)) {
+    body.appendChild(
+      h('button', {
+        class: 'btn',
+        style: { marginBottom: '8px' },
+        text: 'COURSE MAP',
+        onClick: () => ctx.go('map', { courseId: course.id }),
+      })
+    );
+  }
   body.appendChild(
     h(
       'div',

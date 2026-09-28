@@ -16,7 +16,8 @@ import { LIES, LIE_LABELS, PENALTY_TYPES, isUnscored } from '../data/schema.js';
 import { getCourse, playOrder, holeYards } from '../data/courses.js';
 import { distanceM, toFeet, toYards } from '../util/geo.js';
 import { ringCentroid } from '../util/polygon.js';
-import { courseGeometry, toGreen, lieAt } from '../round/course-geometry.js';
+import { courseGeometry, courseFrames, toGreen, lieAt } from '../round/course-geometry.js';
+import { holeOverview } from './hole-overview.js';
 import { greenFrame, pinFromSheet, PIN_OFF_GREEN_M } from '../round/hole-position.js';
 import {
   currentHole,
@@ -307,6 +308,36 @@ export function playScreen(ctx) {
    */
   const hudGreen = geometry && !editing ? h('span', { class: 'hud-green' }) : null;
   const navRow = h('nav', { class: 'holenav' });
+  /*
+   * THE HOLE OVERVIEW (docs/SPEC_hole-overview.md 6.2). MAP, a fourth control
+   * at the right end of the hole navigation row, on a live round on a course
+   * with a map and its pictures - never Radcliffe. It tests `editing` itself:
+   * edit mode has a map since v33. The page opens over this screen inside its
+   * own element and PLAY closes it; nothing here is rebuilt, and opening,
+   * looking and closing change nothing in the round and save nothing.
+   */
+  const frames = !editing && geometry ? courseFrames(getCourse(ctx.app, round.courseId)) : null;
+  if (frames) navRow.classList.add('has-map');
+  let overview = null;
+  function openOverview() {
+    if (overview) return;
+    overview = holeOverview({
+      course: getCourse(ctx.app, round.courseId),
+      geometry,
+      frames,
+      teeSet: round.teeSet,
+      holes: round.holes.map((x) => x.number),
+      holeNumber: hole().number,
+      getFix: () => ctx.gps.current,
+      onClose: () => {
+        overview = null;
+      },
+    });
+    overview.el.classList.add('ho-over');
+    // From the top of the hole navigation row, so PLAY lands exactly on MAP.
+    overview.el.style.top = `${navRow.getBoundingClientRect().top - el.getBoundingClientRect().top}px`;
+    el.appendChild(overview.el);
+  }
 
   el.appendChild(
     h(
@@ -376,6 +407,11 @@ export function playScreen(ctx) {
         onClick: () => goToHole(i + 1),
       })
     );
+    if (frames) {
+      navRow.appendChild(
+        h('button', { class: 'holenav-map', text: 'MAP', 'aria-label': 'Hole overview', onClick: openOverview })
+      );
+    }
   }
 
   /* ------------------------------------------------------------ live bits */
@@ -491,6 +527,7 @@ export function playScreen(ctx) {
   }
 
   function tick() {
+    overview?.tick();
     paintTrackChip();
     paintGreen();
     const fix = ctx.gps.current;
