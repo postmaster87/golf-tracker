@@ -52,8 +52,10 @@ def fail(msg):
 
 
 def sha(name):
+    """The input's sha256 with CRLF read as LF: the committed file's hash in any
+    checkout (docs/SPEC_hole-overview.md 14.2, R3). Every input here is text."""
     with open(os.path.join(MAP, name), 'rb') as f:
-        return hashlib.sha256(f.read()).hexdigest()
+        return hashlib.sha256(f.read().replace(b'\r\n', b'\n')).hexdigest()
 
 
 def r7(v):
@@ -229,8 +231,15 @@ for ln in markup:
     if colour not in t['sets']:
         t['sets'].append(colour)
 
-# (2) Hole 9 has no tips: its tees are exactly the corrections file's ids, sets [].
+# (2) Hole 9 has no tips: its tees are exactly the corrections file's ids. Its
+# blue and gold boxes are the corrections file's `blue_tee_osm_id` and
+# `gold_tee_osm_id` - his "yes to 9", 2026-09-15 (README, Confirmed facts;
+# docs/SPEC_hole-overview.md Section 7). The other hole 9 box carries no set.
 h9_ids = corr['hole9']['tee_osm_ids_near_line_start']
+h9_sets = {corr['hole9']['blue_tee_osm_id']: 'blue', corr['hole9']['gold_tee_osm_id']: 'gold'}
+for tid in h9_sets:
+    if tid not in h9_ids:
+        fail(f'hole 9 {h9_sets[tid]} tee {tid} (corrections) is not one of its tees {h9_ids}')
 tee_by_pid = {t['id']: t for t in tees}
 for tid in h9_ids:
     t = tee_by_pid.get(tid)
@@ -238,8 +247,11 @@ for tid in h9_ids:
         fail(f'hole 9 tee {tid} (corrections) is not a tee polygon')
     elif tid in tipped:
         fail(f'hole 9 tee {tid} (corrections) carries a markup tip')
-    elif 9 not in t['holes']:
-        t['holes'].append(9)
+    else:
+        if 9 not in t['holes']:
+            t['holes'].append(9)
+        if tid in h9_sets and h9_sets[tid] not in t['sets']:
+            t['sets'].append(h9_sets[tid])
 
 # (3) Every other untipped box: the hole whose line START is nearest, if <= 60 m.
 for t in tees:

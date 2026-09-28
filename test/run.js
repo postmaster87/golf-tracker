@@ -2975,6 +2975,23 @@ group('hole overview (numbers)');
     eq(holeNumbers(R, 1, pt), null, 'holeNumbers');
     eq(layupPoint(R, 1, { ref: 'green', yards: 100 }, pt), null, 'layupPoint');
   });
+
+  // Section 7 (Part E): his "yes to 9", 2026-09-15 - the back box blue, the next gold.
+  test("hole 9's tees: blue 1065750754 and gold 199289144, and their numbers", () => {
+    eq(teeOrigin(G, 9, 'blue').id, 1065750754, 'hole 9 blue');
+    eq(teeOrigin(G, 9, 'gold').id, 199289144, 'hole 9 gold');
+    for (const [set, green, b1, b2] of [
+      ['blue', [496, 513, 530], [472, 480], [493, 511]],
+      ['gold', [457, 473, 490], [432, 440], [454, 473]],
+    ]) {
+      const n = holeNumbers(G, 9, teeOrigin(G, 9, set));
+      near(n.green.frontYd, green[0], 1, `${set} green front`);
+      near(n.green.centreYd, green[1], 1, `${set} green centre`);
+      near(n.green.backYd, green[2], 1, `${set} green back`);
+      yd(n.features, 'B1', b1[0], b1[1], `hole 9 ${set}`);
+      yd(n.features, 'B2', b2[0], b2[1], `hole 9 ${set}`);
+    }
+  });
 }
 
 /**
@@ -3025,7 +3042,9 @@ export async function runHoleOverviewPictureTests() {
       const pts = [['green centre', H[H.length - 1]], ...holeFeatures(G, fr.number).map((f) => [f.name, f.at])];
       for (const set of ['blue', 'gold']) {
         const t = teeOrigin(G, fr.number, set);
-        if (t) pts.push([`${set} tee`, t]);
+        // Every hole has both since Part E put hole 9's on the map: none is skipped.
+        assert(t, `hole ${fr.number}: no ${set} tee`);
+        pts.push([`${set} tee`, t]);
       }
       for (const [what, pos] of pts) assert(inImage(fr, pos), `hole ${fr.number}: ${what} is outside the picture`);
     }

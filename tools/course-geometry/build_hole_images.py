@@ -133,8 +133,14 @@ def frame_px(fr, pos):
 
 # ------------------------------------------------------------------- inputs
 def sha256(path):
+    """A text input (.json, .js) is hashed with CRLF read as LF, so the recorded
+    hash is the committed file's in any checkout; the photo is hashed as it is
+    (docs/SPEC_hole-overview.md 14.2, R3)."""
     with open(path, 'rb') as f:
-        return hashlib.sha256(f.read()).hexdigest()
+        data = f.read()
+    if os.path.splitext(path)[1].lower() in ('.json', '.js'):
+        data = data.replace(b'\r\n', b'\n')
+    return hashlib.sha256(data).hexdigest()
 
 
 def load_geometry():
