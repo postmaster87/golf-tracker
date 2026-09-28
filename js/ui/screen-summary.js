@@ -14,6 +14,8 @@ import { isUnscored } from '../data/schema.js';
 import { stopCandidates } from '../round/track-analysis.js';
 import { toYards, toFeet } from '../util/geo.js';
 import { median } from '../util/stats.js';
+import { getCourse } from '../data/courses.js';
+import { courseGeometry } from '../round/course-geometry.js';
 import {
   roundTotals,
   holeStrokes,
@@ -23,7 +25,8 @@ import {
   gir,
   scramble,
   shotGeometry,
-  accumulatedHolePosition,
+  holePosition,
+  holeContextFor,
   isHoleComplete,
   fmtToPar,
   fmtDistance,
@@ -144,7 +147,7 @@ export function summaryScreen(ctx) {
     body.appendChild(driveCard(round, ctx.app));
   }
   body.appendChild(scorecard(round));
-  body.appendChild(dataQuality(round, t));
+  body.appendChild(dataQuality(round, t, ctx.app));
 
   if (!ctx.params.live) {
     body.appendChild(
@@ -192,12 +195,83 @@ function scrambleNotice() {
   );
 }
 
+/*
+ * docs/SPEC_hole-position.md Section 2.1, [measured] from the phone's store as
+ * pulled 2026-09-28: the 31 cups he marked with a burst on or within 5 yd of
+ * their own green at Veenker sit a median 5.5 yd from the map's green centre.
+ * Constants, not recomputed: the line under the strokes gained card quotes them.
+ */
+const MAP_GREEN_MEDIAN_YD = 5.5;
+const MAP_GREEN_N = 31;
+
+/** A distance he typed carries its unit as its source. */
+const TYPED_SOURCES = new Set(['yards', 'feet', 'paces', 'entered']);
+
+/**
+ * "Distance to the hole: ..." - what every distance on the card was measured
+ * to, every count with its source (docs/SPEC_hole-position.md 6.4).
+ */
+function sourcesLine(sources) {
+  const n = (k) => sources[k] ?? 0;
+  const s = (c, one, many) => (c === 1 ? one : many);
+  const typed = Object.entries(sources)
+    .filter(([k]) => TYPED_SOURCES.has(k))
+    .reduce((a, [, v]) => a + v, 0);
+  // The tees are counted as tees; the first count after them says "shots",
+  // the rest read on from it, as in the spec's own line.
+  const counts = [];
+  if (n('map-green')) counts.push([n('map-green'), "to the centre of the map's green"]);
+  if (n('pin-sheet')) counts.push([n('pin-sheet'), 'to your pin sheet']);
+  if (n('cup')) counts.push([n('cup'), 'to the cup']);
+  if (n('ball-on-green')) counts.push([n('ball-on-green'), 'to your ball on the green']);
+  if (typed) counts.push([typed, 'you typed']);
+  if (n('accumulated-cup')) counts.push([n('accumulated-cup'), 'to where the cup was in earlier rounds']);
+  if (n('accumulated-green')) counts.push([n('accumulated-green'), 'to where the ball finished on the green in earlier rounds']);
+  const named = new Set(['scorecard', 'map-green', 'pin-sheet', 'cup', 'ball-on-green', 'accumulated-cup', 'accumulated-green', 'unknown']);
+  for (const [k, v] of Object.entries(sources)) if (!named.has(k) && !TYPED_SOURCES.has(k)) counts.push([v, `from ${k}`]);
+  if (n('unknown')) counts.push([n('unknown'), 'with no distance']);
+  const parts = counts.map(([c, what], i) => (i === 0 ? `${c} ${s(c, 'shot', 'shots')} ${what}` : `${c} ${what}`));
+  if (n('scorecard')) parts.unshift(`${n('scorecard')} ${s(n('scorecard'), 'tee', 'tees')} from the scorecard`);
+  return parts.length ? `Distance to the hole: ${parts.join(', ')}.` : null;
+}
+
+const PASSED_OVER = {
+  'cup:from-track': 'the cup was taken from the track, not marked',
+  'cup:off-green': "the marked cup is not on that hole's green on the map",
+  'ball:off-green': "the ball marked on the green is not on that hole's green on the map",
+  'pin-sheet:off-green': "your pin sheet lands off that hole's green on the map",
+  'pin-sheet:not-placed': "your pin sheet could not be placed on that hole's green",
+};
+const USED_INSTEAD = {
+  'map-green': "the map's green was used",
+  'pin-sheet': 'your pin sheet was used',
+  'ball-on-green': 'the ball on the green was used',
+};
+
+/**
+ * One line per reason a position was passed over, holes listed: "Holes 1, 10,
+ * 12: the marked cup is not on that hole's green on the map, so the map's
+ * green was used." Grouped by what was used instead too, so every line is true
+ * of every hole it names.
+ */
+function positionNoteLines(notes) {
+  const groups = new Map();
+  for (const nt of notes) {
+    const key = `${nt.what}:${nt.why}:${nt.used}`;
+    if (!groups.has(key)) groups.set(key, { ...nt, holes: [] });
+    groups.get(key).holes.push(nt.hole);
+  }
+  return [...groups.values()].map((g) => {
+    const holes = `${g.holes.length === 1 ? 'Hole' : 'Holes'} ${g.holes.join(', ')}`;
+    const what = PASSED_OVER[`${g.what}:${g.why}`] ?? `the ${g.what} was not used (${g.why})`;
+    const used = USED_INSTEAD[g.used] ?? `the ${g.used} was used`;
+    return `${holes}: ${what}, so ${used}.`;
+  });
+}
+
 function strokesGainedCard(round, ctx) {
   const baseline = ctx.app.settings.sgBaseline ?? 'scratch';
-  const sg = roundStrokesGained(round, {
-    baseline,
-    fallbackFor: (hole) => accumulatedHolePosition(ctx.app, round.courseId, hole.number),
-  });
+  const sg = roundStrokesGained(round, { baseline, contextFor: holeContextFor(ctx.app, round) });
 
   const wrap = card(`Strokes gained vs ${BASELINES[baseline]?.label ?? baseline}`);
 
@@ -227,6 +301,21 @@ function strokesGainedCard(round, ctx) {
       text: `Total ${fmtSG(sg.total)} over ${sg.holesScored} hole${sg.holesScored === 1 ? '' : 's'}`,
     })
   );
+
+  // Where the hole was taken from for every number above (6.4).
+  const said = sourcesLine(sg.sources);
+  if (said) wrap.appendChild(h('p', { class: 'note muted', text: said }));
+  for (const line of positionNoteLines(sg.positionNotes)) {
+    wrap.appendChild(h('p', { class: 'note', text: line }));
+  }
+  if (sg.sources['map-green']) {
+    wrap.appendChild(
+      h('p', {
+        class: 'note muted',
+        text: `The centre of the green is a median ${MAP_GREEN_MEDIAN_YD} yd from where the cup was (n = ${MAP_GREEN_N} cups marked at Veenker). The total does not depend on it; the split between approach and short game does.`,
+      })
+    );
+  }
 
   // Practice priority — worst first. The spec calls this the whole point.
   const ranked = practicePriority(sg).filter((r) => r.shots > 0);
@@ -345,9 +434,10 @@ function puttingCard(t) {
 /** Measured tee-shot distances on par 4s and 5s. Median, because n is small. */
 function driveCard(round, app) {
   const drives = [];
+  const contextFor = holeContextFor(app, round);
   for (const hl of round.holes) {
     if (hl.par < 4 || hl.manual) continue;
-    const geo = shotGeometry(hl, accumulatedHolePosition(app, round.courseId, hl.number));
+    const geo = shotGeometry(hl, contextFor(hl));
     const first = geo[0];
     if (first?.shot.lie === 'tee' && first.lengthM != null) drives.push(first.lengthM);
   }
@@ -419,7 +509,7 @@ function scorecard(round) {
  * as good as the marks underneath it, and this is where a bad round of GPS
  * shows up before it reaches a trend line.
  */
-function dataQuality(round, t) {
+function dataQuality(round, t, app) {
   const marks = [];
   for (const hl of round.holes) {
     for (const s of hl.shots) if (s.mark) marks.push(s.mark.accuracyM);
@@ -437,23 +527,28 @@ function dataQuality(round, t) {
     )
   );
   // Where the hole itself was taken from, per hole — this is what sets the
-  // error bar on every approach distance, so it does not get buried.
-  const sources = { cup: 0, 'ball-on-green': 0, none: 0 };
+  // error bar on every approach distance, so it does not get buried. Counted by
+  // the position the engine resolved (docs/SPEC_hole-position.md 6.4).
+  const mapped = Boolean(courseGeometry(getCourse(app, round.courseId)));
+  const contextFor = holeContextFor(app, round);
+  const sources = { cup: 0, 'pin-sheet': 0, 'ball-on-green': 0, 'map-green': 0, none: 0 };
   for (const hl of round.holes) {
     if (!hl.shots.length || hl.manual) continue;
-    if (hl.cup) sources.cup++;
-    else if (hl.shots.some((s) => s.lie === 'green' && s.mark)) sources['ball-on-green']++;
+    const src = holePosition(hl, contextFor(hl))?.source;
+    if (src === 'cup' || src === 'pin-sheet' || src === 'ball-on-green' || src === 'map-green') sources[src]++;
     else sources.none++;
   }
   const parts = [];
   if (sources.cup) parts.push(`${sources.cup} from a cup mark (exact)`);
+  if (sources['pin-sheet']) parts.push(`${sources['pin-sheet']} from your pin sheet, placed on the map's green`);
   if (sources['ball-on-green']) parts.push(`${sources['ball-on-green']} from the ball on the green (± the first putt)`);
+  if (sources['map-green']) parts.push(`${sources['map-green']} from the centre of the map's green (± half its depth)`);
   if (parts.length) {
     wrap.appendChild(
       h('p', { class: 'note muted', text: `Hole position: ${parts.join(', ')}.` })
     );
   }
-  if (sources.none) {
+  if (sources.none && !mapped) {
     wrap.appendChild(
       h('p', {
         class: 'note',

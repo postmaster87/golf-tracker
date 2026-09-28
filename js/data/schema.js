@@ -333,6 +333,17 @@ export function newHole({ number, playOrder, par, yards, hcp }) {
      */
     cup: null, // Mark
     /**
+     * His tournament pin sheet, as he typed it (docs/SPEC_hole-position.md
+     * Section 5): paces on from the front edge, the side, paces from that side,
+     * which convention (`sideFrom`) and his stride - never a latitude or
+     * longitude. The pin is placed on the course map's green when it is read.
+     *
+     * Additive and optional, like `device.recorder`: `schemaVersion` does not
+     * move and `migrate()` does not change, so a round logged before it simply
+     * has no key, and a reader treats a missing key as null.
+     */
+    pinSheet: null, // { onPaces, side: 'L'|'R'|'C', sidePaces, sideFrom: 'edge'|'centre', paceFeet, enteredAt }
+    /**
      * Set when the hole's putts were entered after holing out. Records the
      * count and the units used, so a hole can be told apart from one that was
      * simply abandoned mid-way.

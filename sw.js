@@ -26,7 +26,7 @@
 // v25: the lie field is first in the capture card and the card is first in the
 // body, so the whole lie grid sits above the footer at 360x780 and does not move
 // when the burst ends.
-const CACHE = 'gt-shell-v32';
+const CACHE = 'gt-shell-v33';
 const NET_TIMEOUT_MS = 2500;
 const SHELL = [
   './',
@@ -53,6 +53,7 @@ const SHELL = [
   './js/round/round.js',
   './js/round/track-analysis.js',
   './js/round/course-geometry.js',
+  './js/round/hole-position.js',
   './js/analysis/tour-benchmark.js',
   './js/analysis/benchmarks.js',
   './js/analysis/strokes-gained.js',

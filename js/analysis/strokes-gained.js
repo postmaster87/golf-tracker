@@ -28,7 +28,7 @@ import {
   CATEGORY_DEFINITION,
 } from './benchmarks.js';
 import { toYards, toFeet } from '../util/geo.js';
-import { shotGeometry, holePutts, puttDistancesFt, isHoleComplete, penaltyStrokes } from '../round/round.js';
+import { shotGeometry, holePosition, holePutts, puttDistancesFt, isHoleComplete, penaltyStrokes } from '../round/round.js';
 
 export const CATEGORIES = ['off_tee', 'approach', 'short_game', 'putting'];
 
@@ -74,9 +74,12 @@ export function categorize(lie, distanceYards, par, isFirstShot, shortGameYards 
  * The sequence of positions on a hole, as (lie, distance) pairs the benchmark
  * tables can be looked up with. Distances are yards off the green and feet on
  * it, matching the tables' own units.
+ *
+ * `context` is where the hole is read from, `{ geometry, accumulated }`
+ * (`holeContextFor` in round.js; docs/SPEC_hole-position.md Section 3).
  */
-export function holeStates(hole, fallbackPos = null) {
-  const geo = shotGeometry(hole, fallbackPos);
+export function holeStates(hole, context = {}) {
+  const geo = shotGeometry(hole, context);
   return geo.map((g) => {
     const onGreen = g.shot.lie === 'green';
     return {
@@ -89,6 +92,9 @@ export function holeStates(hole, fallbackPos = null) {
       lengthYards: g.lengthM == null ? null : toYards(g.lengthM),
       onGreen,
       source: g.toHoleSource,
+      // The error bar the hole position carried, in yards; null for a typed
+      // distance and for the scorecard tee.
+      uncertaintyYd: g.toHoleUncertaintyM == null ? null : toYards(g.toHoleUncertaintyM),
     };
   });
 }
@@ -104,7 +110,7 @@ export function holeStrokesGained(hole, opts = {}) {
   const {
     baseline = DEFAULT_BASELINE,
     shortGameYards = DEFAULT_SHORT_GAME_YARDS,
-    fallbackPos = null,
+    context = {},
   } = opts;
 
   const out = {
@@ -138,7 +144,7 @@ export function holeStrokesGained(hole, opts = {}) {
 
   if (!isHoleComplete(hole)) return out;
 
-  const states = holeStates(hole, fallbackPos);
+  const states = holeStates(hole, context);
   const lookup = (st) => expectedStrokes(st.lie, st.distance, { baseline });
 
   states.forEach((st, i) => {
@@ -163,6 +169,7 @@ export function holeStrokesGained(hole, opts = {}) {
       distance: st.distance,
       distanceUnit: st.onGreen ? 'ft' : 'yd',
       distanceSource: st.source,
+      distanceUncertaintyYd: st.uncertaintyYd,
       lengthYards: st.lengthYards,
       expectedStart: eStart,
       expectedEnd: eEnd,
@@ -224,6 +231,19 @@ export function puttingSG(hole, { baseline = DEFAULT_BASELINE } = {}) {
  * that could not be placed, and it is reported alongside every figure — the
  * point of this app is honest attribution, and a category total means nothing
  * without knowing what was left out of it.
+ *
+ * `opts.contextFor(hole)` says where each hole is read from, `{ geometry,
+ * accumulated }` (`holeContextFor` in round.js). Two more things travel with
+ * the totals (docs/SPEC_hole-position.md 6.3):
+ *
+ *   `sources`       for the shots that are not putts, how many took their
+ *                   distance from each source - `scorecard`, `cup`,
+ *                   `pin-sheet`, `ball-on-green`, `map-green`, a typed unit,
+ *                   `accumulated-cup`, `accumulated-green` - and `unknown` for
+ *                   a shot with no distance.
+ *   `positionNotes` every position passed over on a hole scored,
+ *                   `{ hole, what, why, offM, used }`, `used` being the source
+ *                   the hole was read from instead.
  */
 export function roundStrokesGained(round, opts = {}) {
   const totals = { off_tee: 0, approach: 0, short_game: 0, putting: 0 };
@@ -231,11 +251,13 @@ export function roundStrokesGained(round, opts = {}) {
   const holes = [];
   let unattributed = 0;
   const reasons = [];
+  const sources = {};
+  const positionNotes = [];
 
   for (const hole of round.holes) {
     if (!isHoleComplete(hole)) continue;
-    const fallbackPos = opts.fallbackFor?.(hole) ?? null;
-    const hs = holeStrokesGained(hole, { ...opts, fallbackPos });
+    const context = opts.contextFor?.(hole) ?? {};
+    const hs = holeStrokesGained(hole, { ...opts, context });
     for (const c of CATEGORIES) {
       totals[c] += hs.categories[c];
       counts[c] += hs.counts[c];
@@ -243,6 +265,17 @@ export function roundStrokesGained(round, opts = {}) {
     unattributed += hs.unattributed;
     reasons.push(...hs.reasons);
     holes.push({ number: hole.number, par: hole.par, ...hs });
+
+    for (const s of hs.shots) {
+      if (s.category === 'putting') continue;
+      const key = s.distance == null ? 'unknown' : s.distanceSource;
+      sources[key] = (sources[key] ?? 0) + 1;
+    }
+    // A hand-entered hole reads no position, so it passes none over.
+    if (!hole.manual) {
+      const pos = holePosition(hole, context);
+      for (const sk of pos?.skipped ?? []) positionNotes.push({ hole: hole.number, ...sk, used: pos.source });
+    }
   }
 
   const total = CATEGORIES.reduce((a, c) => a + totals[c], 0);
@@ -256,6 +289,8 @@ export function roundStrokesGained(round, opts = {}) {
     reasons,
     holes,
     holesScored: holes.length,
+    sources,
+    positionNotes,
   };
 }
 

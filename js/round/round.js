@@ -10,10 +10,13 @@
 import { distanceM, toYards, toFeet, feetToM } from '../util/geo.js';
 import { newRound, newHole, newShot, newMark } from '../data/schema.js';
 import { PUTTER } from '../data/clubs.js';
-import { playOrder, holeYards } from '../data/courses.js';
+import { playOrder, holeYards, getCourse } from '../data/courses.js';
 // One direction only: track-analysis knows nothing about rounds, so this cannot
 // close a cycle.
 import { candidateAccuracyM, candidateQuality } from './track-analysis.js';
+// Same: neither the course map nor the hole position imports this file.
+import { courseGeometry } from './course-geometry.js';
+import { resolveHolePosition } from './hole-position.js';
 
 /* ------------------------------------------------------------ construction */
 
@@ -259,6 +262,39 @@ export function setCupFromPaces(hole, located, entry) {
 /** True when this hole's cup was described rather than marked. */
 export const cupIsPaced = (hole) => hole?.cup?.method === 'paces';
 
+/**
+ * His tournament pin sheet for a hole (docs/SPEC_hole-position.md Section 5).
+ *
+ * Matt, 2026-09-28: *"map center with the option for me to correct it manually
+ * by entering tournament pin sheet numbers"*. What is stored is what he typed -
+ * paces on from the front edge, the side, paces from that side, the convention
+ * and his stride - never a latitude or longitude: the pin is placed from the
+ * map when it is read (`pinFromSheet`), so a corrected map moves the pin with
+ * the green, and a recalibrated stride can be reapplied.
+ *
+ * Touches `hole.pinSheet` and nothing else: not the shots, not `hole.cup`
+ * (which keeps meaning a position he marked), not `greenEntry`, not
+ * `completedAt`. Returns the entry stored.
+ */
+export function setPinSheet(hole, entry) {
+  hole.pinSheet = {
+    onPaces: entry.onPaces,
+    side: entry.side,
+    sidePaces: entry.side === 'C' ? null : entry.sidePaces ?? null,
+    sideFrom: entry.sideFrom ?? 'edge',
+    paceFeet: entry.paceFeet,
+    enteredAt: entry.enteredAt ?? new Date().toISOString(),
+  };
+  return hole.pinSheet;
+}
+
+/** Take the pin sheet off a hole. Returns what was there, so it can be put back. */
+export function clearPinSheet(hole) {
+  const was = hole.pinSheet ?? null;
+  hole.pinSheet = null;
+  return was;
+}
+
 export function attachPenalty(shot, { type, strokes = 1, note = null }) {
   shot.penalty = { type, strokes, note };
   return shot;
@@ -431,7 +467,13 @@ export function penaltyStrokes(hole) {
  *
  * Marking at the cup is exact but means handling a phone on the green, which is
  * a bad trade during the part of the round that needs the most feel. So the
- * position degrades through tiers, each one reporting its own uncertainty:
+ * position degrades through tiers, each one reporting its own uncertainty.
+ *
+ * On a course with a map (docs/SPEC_hole-position.md Section 3.1): the cup he
+ * marked, never one taken from the track; his pin sheet placed on the map's
+ * green; the ball on the green; the centre of the map's green. A cup or ball
+ * mark that is not on the hole's own green is passed over and named in
+ * `skipped`. With no map, as before:
  *
  *   1. cup mark          — exact (± the mark's own accuracy)
  *   2. ball-on-green     — off by at most the first putt, which is paced and
@@ -441,46 +483,62 @@ export function penaltyStrokes(hole) {
  *                          on this hole, passed in by the caller. Uncertainty
  *                          is roughly how far the pin moves.
  *
- * Nothing here ever guesses silently: `source` and `uncertaintyM` travel with
- * the position, and the UI shows them.
+ * `context` is `{ geometry, accumulated }` (`holeContextFor` builds it). Nothing
+ * here ever guesses silently: `source` and `uncertaintyM` travel with the
+ * position, and the UI shows them.
  */
-export function holePosition(hole, fallback = null) {
-  if (hole.cup) {
-    return {
-      lat: hole.cup.lat,
-      lon: hole.cup.lon,
-      source: 'cup',
-      uncertaintyM: hole.cup.accuracyM ?? 0,
-    };
-  }
-  const firstPutt = hole.shots.find((s) => s.lie === 'green' && s.mark);
-  if (firstPutt) {
-    // Unknown putt length is treated as a generous 30 ft rather than zero —
-    // an honest wide bound beats a flattering narrow one.
-    const offsetM = firstPutt.distanceFt != null ? feetToM(firstPutt.distanceFt) : feetToM(30);
-    return {
-      lat: firstPutt.mark.lat,
-      lon: firstPutt.mark.lon,
-      source: 'ball-on-green',
-      uncertaintyM: Math.round((offsetM + (firstPutt.mark.accuracyM ?? 0)) * 10) / 10,
-    };
-  }
-  return fallback;
+export function holePosition(hole, context = {}) {
+  return resolveHolePosition(hole, context ?? {});
 }
 
-export function shotGeometry(hole, fallbackPos = null) {
+/**
+ * The context `holePosition` resolves a hole in, for every hole of a round: the
+ * course map (null with none) and the position earlier rounds learned. Every
+ * caller that measures a distance to the hole uses this, so the screens and the
+ * engine read the same hole.
+ */
+export function holeContextFor(app, round) {
+  const geometry = courseGeometry(getCourse(app, round?.courseId));
+  return (hole) => ({
+    geometry,
+    accumulated: accumulatedHolePosition(app, round?.courseId, hole.number),
+  });
+}
+
+export function shotGeometry(hole, context = {}) {
   const { shots } = hole;
-  const pin = holePosition(hole, fallbackPos);
+  const pin = holePosition(hole, context);
   // When the hole's position comes from the ball on the green, that ball cannot
   // measure its own distance to the hole — it would read zero, which is a lie.
   // Only the paced putt distance can answer for it.
   const anchorId =
     pin?.source === 'ball-on-green' ? shots.find((s) => s.lie === 'green' && s.mark)?.id : null;
+  // A shot with no next mark ends at the hole only when the hole is a cup that
+  // was used: a cup passed over does not measure a shot's length (6.2).
+  const cupEnd = pin?.source === 'cup' ? pin : null;
 
   return shots.map((s, i) => {
     const next = shots[i + 1];
-    const end = next?.mark ?? hole.cup ?? null;
+    const end = next?.mark ?? cupEnd;
     const paced = s.distanceFt != null;
+    /*
+     * Shot 1 from the course map reads the scorecard yardage (6.1). Matt,
+     * 2026-09-28: *"needs to default to the scorecard"*. The benchmark's tee
+     * distance is the hole's length along the fairway, not a straight line, and
+     * the box centre is not a mark he stood on, so there is no drive length.
+     * A distance he typed still wins, as it does on every other shot.
+     */
+    if (!paced && s.source === 'map' && s.lie === 'tee') {
+      const known = Number.isFinite(hole.yards) && hole.yards > 0;
+      return {
+        shot: s,
+        toHoleM: known ? hole.yards * 0.9144 : null,
+        toHoleSource: known ? 'scorecard' : null,
+        toHoleUncertaintyM: null,
+        lengthM: null,
+        endsAtCup: !next && Boolean(hole.cup),
+      };
+    }
     const measurable = !paced && s.id !== anchorId && s.mark && pin;
     return {
       shot: s,

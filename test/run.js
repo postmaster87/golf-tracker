@@ -8,8 +8,9 @@
 
 import { GEO_FIXTURES } from './fixtures.js';
 import { distanceM, bearingDeg, radiiAt, toYards, toFeet, feetToM, weightedCentroid, enuOffset, offsetPoint } from '../js/util/geo.js';
-import { pointInRing, distanceToPolyline, ringCentroid, rayRingIntersections } from '../js/util/polygon.js';
+import { pointInRing, distanceToPolyline, distanceToRing, ringCentroid, rayRingIntersections } from '../js/util/polygon.js';
 import { courseGeometry, lieAt, toGreen, nearestHole } from '../js/round/course-geometry.js';
+import { greenFrame, pinFromSheet, offOwnGreenM, HOLE_ON_GREEN_M, APPROACH_BACK_M } from '../js/round/hole-position.js';
 import { median, mad } from '../js/util/stats.js';
 import { reduceBurst, GpsService } from '../js/gps/gps.js';
 import { VEENKER, RADCLIFFE, playOrder, holeYards, newCustomCourse } from '../js/data/courses.js';
@@ -45,6 +46,9 @@ import {
   puttDistancesFt,
   penaltyStrokes,
   holePosition,
+  holeContextFor,
+  setPinSheet,
+  addMapTee,
   isHoleComplete,
   learnGreen,
   accumulatedHolePosition,
@@ -985,7 +989,8 @@ test('an accumulated position rescues a hole with no green mark', () => {
   const { hole } = greenHole({ markBall: false });
   eq(holePosition(hole), null, 'nothing in this round locates the hole');
   const fallback = accumulatedHolePosition(app, 'veenker', 1);
-  const geo = shotGeometry(hole, fallback);
+  // No course map passed: the order a course without one reads (D1, 3.3).
+  const geo = shotGeometry(hole, { accumulated: fallback });
   eq(geo[0].toHoleSource, 'accumulated-cup', 'falls back to accumulated data');
   assert(geo[0].toHoleM > 300, 'and produces a usable distance');
   eq(geo[0].toHoleUncertaintyM, 12, 'with the error bar attached');
@@ -2863,26 +2868,382 @@ group('end-of-hole row reads shot, lie, distance to the hole');
   const cup = offsetPoint(greenC, { east: 8 });
   const cupYd = Math.round(toYards(distanceM(pos, cup)));
   const centreYd = Math.round(toYards(distanceM(pos, greenC)));
+  // The row measures to the hole the engine resolves (docs/SPEC_hole-position.md 6.4).
+  const cupPin = { ...cup, source: 'cup' };
+  const centrePin = holePosition({ number: 10, shots: [], cup: null }, { geometry: G });
 
   test('with a marked cup: Shot 1 - Lie = Tee Box, Distance to the hole = <to the cup> yd', () => {
-    const t = shotRowHeading({ candidate: stop, lie: 'tee' }, 0, { cup, geometry: G, holeNumber: 10 });
+    const t = shotRowHeading({ candidate: stop, lie: 'tee' }, 0, { pin: cupPin });
     eq(t, `Shot 1 - Lie = Tee Box, Distance to the hole = ${cupYd} yd`, 'heading');
   });
 
   test('no cup: distance to the green centre, and it says so', () => {
-    const t = shotRowHeading({ candidate: stop, lie: 'fairway' }, 1, { cup: null, geometry: G, holeNumber: 10 });
+    const t = shotRowHeading({ candidate: stop, lie: 'fairway' }, 1, { pin: centrePin });
     eq(t, `Shot 2 - Lie = Fairway, Distance to the hole = ${centreYd} yd (green centre)`, 'heading');
   });
 
   test('no cup and no course map: not known, never a guess', () => {
-    const t = shotRowHeading({ candidate: stop, lie: null }, 2, { cup: null, geometry: null, holeNumber: 10 });
+    const t = shotRowHeading({ candidate: stop, lie: null }, 2, { pin: null });
     eq(t, 'Shot 3 - Lie = ?, Distance to the hole = not known', 'heading');
   });
 
   test('PLAYED TWICE (same candidate) carries the same distance as the row it copies', () => {
-    const a = shotRowHeading({ candidate: stop, lie: 'rough' }, 1, { cup, geometry: G, holeNumber: 10 });
-    const b = shotRowHeading({ candidate: stop, lie: null, replayed: true }, 2, { cup, geometry: G, holeNumber: 10 });
+    const a = shotRowHeading({ candidate: stop, lie: 'rough' }, 1, { pin: cupPin });
+    const b = shotRowHeading({ candidate: stop, lie: null, replayed: true }, 2, { pin: cupPin });
     eq(b.split(', ')[1], a.split(', ')[1], 'distance part');
+  });
+}
+
+group('where the hole is (D1)');
+
+{
+  /*
+   * docs/SPEC_hole-position.md Section 7. Matt, 2026-09-28: "D1. map center
+   * with the option for me to correct it manually by entering tournament pin
+   * sheet numbers." Veenker's real course map; every position is built from
+   * the generated data, and the frame (A, C, F) is rebuilt here by hand rather
+   * than read back from the module under test.
+   */
+  const G = courseGeometry(VEENKER);
+  const ctx = { geometry: G };
+  const poly = (id) => G.polygons.find((p) => p.id === id);
+  const holeG = (n) => G.holes.find((x) => x.number === n);
+  const ringOf = (n) => poly(holeG(n).greenId).ring;
+  const centreOf = (n) => ringCentroid(ringOf(n));
+  const teeBoxOf = (n) => ringCentroid(poly(holeG(n).teeIds[0]).ring);
+  const YD = 0.9144;
+  const PACE = 3 * 0.3048; // his 3 ft stride: one pace is one yard
+  const move = (from, deg, m) => {
+    const r = (deg * Math.PI) / 180;
+    return offsetPoint(from, { north: m * Math.cos(r), east: m * Math.sin(r) });
+  };
+  const toward = (from, to, m) => move(from, bearingDeg(from, to), m);
+  const backAlong = (line, m) => {
+    let left = m;
+    for (let i = line.length - 1; i > 0; i--) {
+      const seg = distanceM(line[i], line[i - 1]);
+      if (seg >= left) return toward(line[i], line[i - 1], left);
+      left -= seg;
+    }
+    return line[0];
+  };
+  const byHand = (n, geometry = G) => {
+    const h = geometry.holes.find((x) => x.number === n);
+    const ring = poly(h.greenId).ring;
+    const C = ringCentroid(ring);
+    const A = backAlong(h.line, 137.16);
+    const xs = rayRingIntersections(A, C, ring);
+    return { ring, C, A, F: toward(A, C, xs[0]), depthM: xs[xs.length - 1] - xs[0], bearing: bearingDeg(A, C) };
+  };
+  /** Metres to the first edge crossing from `pt` on bearing `deg`. */
+  const edgeFrom = (pt, deg, ring) => rayRingIntersections(pt, move(pt, deg, 10), ring)[0];
+  /** Along the line of play from F, and to the right of it, in metres. */
+  const inFrame = (f, pt) => {
+    const e = enuOffset(f.F, pt);
+    const r = (f.bearing * Math.PI) / 180;
+    return { along: e.east * Math.sin(r) + e.north * Math.cos(r), right: e.east * Math.cos(r) - e.north * Math.sin(r) };
+  };
+  const stopAt = (pt) => ({ lat: pt.lat, lon: pt.lon, spreadM: 2, n: 30, startTs: 0, endTs: 30000, dwellMs: 30000, departureM: 10, arrivalSpeed: 1, score: 0.8 });
+  const holeOf = (round, n) => round.holes.find((x) => x.number === n);
+  /** Hole n of a Veenker gold round off the track: tee box, 150 yd and 30 yd from the green centre, two putts typed. */
+  const trackHole = (round, n, { tee = 'track' } = {}) => {
+    const hole = holeOf(round, n);
+    const C = centreOf(n);
+    const box = teeBoxOf(n);
+    if (tee === 'map') addMapTee(hole, { lat: box.lat, lon: box.lon, accuracyM: 10 });
+    else addTrackShot(hole, { lie: 'tee', candidate: stopAt(box) });
+    addTrackShot(hole, { lie: 'fairway', candidate: stopAt(toward(C, box, 150 * YD)) });
+    addTrackShot(hole, { lie: 'rough', candidate: stopAt(toward(C, box, 30 * YD)) });
+    setGreenEntry(hole, { putts: 2, distances: [15, 3], unit: 'feet' });
+    return hole;
+  };
+  const offGreenSG = (hole, context) =>
+    holeStrokesGained(hole, { baseline: 'scratch', context }).shots.filter((s) => s.category !== 'putting');
+  /** A burst cup `m` metres behind hole n's green, straight back from the tee. */
+  const cupBehind = (n, m) => {
+    const C = centreOf(n);
+    const back = bearingDeg(teeBoxOf(n), C);
+    return move(C, back, edgeFrom(C, back, ringOf(n)) + m);
+  };
+
+  test('1. no cup on a map course: every off-green shot is measured to the map green centre', () => {
+    const hole = trackHole(par4Round(), 1);
+    const sg = holeStrokesGained(hole, { baseline: 'scratch', context: ctx });
+    const off = sg.shots.filter((s) => s.category !== 'putting');
+    eq(off.length, 3, 'off-green shots');
+    for (const s of off) {
+      assert(s.distance != null, `shot ${s.seq} has no distance`);
+      eq(s.distanceSource, 'map-green', `shot ${s.seq} source`);
+      near(s.distance, toYards(toGreen(G, 1, s.shot.mark).centreM), 1e-9, `shot ${s.seq} distance, yd`);
+    }
+    eq(sg.unattributed, 0, 'unattributed');
+  });
+
+  test('2. a cup he marked 6 yd from the centre wins, and every distance is to it', () => {
+    const hole = trackHole(par4Round(), 1);
+    setCup(hole, fakeReduced(toward(centreOf(1), teeBoxOf(1), 6 * YD)));
+    const pos = holePosition(hole, ctx);
+    eq(pos.source, 'cup', 'source');
+    eq(pos.skipped.length, 0, 'skipped');
+    for (const g of shotGeometry(hole, ctx).filter((x) => x.shot.lie !== 'green')) {
+      eq(g.toHoleSource, 'cup', `shot ${g.shot.seq} source`);
+      near(g.toHoleM, distanceM(g.shot.mark, hole.cup), 1e-9, `shot ${g.shot.seq} to the cup`);
+    }
+  });
+
+  test('3. a cup taken from the track is not used, and is not deleted', () => {
+    const hole = trackHole(par4Round(), 1);
+    setCup(hole, fakeReduced(toward(centreOf(1), teeBoxOf(1), 3)));
+    hole.cup.method = 'track';
+    eq(offOwnGreenM(G, 1, hole.cup), 0, 'fixture: the track cup is on the green');
+    const pos = holePosition(hole, ctx);
+    eq(pos.source, 'map-green', 'source');
+    eq(JSON.stringify(pos.skipped), JSON.stringify([{ what: 'cup', why: 'from-track', offM: null }]), 'skipped');
+    eq(hole.cup.method, 'track', 'the stored cup');
+  });
+
+  test('4. a cup 93 yd off its green is not used; the same cup 10 m off is', () => {
+    const far = trackHole(par4Round(), 1);
+    setCup(far, fakeReduced(cupBehind(1, 93 * YD)));
+    const offFar = offOwnGreenM(G, 1, far.cup);
+    assert(offFar > 80, `fixture: the far cup is ${offFar} m off the green`);
+    const p = holePosition(far, ctx);
+    eq(p.source, 'map-green', 'far cup: source');
+    eq(p.skipped.length, 1, 'far cup: skipped');
+    eq(`${p.skipped[0].what}/${p.skipped[0].why}`, 'cup/off-green', 'far cup: what/why');
+    near(p.skipped[0].offM, offFar, 1e-9, 'far cup: offM');
+
+    const nearHole = trackHole(par4Round(), 1);
+    setCup(nearHole, fakeReduced(cupBehind(1, 10)));
+    const offNear = offOwnGreenM(G, 1, nearHole.cup);
+    assert(offNear > 5 && offNear <= HOLE_ON_GREEN_M, `fixture: the near cup is ${offNear} m off the green`);
+    eq(holePosition(nearHole, ctx).source, 'cup', '10 m off: source');
+  });
+
+  const entry = { onPaces: 12, side: 'L', sidePaces: 5, sideFrom: 'edge', paceFeet: 3 };
+
+  test('5. the pin sheet places the pin: 12 on, 5 from the left edge, within 0.2 m', () => {
+    const f = byHand(1);
+    const pin = pinFromSheet(G, 1, entry);
+    assert(pin?.placed, `not placed: ${JSON.stringify(pin)}`);
+    near(inFrame(f, pin).along, 12 * PACE, 0.2, 'metres on from the front edge');
+    near(edgeFrom(pin, f.bearing - 90, f.ring), 5 * PACE, 0.2, 'metres in from the left edge');
+    const hole = trackHole(par4Round(), 1);
+    setPinSheet(hole, entry);
+    const pos = holePosition(hole, ctx);
+    eq(pos.source, 'pin-sheet', 'source');
+    near(distanceM(pos, pin), 0, 1e-9, 'the hole is the placed pin');
+    eq(pos.uncertaintyM, 4, 'uncertaintyM');
+  });
+
+  test("6. side C is halfway between the edges; centre R 4 is 4 yd right of the line", () => {
+    const f = byHand(1);
+    const mid = pinFromSheet(G, 1, { onPaces: 12, side: 'C', sidePaces: null, sideFrom: 'edge', paceFeet: 3 });
+    assert(mid?.placed, `C not placed: ${JSON.stringify(mid)}`);
+    near(edgeFrom(mid, f.bearing - 90, f.ring), edgeFrom(mid, f.bearing + 90, f.ring), 0.05, 'left edge vs right edge, m');
+    const r4 = pinFromSheet(G, 1, { onPaces: 12, side: 'R', sidePaces: 4, sideFrom: 'centre', paceFeet: 3 });
+    assert(r4?.placed, `centre R 4 not placed: ${JSON.stringify(r4)}`);
+    near(inFrame(f, r4).right, 4 * PACE, 0.2, 'metres right of the line of play');
+    near(inFrame(f, r4).along, 12 * PACE, 0.2, 'metres on from the front edge');
+  });
+
+  test('7. a pin sheet deeper than the green is not the hole: the map green is', () => {
+    const f = byHand(1);
+    const deep = { onPaces: Math.ceil(f.depthM / PACE) + 5, side: 'C', sidePaces: null, sideFrom: 'edge', paceFeet: 3 };
+    const pin = pinFromSheet(G, 1, deep);
+    assert(!pin.placed || pin.offGreenM > 3, `placed on the green: ${JSON.stringify(pin)}`);
+    const hole = trackHole(par4Round(), 1);
+    setPinSheet(hole, deep);
+    const pos = holePosition(hole, ctx);
+    eq(pos.source, 'map-green', 'source');
+    eq(pos.skipped.length, 1, 'skipped');
+    eq(pos.skipped[0].what, 'pin-sheet', 'what');
+    assert(['not-placed', 'off-green'].includes(pos.skipped[0].why), `why ${pos.skipped[0].why}`);
+    eq(hole.pinSheet.onPaces, deep.onPaces, 'what he typed is kept');
+  });
+
+  test('8. the map tee reads the scorecard, 386 yd on hole 15; a GPS tee is unchanged', () => {
+    const hole = trackHole(par4Round(), 15, { tee: 'map' });
+    eq(hole.yards, 386, 'fixture: hole 15 gold');
+    const g0 = shotGeometry(hole, ctx)[0];
+    near(g0.toHoleM, 386 * YD, 1e-9, 'toHoleM');
+    eq(g0.toHoleSource, 'scorecard', 'toHoleSource');
+    eq(g0.lengthM, null, 'lengthM');
+    const s0 = holeStrokesGained(hole, { baseline: 'scratch', context: ctx }).shots[0];
+    near(s0.distance, 386, 1e-9, 'engine distance, yd');
+    eq(s0.distanceSource, 'scorecard', 'engine source');
+
+    const gps = holeOf(par4Round(), 15);
+    addShot(gps, { lie: 'tee', reduced: fakeReduced(teeBoxOf(15)) });
+    addTrackShot(gps, { lie: 'fairway', candidate: stopAt(toward(centreOf(15), teeBoxOf(15), 150 * YD)) });
+    setGreenEntry(gps, { putts: 2, distances: [15, 3], unit: 'feet' });
+    const [t, next] = shotGeometry(gps, ctx);
+    eq(t.toHoleSource, 'map-green', 'GPS tee: source');
+    near(t.toHoleM, distanceM(t.shot.mark, holePosition(gps, ctx)), 1e-9, 'GPS tee: a straight line to the hole');
+    near(t.lengthM, distanceM(t.shot.mark, next.shot.mark), 1e-9, 'GPS tee: its length');
+  });
+
+  test('9. the total does not move with the pin; the approach / short game split does', () => {
+    const depthPaces = Math.floor(byHand(1).depthM / PACE);
+    const runs = [null, 2, depthPaces - 2].map((on) => {
+      const hole = trackHole(par4Round(), 1, { tee: 'map' });
+      if (on != null) setPinSheet(hole, { onPaces: on, side: 'C', sidePaces: null, sideFrom: 'edge', paceFeet: 3 });
+      const shots = offGreenSG(hole, ctx);
+      const by = (c) => shots.filter((s) => s.category === c).reduce((a, s) => a + s.sg, 0);
+      return {
+        source: holePosition(hole, ctx).source,
+        sum: shots.reduce((a, s) => a + s.sg, 0),
+        unattributed: holeStrokesGained(hole, { baseline: 'scratch', context: ctx }).unattributed,
+        approach: by('approach'),
+        short: by('short_game'),
+        cats: shots.map((s) => s.category).join(','),
+      };
+    });
+    eq(runs.map((r) => r.source).join(','), 'map-green,pin-sheet,pin-sheet', 'fixture: sources');
+    eq(runs.map((r) => r.cats).join(' | '), Array(3).fill('off_tee,approach,short_game').join(' | '), 'fixture: categories');
+    for (const r of runs) eq(r.unattributed, 0, 'unattributed');
+    near(runs[1].sum, runs[0].sum, 1e-9, 'front pin vs no pin sheet');
+    near(runs[2].sum, runs[0].sum, 1e-9, 'back pin vs no pin sheet');
+    for (const [a, b] of [[0, 1], [0, 2], [1, 2]]) {
+      assert(Math.abs(runs[a].approach - runs[b].approach) > 1e-3, `approach ${a} vs ${b}: ${runs[a].approach} / ${runs[b].approach}`);
+      assert(Math.abs(runs[a].short - runs[b].short) > 1e-3, `short game ${a} vs ${b}: ${runs[a].short} / ${runs[b].short}`);
+    }
+  });
+
+  test('10. no map, no change: a Radcliffe round reads as it did at 7d35028', () => {
+    // Fixture values computed with the modules at 1692724 (code identical to
+    // 7d35028): hole 1 has a cup taken from the track, hole 2 no cup and a
+    // position learned from an earlier round.
+    const round = createRound({ course: RADCLIFFE, teeSet: 'white', startingNine: 'front', type: 'practice' });
+    const app = newAppState();
+    const TEE2 = offsetM(TEE, 600, 0);
+    learnCup(app, round, 1, fakeReduced(offsetM(TEE, 468, 4)));
+    learnCup(app, round, 2, fakeReduced(offsetM(TEE2, 146, -5)));
+    const h1 = round.holes[0];
+    addShot(h1, { lie: 'tee', reduced: fakeReduced(TEE) });
+    addTrackShot(h1, { lie: 'fairway', candidate: stopAt(offsetM(TEE, 255, 8)) });
+    addShot(h1, { lie: 'rough', reduced: fakeReduced(offsetM(TEE, 430, -12)) });
+    setCup(h1, fakeReduced(offsetM(TEE, 474, 2)));
+    h1.cup.method = 'track';
+    setGreenEntry(h1, { putts: 2, distances: [22, 3], unit: 'feet' });
+    const h2 = round.holes[1];
+    addShot(h2, { lie: 'tee', reduced: fakeReduced(TEE2) });
+    addShot(h2, { lie: 'rough', reduced: fakeReduced(offsetM(TEE2, 140, 9)) });
+    setGreenEntry(h2, { putts: 1, distances: [7], unit: 'feet' });
+
+    const contextFor = holeContextFor(app, round);
+    eq(contextFor(h1).geometry, null, 'fixture: Radcliffe has no map');
+    const p1 = holePosition(h1, contextFor(h1));
+    const p2 = holePosition(h2, contextFor(h2));
+    eq(`${p1.source} ${p1.uncertaintyM}`, 'cup 2.5', 'hole 1 source, uncertainty');
+    near(p1.lat, 42.0392674, 1e-12, 'hole 1 lat');
+    near(p1.lon, -93.6449758, 1e-12, 'hole 1 lon');
+    eq(`${p2.source} ${p2.uncertaintyM}`, 'accumulated-cup 12', 'hole 2 source, uncertainty');
+    near(p2.lat, 42.04171624420468, 1e-12, 'hole 2 lat');
+    near(p2.lon, -93.64506038768938, 1e-12, 'hole 2 lon');
+
+    const sg = roundStrokesGained(round, { baseline: 'scratch', contextFor });
+    const want = { off_tee: 0.12109391634218936, approach: -0.9032674289477258, short_game: 0.14962175868949523, putting: 0.35043748422317544 };
+    for (const [c, v] of Object.entries(want)) near(sg.totals[c], v, 1e-9, c);
+    near(sg.total, -0.2821142696928658, 1e-9, 'total');
+    eq(sg.unattributed, 0, 'unattributed');
+    const perShot = [
+      [0.12109391634218936, -0.4039637454692002, 0.03480340652889935, -0.1481548135969626, 0.052713649645235394],
+      [-0.4993036834785256, 0.11481835216059588, 0.4458786481749022],
+    ];
+    const lengths = [[279.0125520665183, 192.62455925116925, 50.49281915472295, null, null], [153.41947590196838, null, null]];
+    sg.holes.forEach((hs, i) => {
+      eq(hs.shots.length, perShot[i].length, `hole ${hs.number} shots`);
+      hs.shots.forEach((s, j) => {
+        near(s.sg, perShot[i][j], 1e-9, `hole ${hs.number} shot ${j + 1} SG`);
+        if (lengths[i][j] == null) eq(s.lengthYards, null, `hole ${hs.number} shot ${j + 1} length`);
+        else near(s.lengthYards, lengths[i][j], 1e-9, `hole ${hs.number} shot ${j + 1} length`);
+      });
+    });
+  });
+
+  test('11. pinSheet is optional, and a round carrying one survives export and import', () => {
+    const round = par4Round();
+    eq(round.holes[0].pinSheet, null, 'newHole gives pinSheet: null');
+    const withNull = trackHole(round, 1);
+    const noKey = trackHole(par4Round(), 1);
+    delete noKey.pinSheet;
+    eq(JSON.stringify(holePosition(noKey, ctx)), JSON.stringify(holePosition(withNull, ctx)), 'no key resolves like null');
+
+    setPinSheet(withNull, entry);
+    const before = JSON.stringify(withNull.pinSheet);
+    try {
+      for (const id of allRoundIds()) deleteRound(id);
+      saveRound(round);
+      saveApp(newAppState());
+      const payload = JSON.parse(JSON.stringify(buildExport(newAppState())));
+      for (const id of allRoundIds()) deleteRound(id);
+      const report = importExport(payload, 'replace');
+      eq(report.added, 1, 'rounds restored');
+      const back = loadRound(round.id).holes[0];
+      eq(JSON.stringify(back.pinSheet), before, 'the pin sheet as he typed it');
+      const a = holePosition(withNull, ctx);
+      const b = holePosition(back, ctx);
+      eq(b.source, 'pin-sheet', 'source after the round trip');
+      near(distanceM(a, b), 0, 1e-9, 'the same pin after the round trip');
+    } finally {
+      restoreStorage();
+    }
+  });
+
+  test("12. the frame: A is 150 yd back along the hole's line, not the last segment's direction", () => {
+    // Hole 9: an 18 yd last segment, too short to give a direction.
+    const line9 = holeG(9).line;
+    near(toYards(distanceM(line9[line9.length - 2], line9[line9.length - 1])), 17.9, 0.5, 'fixture: hole 9 last segment, yd');
+    const f9 = greenFrame(G, 9);
+    const h9 = byHand(9);
+    near(distanceM(f9.approach, h9.A), 0, 0.01, 'hole 9: A, m');
+    near(f9.bearingDeg, h9.bearing, 1e-6, 'hole 9: the line of play is A to C');
+    // A frame taken from the last segment would run from its start to C.
+    const fromLastSeg = bearingDeg(line9[line9.length - 2], centreOf(9));
+    const turn = Math.abs(((f9.bearingDeg - fromLastSeg + 540) % 360) - 180);
+    assert(turn > 5, `hole 9: the line of play is within ${turn.toFixed(1)} deg of the last segment's`);
+    near(f9.depthM, h9.depthM, 0.01, 'hole 9: depth, m');
+
+    // Hole 11: a one-segment 152 yd line, so A sits 150 yd back along it -
+    // 2 m from its start (spec 4.1 step 1; see the hand-back to Fable).
+    const line11 = holeG(11).line;
+    const len11 = distanceM(line11[0], line11[line11.length - 1]);
+    near(toYards(len11), 152.3, 0.2, 'fixture: hole 11 line, yd');
+    const f11 = greenFrame(G, 11);
+    near(distanceM(f11.approach, line11[0]), len11 - APPROACH_BACK_M, 0.01, 'hole 11: A from the line start, m');
+    // A line shorter than 150 yd uses its start: hole 11's line with its first 10 m cut off.
+    const start = toward(line11[0], line11[1], 10);
+    const Gshort = { ...G, holes: G.holes.map((x) => (x.number === 11 ? { ...x, line: [start, ...line11.slice(1)] } : x)) };
+    near(distanceM(greenFrame(Gshort, 11).approach, start), 0, 1e-6, 'a 141 yd line: A is its start');
+  });
+
+  test('13. the engine counts every distance by source, and names the cup it passed over', () => {
+    const round = par4Round();
+    const h1 = trackHole(round, 1);
+    setCup(h1, fakeReduced(cupBehind(1, 93 * YD))); // test 4's cup
+    trackHole(round, 2);
+    const h3 = holeOf(round, 3);
+    const box3 = teeBoxOf(3);
+    addMapTee(h3, { lat: box3.lat, lon: box3.lon, accuracyM: 10 });
+    setShotDistance(addShot(h3, { lie: 'fairway', reduced: null, source: 'manual' }), { value: 120, unit: 'yards' });
+    addTrackShot(h3, { lie: 'rough', candidate: stopAt(toward(centreOf(3), box3, 25 * YD)) });
+    setGreenEntry(h3, { putts: 2, distances: [12, 2], unit: 'feet' });
+    setPinSheet(h3, { onPaces: 6, side: 'C', sidePaces: null, sideFrom: 'edge', paceFeet: 3 });
+
+    const sg = roundStrokesGained(round, { baseline: 'scratch', contextFor: holeContextFor(newAppState(), round) });
+    const notPutts = sg.holes.reduce((a, hs) => a + hs.shots.filter((s) => s.category !== 'putting').length, 0);
+    eq(notPutts, 9, 'fixture: shots that are not putts');
+    eq(Object.values(sg.sources).reduce((a, b) => a + b, 0), notPutts, `sources ${JSON.stringify(sg.sources)}`);
+    eq(
+      JSON.stringify(sg.sources),
+      JSON.stringify({ 'map-green': 6, scorecard: 1, yards: 1, 'pin-sheet': 1 }),
+      'sources'
+    );
+    eq(sg.positionNotes.length, 1, `positionNotes ${JSON.stringify(sg.positionNotes)}`);
+    const n = sg.positionNotes[0];
+    eq(`${n.hole} ${n.what} ${n.why} ${n.used}`, '1 cup off-green map-green', 'the note');
+    near(n.offM, offOwnGreenM(G, 1, h1.cup), 1e-9, 'offM');
   });
 }
 
@@ -5651,8 +6012,12 @@ export async function runGreenFlowTests() {
   test('the row heading follows a lie tap', () => {
     // Before the tap the row shows whatever it holds (the course map may have
     // preselected a lie); it must not already read Fairway, or the tap proves nothing.
-    assert(/^Shot 2 - Lie = (?!Fairway,)[^,]+, Distance to the hole = \d+ yd$/.test(headBefore ?? ''), `before: "${headBefore}"`);
-    assert(/^Shot 2 - Lie = Fairway, Distance to the hole = \d+ yd$/.test(headAfter ?? ''), `after: "${headAfter}"`);
+    // The distance may carry where the hole was read from: this synthetic green
+    // is hundreds of yards from hole 1's green on the map, so its cup is passed
+    // over (docs/SPEC_hole-position.md 3.2) and the row reads "(green centre)".
+    const tail = String.raw`Distance to the hole = \d+ yd( \((green centre|pin sheet|ball on the green)\))?$`;
+    assert(new RegExp(`^Shot 2 - Lie = (?!Fairway,)[^,]+, ${tail}`).test(headBefore ?? ''), `before: "${headBefore}"`);
+    assert(new RegExp(`^Shot 2 - Lie = Fairway, ${tail}`).test(headAfter ?? ''), `after: "${headAfter}"`);
     eq(headAfter.split(', ')[1], headBefore.split(', ')[1], 'the distance changed with the lie');
   });
 

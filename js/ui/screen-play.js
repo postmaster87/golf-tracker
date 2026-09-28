@@ -17,6 +17,7 @@ import { getCourse, playOrder, holeYards } from '../data/courses.js';
 import { distanceM, toFeet, toYards } from '../util/geo.js';
 import { ringCentroid } from '../util/polygon.js';
 import { courseGeometry, toGreen, lieAt } from '../round/course-geometry.js';
+import { greenFrame } from '../round/hole-position.js';
 import {
   currentHole,
   addShot,
@@ -58,7 +59,8 @@ import {
   learnTee,
   learnCup,
   learnGreen,
-  accumulatedHolePosition,
+  holePosition,
+  holeContextFor,
   detectStartingHole,
   fmtDistance,
   fmtToPar,
@@ -127,18 +129,20 @@ export function mapLieRow(geometry, row) {
  * "Shot 1 - Lie = Tee Box, Distance to the hole = n ... Numbers are always
  * measured with distance to hole not the last shot or any other garbage."
  *
- * The distance is from the row's track position to the marked cup; with no
- * cup, to the centre of that hole's green on the course map, and the text says
- * so ("center of the green and I can enter pin sheet distances in manually
- * later"); with neither, "not known". Never the track's own cup offer - that is
- * an inferred position he has not accepted - and never a distance to anything
- * else. Display only: the row and its candidate are not changed.
+ * The distance is from the row's track position to `pin`, the hole the engine
+ * reads (docs/SPEC_hole-position.md 6.4, `rowHeadingPin`): the marked cup with
+ * no suffix, "(pin sheet)", "(ball on the green)", or the centre of that hole's
+ * green on the course map, "(green centre)" ("center of the green and I can
+ * enter pin sheet distances in manually later"); with none, "not known". So
+ * the number on the row is the number the engine uses. Never the track's own
+ * cup - that is an inferred position he has not accepted. Display only: the
+ * row and its candidate are not changed.
  *
  * Two rows carry no track position (docs/SPEC_shot-places.md 3.2 and 4.4):
  * shot 1 from the map reads the card yardage, "(scorecard)"; a typed row reads
  * the yards he typed, "(entered)".
  */
-export function shotRowHeading(row, index, { cup = null, geometry = null, holeNumber = null, yards = null } = {}) {
+export function shotRowHeading(row, index, { pin = null, yards = null } = {}) {
   const lie = row.lie ? (row.lie === 'tee' ? 'Tee Box' : LIE_LABELS[row.lie] ?? row.lie) : '?';
   const c = row.candidate;
   const pos = Number.isFinite(c?.lat) && Number.isFinite(c?.lon) ? { lat: c.lat, lon: c.lon } : null;
@@ -147,13 +151,29 @@ export function shotRowHeading(row, index, { cup = null, geometry = null, holeNu
     if (Number.isFinite(yards)) dist = `${yards} yd (scorecard)`;
   } else if (row.kind === 'typed') {
     dist = Number.isFinite(row.yards) ? `${row.yards} yd (entered)` : 'not entered';
-  } else if (pos && cup && Number.isFinite(cup.lat) && Number.isFinite(cup.lon)) {
-    dist = `${Math.round(toYards(distanceM(pos, cup)))} yd`;
-  } else if (pos) {
-    const g = toGreen(geometry, holeNumber, pos);
-    if (g) dist = `${g.centreYd} yd (green centre)`;
+  } else if (pos && Number.isFinite(pin?.lat) && Number.isFinite(pin?.lon) && pin.source in HEADING_SUFFIX) {
+    dist = `${Math.round(toYards(distanceM(pos, pin)))} yd${HEADING_SUFFIX[pin.source]}`;
   }
   return `Shot ${index + 1} - Lie = ${lie}, Distance to the hole = ${dist}`;
+}
+
+const HEADING_SUFFIX = {
+  cup: '',
+  'pin-sheet': ' (pin sheet)',
+  'ball-on-green': ' (ball on the green)',
+  'map-green': ' (green centre)',
+};
+
+/**
+ * The hole an end-of-hole row measures to. On a hole the course map has a
+ * green for, the position the engine resolves (`holePosition`). With no map,
+ * the cup on the hole or nothing, as before this build - a course with no map
+ * reads exactly as it did (docs/SPEC_hole-position.md Section 0).
+ */
+function rowHeadingPin(hole, context) {
+  if (context?.geometry && greenFrame(context.geometry, hole.number)) return holePosition(hole, context);
+  const cup = hole.cup;
+  return cup && Number.isFinite(cup.lat) && Number.isFinite(cup.lon) ? { lat: cup.lat, lon: cup.lon, source: 'cup' } : null;
 }
 
 /**
@@ -269,17 +289,21 @@ export function playScreen(ctx) {
   const hudMeta = h('span', { class: 'hud-meta' });
   /*
    * The course map (docs/SPEC_course-geometry.md). Null for Radcliffe and every
-   * custom course, and then nothing below is created at all. Not in edit mode:
-   * a finished round has no GPS to measure from.
+   * custom course, and then nothing below is created at all. In edit mode too
+   * (docs/SPEC_hole-position.md 6.4): the end-of-hole entry, its rows and the
+   * shot list read the map there as they do live. The live HUD does not - a
+   * finished round has no GPS to measure from.
    */
-  const geometry = editing ? null : courseGeometry(getCourse(ctx.app, round.courseId));
+  const geometry = courseGeometry(getCourse(ctx.app, round.courseId));
+  /** Where each hole is read from, the same context the engine uses. */
+  const holeCtx = (hl) => holeContextFor(ctx.app, round)(hl);
   /*
    * Distance to the CURRENT hole view's green (hole()), never a detected hole -
    * he may be looking at 14 from the 15th tee and that is his call. One line,
    * present from the first paint to the last, so the HUD is one height for the
    * whole round: content changes, layout never does.
    */
-  const hudGreen = geometry ? h('span', { class: 'hud-green' }) : null;
+  const hudGreen = geometry && !editing ? h('span', { class: 'hud-green' }) : null;
   const navRow = h('nav', { class: 'holenav' });
 
   el.appendChild(
@@ -817,7 +841,7 @@ export function playScreen(ctx) {
       return wrap;
     }
 
-    const geo = shotGeometry(hl, accumulatedHolePosition(ctx.app, round.courseId, hl.number));
+    const geo = shotGeometry(hl, holeCtx(hl));
     if (!geo.length) {
       wrap.appendChild(
         h('li', { class: 'note muted', text: 'No shots marked yet. On the tee, tap MARK TEE SHOT.' })
@@ -843,17 +867,36 @@ export function playScreen(ctx) {
           : s.distanceEntry
             ? `${s.distanceEntry.value} ${PUTT_UNITS[s.distanceEntry.unit]?.short ?? ''}`.trim()
             : 'entered';
+      /*
+       * Where the hole was taken from, on every shot whose number depends on it
+       * (docs/SPEC_hole-position.md 6.4): the card for a map tee, his pin
+       * sheet, or the map's green centre with its error bar. It is the second
+       * line, in place of the shot's length: at 360 px the two together push
+       * the distance off the row, and his rule is the distance to the hole -
+       * *"Numbers are always measured with distance to hole not the last shot
+       * or any other garbage."*
+       */
+      const fromMap =
+        g.toHoleSource === 'scorecard'
+          ? 'scorecard'
+          : g.toHoleSource === 'pin-sheet'
+            ? 'pin sheet'
+            : g.toHoleSource === 'map-green'
+              ? `green centre, est. ±${Math.round(toYards(g.toHoleUncertaintyM))} yd`
+              : null;
       const secondary =
         g.toHoleM != null
           ? paced && s.lie === 'green'
             ? paced
-            : g.lengthM != null
-              ? `${fmtDistance(g.lengthM, { asFeet })} shot`
-              : s.penalty
-                ? 'penalty'
-                : g.toHoleSource?.startsWith('accumulated')
-                  ? `est. ±${Math.round(toYards(g.toHoleUncertaintyM))} yd`
-                  : ''
+            : fromMap
+              ? fromMap
+              : g.lengthM != null
+                ? `${fmtDistance(g.lengthM, { asFeet })} shot`
+                : s.penalty
+                  ? 'penalty'
+                  : g.toHoleSource?.startsWith('accumulated')
+                    ? `est. ±${Math.round(toYards(g.toHoleUncertaintyM))} yd`
+                    : ''
           : g.lengthM != null
             ? 'shot'
             : s.lie === 'green'
@@ -3312,7 +3355,7 @@ export function playScreen(ctx) {
       mapRow({ kind: 'place', candidate, lie: null, lieInferred: false, ...extra });
     const rows = [tee, ...result.proposed.map((c) => placeRow(c))];
     const rowTs = (r) => r.candidate?.startTs ?? r.at ?? null;
-    const headOpts = { cup: hl.cup, geometry, holeNumber: hl.number, yards: hl.yards ?? null };
+    const headOpts = { pin: rowHeadingPin(hl, holeCtx(hl)), yards: hl.yards ?? null };
 
     return sheet(`Hole ${hl.number} — confirm your shots`, (done) => {
       const list = h('div');

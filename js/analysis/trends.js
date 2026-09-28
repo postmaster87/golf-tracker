@@ -17,7 +17,7 @@
  */
 
 import { roundStrokesGained, CATEGORIES, CATEGORY_LABELS } from './strokes-gained.js';
-import { accumulatedHolePosition } from '../round/round.js';
+import { holeContextFor } from '../round/round.js';
 import { loadRound } from '../data/store.js';
 import { isUnscored } from '../data/schema.js';
 import { DEFAULT_BASELINE } from './benchmarks.js';
@@ -53,10 +53,7 @@ export function buildSeries(app, { type = 'all', courseId = 'all', baseline = DE
     const round = loadRound(summary.id);
     if (!round) continue;
 
-    const sg = roundStrokesGained(round, {
-      baseline,
-      fallbackFor: (hole) => accumulatedHolePosition(app, round.courseId, hole.number),
-    });
+    const sg = roundStrokesGained(round, { baseline, contextFor: holeContextFor(app, round) });
     if (sg.holesScored < minHoles) continue;
 
     const scale = 18 / sg.holesScored;
@@ -282,10 +279,7 @@ export function clubBreakdown(app, { type = 'all', courseId = 'all', baseline = 
     if (!round) continue;
     roundsUsed++;
 
-    const sg = roundStrokesGained(round, {
-      baseline,
-      fallbackFor: (hole) => accumulatedHolePosition(app, round.courseId, hole.number),
-    });
+    const sg = roundStrokesGained(round, { baseline, contextFor: holeContextFor(app, round) });
 
     for (const hole of sg.holes) {
       for (const s of hole.shots) {
