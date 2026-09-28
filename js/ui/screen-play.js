@@ -17,7 +17,7 @@ import { getCourse, playOrder, holeYards } from '../data/courses.js';
 import { distanceM, toFeet, toYards } from '../util/geo.js';
 import { ringCentroid } from '../util/polygon.js';
 import { courseGeometry, toGreen, lieAt } from '../round/course-geometry.js';
-import { greenFrame } from '../round/hole-position.js';
+import { greenFrame, pinFromSheet, PIN_OFF_GREEN_M } from '../round/hole-position.js';
 import {
   currentHole,
   addShot,
@@ -61,6 +61,8 @@ import {
   learnGreen,
   holePosition,
   holeContextFor,
+  setPinSheet,
+  clearPinSheet,
   detectStartingHole,
   fmtDistance,
   fmtToPar,
@@ -653,8 +655,10 @@ export function playScreen(ctx) {
     }
 
     // Says what was just written down, and offers to take it back. Above the
-    // shot list so it is read before the eye reaches the numbers.
-    if (lastMark && !editing && lastMark.holeNumber === hl.number) {
+    // shot list so it is read before the eye reaches the numbers. In edit mode
+    // only for a mark that says so: the pin sheet opens there from the round
+    // summary, and its one UNDO is this banner (docs/SPEC_hole-position.md 9.4).
+    if (lastMark && (!editing || lastMark.inEditMode) && lastMark.holeNumber === hl.number) {
       body.appendChild(banner('ok', lastMark.label, 'UNDO', takeBackLastMark));
     }
 
@@ -744,8 +748,8 @@ export function playScreen(ctx) {
    * is the newest thing written, and the green sheet carries it as well
    * (docs/SPEC_shot-places.md Section 6).
    */
-  function noteMark(label, undo) {
-    lastMark = { label, holeNumber: hole().number, undo };
+  function noteMark(label, undo, { inEditMode = false } = {}) {
+    lastMark = { label, holeNumber: hole().number, undo, inEditMode };
   }
 
   function clearLastMark() {
@@ -1930,8 +1934,12 @@ export function playScreen(ctx) {
          * answer to the same question. Two sources agreeing is the only reason
          * to trust a constructed position, and when they disagree he can see it
          * on the green rather than discovering it in the export.
+         *
+         * Not on a course with a map (docs/SPEC_hole-position.md 9.6): there
+         * the PIN SHEET sheet is the one place his pin sheet goes, placed on
+         * the map's green. On a course with no map this is unchanged.
          */
-        if (!hl.cup) {
+        if (!hl.cup && !geometry) {
           const paceFeet = ctx.app.settings.paceFeet ?? 3;
           const located =
             draft.pinOn != null && pinContext?.usable
@@ -2855,6 +2863,215 @@ export function playScreen(ctx) {
     });
   }
 
+  /**
+   * THE PIN SHEET (docs/SPEC_hole-position.md Section 9).
+   *
+   * Matt, 2026-09-28: *"D1. map center with the option for me to correct it
+   * manually by entering tournament pin sheet numbers."* One row per hole of
+   * the round, in the order played: the hole, the green's depth off the map in
+   * his paces, ON (paces on from the front edge), L / C / R, and the paces in
+   * from that edge. What he types is what is stored (`setPinSheet`, Section 5);
+   * the pin is placed on the map's green when it is read, and the read-out
+   * under a row says where it lands - or, in the warning colour, that it does
+   * not. SAVE stores what he typed either way.
+   *
+   * A row he did not change keeps its stored entry as it is, stride and time
+   * included: "paceFeet: his stride when he typed it". One SAVE, one UNDO - the
+   * banner that stays (v31) puts every hole's pin sheet back as it was. Nothing
+   * here touches the cup, the shots, the green entry or `completedAt`.
+   */
+  function openPinSheet() {
+    if (!geometry) return;
+    const paceFeet = ctx.app.settings.paceFeet ?? 3;
+    const paceM = paceFeet * 0.3048;
+    const rows = round.holes.map((hl) => {
+      const stored = hl.pinSheet ?? null;
+      // A new row reads C, the middle, until he taps L or R: an entry always
+      // has a side (Section 5), and the middle is the one that assumes nothing.
+      return { hl, stored, on: stored?.onPaces ?? null, side: stored?.side ?? 'C', sidePaces: stored?.sidePaces ?? null };
+    });
+    const unchanged = (r) =>
+      r.stored != null &&
+      r.stored.onPaces === r.on &&
+      r.stored.side === r.side &&
+      (r.side === 'C' || r.stored.sidePaces === r.sidePaces);
+    const entryOf = (r) =>
+      unchanged(r)
+        ? r.stored
+        : { onPaces: r.on, side: r.side, sidePaces: r.side === 'C' ? null : r.sidePaces, sideFrom: 'edge', paceFeet };
+
+    const WHY = {
+      'on-point-off-green': (r) => `${r.on} on is off the green on the map - check the numbers`,
+      'no-left-edge': () => 'no left edge on the map there - check the numbers',
+      'no-right-edge': () => 'no right edge on the map there - check the numbers',
+      'bad-entry': (r) =>
+        r.side !== 'C' && r.sidePaces == null
+          ? `type the paces from the ${r.side === 'L' ? 'left' : 'right'} edge`
+          : 'check the numbers',
+    };
+    /** Under a row once ON has a number (9.3): where the pin lands, or why it does not. */
+    const readout = (r) => {
+      if (r.on == null) return null;
+      const pin = pinFromSheet(geometry, r.hl.number, entryOf(r));
+      if (!pin) return { warn: true, text: 'no green for this hole on the map' };
+      if (!pin.placed) return { warn: true, text: (WHY[pin.why] ?? WHY['bad-entry'])(r) };
+      // The same line the engine draws (3.2): past it the pin sheet is not used.
+      if (pin.offGreenM > PIN_OFF_GREEN_M) {
+        return { warn: true, text: `lands ${Math.round(toYards(pin.offGreenM))} yd off the green on the map - check the numbers` };
+      }
+      return { warn: false, text: `${Math.round(toYards(pin.fromCentreM))} yd from the centre` };
+    };
+
+    /** A whole-number field that takes `lo` to `hi` and nothing else (9.5). */
+    const intField = (value, lo, hi, onValue, attrs) => {
+      const input = h('input', {
+        type: 'number',
+        inputmode: 'numeric',
+        min: String(lo),
+        max: String(hi),
+        step: '1',
+        value: value == null ? '' : String(value),
+        ...attrs,
+      });
+      let last = input.value;
+      input.addEventListener('input', () => {
+        const raw = input.value.trim();
+        if (raw === '' && !input.validity.badInput) {
+          last = '';
+          onValue(null);
+          return;
+        }
+        const n = Number(raw);
+        if (!/^\d+$/.test(raw) || n < lo || n > hi) {
+          input.value = last;
+          return;
+        }
+        last = raw;
+        onValue(n);
+      });
+      return input;
+    };
+
+    const rowEl = (r) => {
+      const n = r.hl.number;
+      const frame = greenFrame(geometry, n);
+      const out = h('p', { class: 'note pin-readout' });
+      const paintOut = () => {
+        const said = readout(r);
+        out.hidden = !said;
+        out.textContent = said?.text ?? '';
+        out.dataset.warn = String(Boolean(said?.warn));
+        out.style.color = said?.warn ? 'var(--warn)' : '';
+      };
+      const onIn = intField(r.on, 1, 60, (v) => {
+        r.on = v;
+        paintOut();
+      }, { 'aria-label': `Hole ${n}: paces on from the front edge`, placeholder: 'ON', dataset: { f: 'on' } });
+      const sideIn = intField(r.sidePaces, 0, 30, (v) => {
+        r.sidePaces = v;
+        paintOut();
+      }, { 'aria-label': `Hole ${n}: paces from the edge`, placeholder: '—', dataset: { f: 'side' } });
+      const sides = h('div', { class: 'seg pin-side' });
+      const paintSides = () => {
+        for (const b of sides.children) b.setAttribute('aria-pressed', String(b.dataset.side === r.side));
+        sideIn.disabled = r.side === 'C';
+      };
+      for (const s of ['L', 'C', 'R']) {
+        sides.appendChild(
+          h('button', {
+            class: 'seg-btn',
+            type: 'button',
+            text: s,
+            dataset: { side: s },
+            onClick: () => {
+              r.side = s;
+              paintSides();
+              paintOut();
+            },
+          })
+        );
+      }
+      paintSides();
+      paintOut();
+      return h(
+        'div',
+        { class: 'pin-row', dataset: { hole: String(n) } },
+        h(
+          'span',
+          { class: 'pin-hole' },
+          h('strong', { text: String(n) }),
+          h('small', { text: frame ? `${Math.round(frame.depthM / paceM)} deep` : 'no green' })
+        ),
+        onIn,
+        sides,
+        sideIn,
+        out
+      );
+    };
+
+    const save = (done) => {
+      const changed = [];
+      for (const r of rows) {
+        const had = Object.prototype.hasOwnProperty.call(r.hl, 'pinSheet');
+        const before = r.hl.pinSheet ?? null;
+        if (r.on == null) {
+          if (!before) continue;
+          changed.push({ hl: r.hl, before, had });
+          clearPinSheet(r.hl);
+        } else if (!unchanged(r)) {
+          changed.push({ hl: r.hl, before, had });
+          setPinSheet(r.hl, entryOf(r));
+        }
+      }
+      done('saved');
+      if (!changed.length) return;
+      persist();
+      const written = changed.map((c) => c.hl.pinSheet);
+      const set = written.filter(Boolean).length;
+      const parts = [];
+      if (set) parts.push(`${set} hole${set === 1 ? '' : 's'}`);
+      if (changed.length - set) parts.push(`${changed.length - set} cleared`);
+      noteMark(
+        `Pin sheet saved: ${parts.join(', ')}.`,
+        () => {
+          // Only while every hole still holds what this SAVE wrote.
+          if (changed.some((c, i) => c.hl.pinSheet !== written[i])) return false;
+          for (const c of changed) {
+            if (c.before) setPinSheet(c.hl, c.before);
+            else {
+              clearPinSheet(c.hl);
+              if (!c.had) delete c.hl.pinSheet;
+            }
+          }
+          return true;
+        },
+        { inEditMode: true }
+      );
+      paint();
+    };
+
+    sheet('Pin sheet', (done) =>
+      h(
+        'div',
+        { class: 'pin-sheet' },
+        h('p', {
+          class: 'note muted',
+          text: `Paces on from the front edge, then paces from the left or right edge. Your stride is set to ${paceFeet} ft.`,
+        }),
+        h(
+          'div',
+          { class: 'pin-row pin-cols', 'aria-hidden': 'true' },
+          h('span', { text: 'Hole' }),
+          h('span', { text: 'On' }),
+          h('span', { text: 'L / C / R' }),
+          h('span', { text: 'Side' })
+        ),
+        rows.map(rowEl),
+        h('div', { class: 'pin-save' }, h('button', { class: 'btn primary', text: 'SAVE', onClick: () => save(done) }))
+      )
+    );
+  }
+
   function openMenu() {
     sheet('Round', (done) =>
       frag(
@@ -2906,6 +3123,18 @@ export function playScreen(ctx) {
             beginCapture('cup');
           },
         }),
+        // His tournament pin sheet, every hole at once (docs/SPEC_hole-position.md
+        // 9.1). Only where the map has greens to place it on.
+        geometry
+          ? h('button', {
+              class: 'btn',
+              text: 'Pin sheet',
+              onClick: () => {
+                done('pinsheet');
+                openPinSheet();
+              },
+            })
+          : null,
         h('button', {
           class: 'btn',
           text: 'End-of-hole entry (from the track)',
@@ -3967,5 +4196,7 @@ export function playScreen(ctx) {
   }
 
   paint();
+  // PIN SHEET on the round summary opens the round here with the sheet up (9.1).
+  if (ctx.params.pinSheet && geometry) openPinSheet();
   return { el, tick };
 }

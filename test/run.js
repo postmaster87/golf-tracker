@@ -121,6 +121,7 @@ import * as pocketLock from '../js/ui/lock.js';
 import { sheet, closeSheet } from '../js/ui/dom.js';
 import { playScreen, firstPuttEntryMode, TYPED_PUTT_MAX_FT, mapLieRow, shotRowHeading } from '../js/ui/screen-play.js';
 import { settingsScreen } from '../js/ui/screen-settings.js';
+import { summaryScreen } from '../js/ui/screen-summary.js';
 import { homeScreen } from '../js/ui/screen-home.js';
 import {
   PERSISTENT,
@@ -1613,7 +1614,10 @@ test('practice priority ranks by total strokes lost, worst first', () => {
 
 test('a round aggregates its holes and reports what it could not attribute', () => {
   const round = par4Round();
-  for (let i = 0; i < 3; i++) {
+  // Three par 4s whose card is within 100 yd of this 388 yd layout: on hole 2
+  // (283 yd) a tee 388 yd out is not on the hole (docs/SPEC_hole-position.md
+  // Section 12, C8).
+  for (const i of [0, 3, 4]) {
     const hole = round.holes[i];
     addShot(hole, { lie: 'tee', reduced: fakeReduced(TEE) });
     addShot(hole, { lie: 'fairway', reduced: fakeReduced(offsetM(TEE, 230, 0)) });
@@ -3244,6 +3248,88 @@ group('where the hole is (D1)');
     const n = sg.positionNotes[0];
     eq(`${n.hole} ${n.what} ${n.why} ${n.used}`, '1 cup off-green map-green', 'the note');
     near(n.offM, offOwnGreenM(G, 1, h1.cup), 1e-9, 'offM');
+  });
+
+  /* ---- Section 12: the corrections after Fable's review of Part A ---- */
+
+  test('C3. a map tee with a typed 150 yd: toHoleM 150 yd, lengthM null', () => {
+    const hole = trackHole(par4Round(), 1, { tee: 'map' });
+    setShotDistance(hole.shots[0], { value: 150, unit: 'yards' });
+    const [g0] = shotGeometry(hole, ctx);
+    eq(`${g0.shot.source} ${g0.shot.lie}`, 'map tee', 'fixture: shot 1');
+    near(g0.toHoleM, 150 * YD, 1e-9, 'toHoleM');
+    eq(g0.toHoleSource, 'yards', 'toHoleSource');
+    eq(g0.lengthM, null, 'lengthM');
+    eq(holeStrokesGained(hole, { baseline: 'scratch', context: ctx }).shots[0].lengthYards, null, 'engine lengthYards');
+  });
+
+  test('C4. the line under the total says when the total depends on the green centre', () => {
+    const median = 'The centre of the green is a median 5.5 yd from where the cup was (n = 31 cups marked at Veenker).';
+    const lineOn = (round) => {
+      const screen = summaryScreen({ app: newAppState(), round, params: { roundId: round.id }, go() {} });
+      return [...screen.el.querySelectorAll('.note')].map((p) => p.textContent).filter((t) => t.startsWith('The centre of the green'));
+    };
+    // Every tee from the scorecard; the shots after them to the green centre.
+    const tees = par4Round();
+    trackHole(tees, 1, { tee: 'map' });
+    trackHole(tees, 2, { tee: 'map' });
+    // Two tees taken from the track, so measured to the green centre, and one from the map.
+    const track = par4Round();
+    trackHole(track, 1);
+    trackHole(track, 2);
+    trackHole(track, 3, { tee: 'map' });
+    eq(
+      JSON.stringify(lineOn(tees)),
+      JSON.stringify([`${median} The total does not depend on it; the split between approach and short game does.`]),
+      'no tee to the green centre'
+    );
+    eq(
+      JSON.stringify(lineOn(track)),
+      JSON.stringify([
+        `${median} The split between approach and short game depends on it, and so does the total on the 2 holes whose tee shot was measured to it.`,
+      ]),
+      'two tees to the green centre'
+    );
+  });
+
+  test('C8. a mark 3,905 yd from the green on a 419 yd hole gives no distance; 500 yd out is measured', () => {
+    /** Hole 1 with a GPS tee mark `yd` from the green centre, straight back from the box, then test 1's track shots. */
+    const played = (yd) => {
+      const round = par4Round();
+      const hole = holeOf(round, 1);
+      const C = centreOf(1);
+      addShot(hole, { lie: 'tee', reduced: fakeReduced(move(C, bearingDeg(C, teeBoxOf(1)), yd * YD)) });
+      addTrackShot(hole, { lie: 'fairway', candidate: stopAt(toward(C, teeBoxOf(1), 150 * YD)) });
+      addTrackShot(hole, { lie: 'rough', candidate: stopAt(toward(C, teeBoxOf(1), 30 * YD)) });
+      setGreenEntry(hole, { putts: 2, distances: [15, 3], unit: 'feet' });
+      return { round, hole };
+    };
+
+    const far = played(3905);
+    eq(far.hole.yards, 419, 'fixture: hole 1 gold');
+    eq(holePosition(far.hole, ctx).source, 'map-green', 'fixture: the hole is the green centre');
+    const [g0, g1] = shotGeometry(far.hole, ctx);
+    eq(g0.toHoleM, null, 'toHoleM');
+    eq(g0.toHoleSource, null, 'toHoleSource');
+    eq(g0.toHoleUncertaintyM, null, 'toHoleUncertaintyM');
+    near(toYards(distanceM(g0.shot.mark, holePosition(far.hole, ctx))), 3905, 0.1, 'fixture: the mark to the green centre, yd');
+    near(g0.offHoleM, distanceM(g0.shot.mark, holePosition(far.hole, ctx)), 1e-9, 'offHoleM: the distance refused');
+    near(g0.lengthM, distanceM(g0.shot.mark, g1.shot.mark), 1e-9, 'lengthM unchanged');
+    const sg = holeStrokesGained(far.hole, { baseline: 'scratch', context: ctx });
+    eq(sg.unattributed, 1, 'unattributed');
+    eq(
+      JSON.stringify(sg.reasons),
+      JSON.stringify(['hole 1 shot 1: the mark is 3905 yd from the hole on a 419 yd hole, not used']),
+      'reasons'
+    );
+    eq(roundStrokesGained(far.round, { baseline: 'scratch', contextFor: () => ctx }).sources.unknown, 1, 'sources: unknown');
+
+    const out = played(500);
+    const [n0] = shotGeometry(out.hole, ctx);
+    near(toYards(n0.toHoleM), 500, 0.1, '500 yd out: toHoleM, yd');
+    eq(n0.toHoleSource, 'map-green', '500 yd out: source');
+    eq(n0.offHoleM, null, '500 yd out: offHoleM');
+    eq(holeStrokesGained(out.hole, { baseline: 'scratch', context: ctx }).unattributed, 0, '500 yd out: unattributed');
   });
 }
 
@@ -6646,5 +6732,398 @@ export async function runShotPlacesTests() {
     near(n?.marginM ?? NaN, 10, 1.5, 'fixture: the margin, m');
     eq(r3.places?.length, 1, 'stops in the list');
     eq(r3.places?.[0]?.place?.ground, 'own', 'its ground');
+  });
+}
+
+/* ------------------------------------------- the PIN SHEET sheet (D1 Part B) */
+
+/**
+ * docs/SPEC_hole-position.md Section 9. Matt, 2026-09-28: *"D1. map center
+ * with the option for me to correct it manually by entering tournament pin
+ * sheet numbers."* The real play screen, the real round summary and their
+ * sheets, over Veenker's course map; Radcliffe has no map.
+ */
+export async function runPinSheetTests() {
+  group('the pin sheet (D1 Part B)');
+
+  const wait = (ms = 30) => new Promise((r) => setTimeout(r, ms));
+  const G = courseGeometry(VEENKER);
+  const PACE_M = (ft) => ft * 0.3048;
+  const openSheet = () => document.querySelector('.scrim .sheet');
+  const title = () => openSheet()?.querySelector('h2')?.textContent ?? null;
+  const closeAll = () => {
+    for (const s of document.querySelectorAll('.scrim')) s.remove();
+  };
+  const row = (n) => openSheet()?.querySelector(`.pin-row[data-hole="${n}"]`) ?? null;
+  const input = (n, f) => row(n)?.querySelector(`input[data-f="${f}"]`) ?? null;
+  const type = (el, v) => {
+    if (!el) return;
+    el.value = v;
+    el.dispatchEvent(new Event('input'));
+  };
+  const side = (n, s) => [...(row(n)?.querySelectorAll('.pin-side button') ?? [])].find((b) => b.dataset.side === s)?.click();
+  const readout = (n) => {
+    const p = row(n)?.querySelector('.pin-readout');
+    return p && !p.hidden ? { text: p.textContent, warn: p.dataset.warn === 'true' } : null;
+  };
+  const save = () => openSheet()?.querySelector('.pin-save button')?.click();
+  const radRound = () => createRound({ course: RADCLIFFE, teeSet: 'white', startingNine: 'front', type: 'practice' });
+
+  /** The play screen: live on `round`, or in edit mode with `params.roundId` (the round in storage). */
+  const mount = (round, { params = {}, app = newAppState() } = {}) => {
+    const saved = [];
+    const screen = playScreen({
+      app,
+      round: params.roundId ? null : round,
+      gps: heldGps(TEE),
+      params,
+      go() {},
+      persistRound(r) {
+        saved.push(r ?? round);
+      },
+      persistApp() {},
+      startGps() {},
+      stopGps() {},
+      trackStats: () => null,
+    });
+    document.body.appendChild(screen.el);
+    return {
+      screen,
+      saved,
+      done: () => {
+        screen.el.remove();
+        closeAll();
+      },
+    };
+  };
+  /** The Round menu's Pin sheet: true when it was there to tap. */
+  const menuPinSheet = async (screen) => {
+    screen.el.querySelector('button[aria-label="Round menu"]')?.click();
+    await wait();
+    const btn = [...(openSheet()?.querySelectorAll('button') ?? [])].find((b) => b.textContent.trim() === 'Pin sheet') ?? null;
+    btn?.click();
+    await wait();
+    if (!btn) closeAll();
+    return Boolean(btn);
+  };
+
+  /* ---- 1: where it opens ---- */
+  const one = {};
+  {
+    const back = createRound({ course: VEENKER, teeSet: 'gold', startingNine: 'back', type: 'practice' });
+    const v = mount(back);
+    one.menuVeenker = await menuPinSheet(v.screen);
+    one.titleVeenker = title();
+    one.order = [...(openSheet()?.querySelectorAll('.pin-row[data-hole]') ?? [])].map((r) => Number(r.dataset.hole));
+    one.played = back.holes.map((x) => x.number);
+    v.done();
+    const r = mount(radRound());
+    one.menuRadcliffe = await menuPinSheet(r.screen);
+    r.done();
+
+    const went = [];
+    const summaryButton = (round) => {
+      const s = summaryScreen({
+        app: newAppState(),
+        round,
+        params: { roundId: round.id, from: 'history' },
+        go: (screen, params) => went.push({ screen, params }),
+      });
+      return [...s.el.querySelectorAll('button')].find((b) => b.textContent.trim() === 'PIN SHEET') ?? null;
+    };
+    const done = par4Round();
+    done.status = 'completed';
+    try {
+      saveRound(done);
+      summaryButton(done)?.click();
+      one.went = went[0] ?? null;
+      if (one.went) {
+        const e = mount(null, { params: one.went.params });
+        one.editTitle = title();
+        one.editing = /^EDITING/.test(e.screen.el.querySelector('.hud-meta')?.textContent ?? '');
+        closeAll();
+        one.menuEditing = await menuPinSheet(e.screen);
+        e.done();
+      }
+    } finally {
+      restoreStorage();
+    }
+    one.summaryRadcliffe = Boolean(summaryButton(radRound()));
+    one.doneId = done.id;
+  }
+
+  test('1. the Round menu and the round summary open the pin sheet on Veenker, not on Radcliffe', () => {
+    eq(one.menuVeenker, true, 'Veenker: Pin sheet in the Round menu');
+    eq(one.titleVeenker, 'Pin sheet', 'Veenker: the sheet it opens');
+    eq(one.order.join(','), one.played.join(','), 'one row per hole, in the order played');
+    eq(one.menuRadcliffe, false, 'Radcliffe: Pin sheet in the Round menu');
+    eq(one.went?.screen, 'play', 'PIN SHEET goes to the round');
+    eq(JSON.stringify(one.went?.params), JSON.stringify({ roundId: one.doneId, pinSheet: true }), 'with the sheet asked for');
+    eq(one.editing, true, 'in edit mode');
+    eq(one.editTitle, 'Pin sheet', 'with the sheet up');
+    eq(one.menuEditing, true, 'edit mode: Pin sheet in the Round menu');
+    eq(one.summaryRadcliffe, false, 'Radcliffe: PIN SHEET on the summary');
+  });
+
+  /* ---- 2: typing 12 / L / 5 on hole 1 ---- */
+  const two = {};
+  {
+    const app = newAppState();
+    app.settings.paceFeet = 2.75; // not the default, so the stored stride is shown to be his setting
+    const round = par4Round();
+    const h1 = round.holes[0];
+    const untouched = (x) => JSON.stringify({ cup: x.cup, shots: x.shots, greenEntry: x.greenEntry, completedAt: x.completedAt });
+    const before = untouched(h1);
+    const m = mount(round, { app });
+    await menuPinSheet(m.screen);
+    two.intro = openSheet()?.querySelector('.pin-sheet > p')?.textContent ?? null;
+    two.deep = row(1)?.querySelector('.pin-hole small')?.textContent ?? null;
+    two.wantDeep = `${Math.round(greenFrame(G, 1).depthM / PACE_M(2.75))} deep`;
+    two.sideOffOnC = input(1, 'side')?.disabled ?? null;
+    const on = input(1, 'on');
+    const refused = [];
+    for (const v of ['0', '61', '7.5']) {
+      type(on, v);
+      refused.push(on?.value);
+    }
+    type(on, '12');
+    type(on, '12.5');
+    two.onKept = on?.value;
+    side(1, 'L');
+    two.sideOnL = input(1, 'side')?.disabled ?? null;
+    const sd = input(1, 'side');
+    type(sd, '31');
+    refused.push(sd?.value);
+    type(sd, '5');
+    two.refused = refused;
+    save();
+    await wait();
+    two.stored = h1.pinSheet ? { ...h1.pinSheet } : null;
+    two.others = round.holes.slice(1).every((x) => x.pinSheet == null);
+    two.untouched = untouched(h1) === before;
+    two.persisted = m.saved.length;
+    m.done();
+  }
+
+  test('2. typing 12 / L / 5 on hole 1 and SAVE stores exactly the Section 5 object', () => {
+    eq(two.intro, 'Paces on from the front edge, then paces from the left or right edge. Your stride is set to 2.75 ft.', 'the line at the top');
+    eq(two.deep, two.wantDeep, "the green's depth in his paces");
+    eq(two.sideOffOnC, true, 'fixture: the side field is off on C');
+    eq(two.sideOnL, false, 'the side field on L');
+    eq(JSON.stringify(two.refused), JSON.stringify(['', '', '', '']), 'ON 0, 61 and 7.5 and side 31 are not accepted');
+    eq(two.onKept, '12', 'a fraction does not replace 12');
+    assert(two.stored, 'hole 1 has no pin sheet');
+    const iso = two.stored.enteredAt;
+    assert(typeof iso === 'string' && new Date(iso).toISOString() === iso, `enteredAt ${iso}`);
+    eq(
+      JSON.stringify({ ...two.stored, enteredAt: 'ISO' }),
+      JSON.stringify({ onPaces: 12, side: 'L', sidePaces: 5, sideFrom: 'edge', paceFeet: 2.75, enteredAt: 'ISO' }),
+      'hole 1 pinSheet'
+    );
+    eq(two.others, true, 'another hole got a pin sheet');
+    eq(two.untouched, true, 'the cup, the shots, the green entry or completedAt changed');
+    eq(two.persisted, 1, 'saved once');
+  });
+
+  /* ---- 3: an empty ON ---- */
+  const three = {};
+  {
+    const round = par4Round();
+    setPinSheet(round.holes[0], { onPaces: 9, side: 'R', sidePaces: 4, sideFrom: 'edge', paceFeet: 3 });
+    const m = mount(round);
+    await menuPinSheet(m.screen);
+    three.prefill = [input(1, 'on')?.value, row(1)?.querySelector('.pin-side [aria-pressed="true"]')?.dataset.side, input(1, 'side')?.value].join(' ');
+    type(input(1, 'on'), '');
+    save();
+    await wait();
+    three.after = round.holes[0].pinSheet;
+    m.done();
+  }
+
+  test('3. an empty ON clears the key', () => {
+    eq(three.prefill, '9 R 4', 'the stored entry is on its row');
+    eq(three.after, null, 'hole 1 pinSheet after SAVE');
+  });
+
+  /* ---- 4: one UNDO, live and in edit mode ---- */
+  const undoScenario = async (editMode) => {
+    const round = par4Round();
+    const [h1, h2, h3] = round.holes;
+    const at = '2026-09-20T15:00:00.000Z';
+    setPinSheet(h1, { onPaces: 9, side: 'R', sidePaces: 4, sideFrom: 'edge', paceFeet: 3, enteredAt: at });
+    delete h2.pinSheet; // a hole logged before the key existed
+    setPinSheet(h3, { onPaces: 14, side: 'C', sidePaces: null, sideFrom: 'edge', paceFeet: 3, enteredAt: at });
+    const snap = (r) => JSON.stringify(r.holes.slice(0, 3).map((x) => ('pinSheet' in x ? x.pinSheet : 'absent')));
+    const before = snap(round);
+    let m;
+    if (editMode) {
+      round.status = 'completed';
+      saveRound(round);
+      m = mount(null, { params: { roundId: round.id } });
+    } else {
+      m = mount(round);
+    }
+    await menuPinSheet(m.screen);
+    type(input(1, 'on'), '11');
+    type(input(2, 'on'), '7');
+    side(2, 'L');
+    type(input(2, 'side'), '3');
+    type(input(3, 'on'), '');
+    save();
+    await wait();
+    const held = editMode ? m.saved[m.saved.length - 1] : round;
+    const out = { before, afterSave: held ? snap(held) : null };
+    const b = [...m.screen.el.querySelectorAll('.banner[data-kind="ok"]')].find((x) => /Pin sheet saved/.test(x.textContent));
+    out.banner = b?.querySelector('span')?.textContent ?? null;
+    b?.querySelector('button')?.click();
+    await wait();
+    out.after = held ? snap(held) : null;
+    m.done();
+    return out;
+  };
+  const four = {};
+  try {
+    four.live = await undoScenario(false);
+    four.edit = await undoScenario(true);
+  } finally {
+    restoreStorage();
+  }
+
+  test("4. one UNDO puts every hole's pin sheet back as it was, live and in edit mode", () => {
+    for (const [mode, s] of Object.entries(four)) {
+      assert(s.afterSave && s.afterSave !== s.before, `${mode}: SAVE changed nothing`);
+      eq(s.banner, 'Pin sheet saved: 2 holes, 1 cleared.', `${mode}: the banner`);
+      eq(s.after, s.before, `${mode}: after UNDO`);
+    }
+  });
+
+  /* ---- 5: the read-out, and SAVE either way ---- */
+  const five = {};
+  {
+    const round = par4Round();
+    const m = mount(round);
+    await menuPinSheet(m.screen);
+    five.deepOn = Math.round(greenFrame(G, 1).depthM / PACE_M(3)) + 5;
+    five.past = pinFromSheet(G, 1, { onPaces: five.deepOn, side: 'C', sidePaces: null, sideFrom: 'edge', paceFeet: 3 });
+    five.across = pinFromSheet(G, 3, { onPaces: 8, side: 'R', sidePaces: 30, sideFrom: 'edge', paceFeet: 3 });
+    five.on = pinFromSheet(G, 2, { onPaces: 8, side: 'L', sidePaces: 4, sideFrom: 'edge', paceFeet: 3 });
+    five.before = readout(1);
+    type(input(1, 'on'), String(five.deepOn)); // past the back of the green
+    five.read1 = readout(1);
+    type(input(2, 'on'), '8');
+    side(2, 'L');
+    type(input(2, 'side'), '4');
+    five.read2 = readout(2);
+    type(input(3, 'on'), '8');
+    side(3, 'R');
+    type(input(3, 'side'), '30'); // in from the right edge, past the left one
+    five.read3 = readout(3);
+    save();
+    await wait();
+    five.stored = round.holes.slice(0, 3).map((x) => (x.pinSheet ? `${x.pinSheet.onPaces} ${x.pinSheet.side} ${x.pinSheet.sidePaces}` : null));
+    five.sources = round.holes.slice(0, 3).map((x) => holePosition(x, { geometry: G }).source);
+    m.done();
+  }
+
+  test('5. the read-out warns on a pin off the green, and SAVE still stores it', () => {
+    eq(five.before, null, 'a read-out before ON has a number');
+    eq(`${five.past.placed} ${five.past.why}`, 'false on-point-off-green', 'fixture: past the back');
+    assert(five.across.placed && five.across.offGreenM > 3, `fixture: across ${JSON.stringify(five.across)}`);
+    assert(five.on.placed && five.on.offGreenM === 0, `fixture: on ${JSON.stringify(five.on)}`);
+    eq(JSON.stringify(five.read1), JSON.stringify({ text: `${five.deepOn} on is off the green on the map - check the numbers`, warn: true }), 'past the back');
+    eq(
+      JSON.stringify(five.read3),
+      JSON.stringify({ text: `lands ${Math.round(toYards(five.across.offGreenM))} yd off the green on the map - check the numbers`, warn: true }),
+      'off the far edge'
+    );
+    eq(JSON.stringify(five.read2), JSON.stringify({ text: `${Math.round(toYards(five.on.fromCentreM))} yd from the centre`, warn: false }), 'on the green');
+    eq(JSON.stringify(five.stored), JSON.stringify([`${five.deepOn} C null`, '8 L 4', '8 R 30']), 'what he typed is stored');
+    eq(five.sources.join(','), 'map-green,pin-sheet,map-green', 'what the engine reads');
+  });
+
+  /* ---- 6: the green sheet's old control ---- */
+  const six = {};
+  for (const [name, round] of [['veenker', par4Round()], ['radcliffe', radRound()]]) {
+    const m = mount(round);
+    [...m.screen.el.querySelectorAll('.footer button')].find((b) => /^GREEN/.test(b.textContent.trim()))?.click();
+    await wait();
+    six[name] = {
+      title: title(),
+      pin: /Where was the pin\?/.test(openSheet()?.textContent ?? ''),
+      rest: [...(openSheet()?.querySelectorAll('button, .field > .label') ?? [])]
+        .map((b) => b.textContent.trim())
+        .filter((t) => /^(MARK CUP|MARK BALL|SAVE|Putts|Putt \d.*)$/.test(t)),
+    };
+    m.done();
+  }
+
+  test('6. the green sheet has no "Where was the pin?" on Veenker, and has it on Radcliffe', () => {
+    eq(six.veenker.title, 'Hole 1 — putts', 'fixture: Veenker green sheet');
+    eq(six.radcliffe.title, 'Hole 1 — putts', 'fixture: Radcliffe green sheet');
+    eq(six.veenker.pin, false, 'Veenker');
+    eq(six.radcliffe.pin, true, 'Radcliffe');
+    eq(six.veenker.rest.join(' | '), 'MARK CUP | MARK BALL | Putts | Putt 1 — to the hole | Putt 2 — the leave | SAVE', 'nothing else moved');
+    eq(six.radcliffe.rest.join(' | '), six.veenker.rest.join(' | '), 'the same controls on both');
+  });
+
+  /* ---- 7: the fit at 360x728 ---- */
+  const seven = {};
+  {
+    const css = await fetch('../css/base.css').then((r) => r.text());
+    const style = document.createElement('style');
+    style.textContent = css;
+    document.head.appendChild(style);
+    const hadTab = document.body.classList.contains('has-lock-tab');
+    const m = mount(par4Round());
+    await menuPinSheet(m.screen);
+    const scrim = document.querySelector('.scrim');
+    const sh = openSheet();
+    if (scrim && sh) {
+      // 360x728 whatever the window is: the scrim at that size, the sheet's 88dvh as pixels.
+      Object.assign(scrim.style, { inset: 'auto', left: '0', top: '0', width: '360px', height: '728px' });
+      sh.style.maxHeight = `${0.88 * 728}px`;
+      const rect = (e) => e.getBoundingClientRect();
+      const measure = () => {
+        const rows = [...sh.querySelectorAll('.pin-row[data-hole]')];
+        const inputs = [...sh.querySelectorAll('.pin-row input')];
+        const wrap = sh.querySelector('.pin-save');
+        const saveBtn = wrap?.querySelector('button');
+        sh.scrollTop = 0;
+        const out = {
+          rows: rows.length,
+          sideways: sh.scrollWidth - sh.clientWidth,
+          spill: Math.max(...[...sh.querySelectorAll('.pin-sheet *')].map((e) => rect(e).right)) - rect(sh).right,
+          minInputH: Math.min(...inputs.map((i) => rect(i).height)),
+          saveAtTop: rect(saveBtn).top >= rect(sh).top && rect(saveBtn).bottom <= 728,
+          unreachable: [],
+        };
+        for (const r of rows) {
+          // Up to just above SAVE, the way a thumb scrolls it.
+          sh.scrollTop += rect(r).bottom - rect(wrap).top;
+          if (rect(r).top < rect(sh).top - 0.5 || rect(r).bottom > rect(wrap).top + 0.5) out.unreachable.push(r.dataset.hole);
+        }
+        sh.scrollTop = sh.scrollHeight;
+        out.saveAtEnd = rect(saveBtn).bottom <= 728;
+        return out;
+      };
+      seven.plain = measure();
+      document.body.classList.add('has-lock-tab');
+      seven.lockTab = measure();
+      document.body.classList.toggle('has-lock-tab', hadTab);
+    }
+    style.remove();
+    m.done();
+  }
+
+  test('7. the fit at 360x728: every row and SAVE reachable, no sideways scroll, number fields 44 px or taller', () => {
+    for (const [mode, f] of Object.entries({ plain: seven.plain, 'lock tab': seven.lockTab })) {
+      assert(f, `${mode}: not measured`);
+      eq(f.rows, 18, `${mode}: rows`);
+      assert(f.sideways <= 0 && f.spill <= 0.5, `${mode}: sideways ${f.sideways} px, spill ${f.spill} px`);
+      assert(f.minInputH >= 44, `${mode}: a number field is ${f.minInputH} px tall`);
+      eq(f.unreachable.join(','), '', `${mode}: rows that cannot be brought above SAVE`);
+      eq(f.saveAtTop, true, `${mode}: SAVE on screen with the sheet at the top`);
+      eq(f.saveAtEnd, true, `${mode}: SAVE on screen with the sheet at the end`);
+    }
   });
 }

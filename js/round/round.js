@@ -16,7 +16,7 @@ import { playOrder, holeYards, getCourse } from '../data/courses.js';
 import { candidateAccuracyM, candidateQuality } from './track-analysis.js';
 // Same: neither the course map nor the hole position imports this file.
 import { courseGeometry } from './course-geometry.js';
-import { resolveHolePosition } from './hole-position.js';
+import { resolveHolePosition, OFF_HOLE_MARGIN_M } from './hole-position.js';
 
 /* ------------------------------------------------------------ construction */
 
@@ -516,41 +516,58 @@ export function shotGeometry(hole, context = {}) {
   // A shot with no next mark ends at the hole only when the hole is a cup that
   // was used: a cup passed over does not measure a shot's length (6.2).
   const cupEnd = pin?.source === 'cup' ? pin : null;
+  const cardKnown = Number.isFinite(hole.yards) && hole.yards > 0;
+  /*
+   * A mark that is not on the hole gives no distance (spec Section 12, C8): a
+   * distance measured from a mark that is more than the card plus 100 yd from
+   * the hole is refused and carried as `offHoleM`. Typed distances and the
+   * scorecard are not measured from a mark and are never refused. With no card
+   * yardage there is nothing to compare with, so no filter.
+   */
+  const offHoleLimitM = cardKnown ? hole.yards * 0.9144 + OFF_HOLE_MARGIN_M : null;
 
   return shots.map((s, i) => {
     const next = shots[i + 1];
     const end = next?.mark ?? cupEnd;
     const paced = s.distanceFt != null;
+    const mapTee = s.source === 'map' && s.lie === 'tee';
     /*
      * Shot 1 from the course map reads the scorecard yardage (6.1). Matt,
      * 2026-09-28: *"needs to default to the scorecard"*. The benchmark's tee
      * distance is the hole's length along the fairway, not a straight line, and
      * the box centre is not a mark he stood on, so there is no drive length.
-     * A distance he typed still wins, as it does on every other shot.
+     * A distance he typed still wins, as it does on every other shot - and the
+     * shot still has no length (C3).
      */
-    if (!paced && s.source === 'map' && s.lie === 'tee') {
-      const known = Number.isFinite(hole.yards) && hole.yards > 0;
+    if (!paced && mapTee) {
       return {
         shot: s,
-        toHoleM: known ? hole.yards * 0.9144 : null,
-        toHoleSource: known ? 'scorecard' : null,
+        toHoleM: cardKnown ? hole.yards * 0.9144 : null,
+        toHoleSource: cardKnown ? 'scorecard' : null,
         toHoleUncertaintyM: null,
         lengthM: null,
         endsAtCup: !next && Boolean(hole.cup),
+        offHoleM: null,
       };
     }
     const measurable = !paced && s.id !== anchorId && s.mark && pin;
+    const measuredM = measurable ? distanceM(s.mark, pin) : null;
+    const offHole = measuredM != null && offHoleLimitM != null && measuredM > offHoleLimitM;
+    const used = measurable && !offHole;
     return {
       shot: s,
       // A stepped-off distance beats a GPS one whenever it exists — on a putt
       // it is not a fallback, it is the better measurement.
-      toHoleM: paced ? feetToM(s.distanceFt) : measurable ? distanceM(s.mark, pin) : null,
-      toHoleSource: paced ? s.distanceEntry?.unit ?? 'entered' : measurable ? pin.source : null,
-      toHoleUncertaintyM: measurable ? pin.uncertaintyM : null,
+      toHoleM: paced ? feetToM(s.distanceFt) : used ? measuredM : null,
+      toHoleSource: paced ? s.distanceEntry?.unit ?? 'entered' : used ? pin.source : null,
+      toHoleUncertaintyM: used ? pin.uncertaintyM : null,
       // A penalty means the next mark is a drop, not where this shot finished,
-      // so the "length" of a penalised shot is not measurable. Say so.
-      lengthM: s.mark && end && !s.penalty ? distanceM(s.mark, end) : null,
+      // so the "length" of a penalised shot is not measurable. Say so. A map
+      // tee has no length whatever else is on it (C3): the box centre is not
+      // his mark.
+      lengthM: !mapTee && s.mark && end && !s.penalty ? distanceM(s.mark, end) : null,
       endsAtCup: !next && Boolean(hole.cup),
+      offHoleM: offHole ? measuredM : null,
     };
   });
 }

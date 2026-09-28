@@ -1506,6 +1506,111 @@ body.has-lock-tab .sheet {
   border-color: var(--accent-edge);
 }
 
+/*
+ * The PIN SHEET sheet (docs/SPEC_hole-position.md 9.7): a row per hole on one
+ * line - the hole and its depth, ON, L / C / R, the side number - with the
+ * read-out under it. Every number field 48 px tall (the floor is 44), columns
+ * that shrink rather than scroll sideways, and SAVE held at the foot of the
+ * sheet so eighteen rows never stand between him and it.
+ */
+.pin-sheet .pin-row {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr) minmax(0, 2.2fr) minmax(0, 1fr);
+  gap: 4px 8px;
+  align-items: center;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.pin-sheet .pin-cols {
+  padding: 0 0 4px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  text-align: center;
+}
+
+.pin-sheet .pin-cols > :first-child {
+  text-align: left;
+}
+
+.pin-sheet .pin-hole {
+  display: grid;
+  line-height: 1.15;
+}
+
+.pin-sheet .pin-hole strong {
+  font-size: 22px;
+}
+
+.pin-sheet .pin-hole small {
+  font-size: 13px;
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+
+.pin-sheet input[type='number'] {
+  min-height: 48px;
+  padding: 4px;
+  text-align: center;
+  font-size: 20px;
+}
+
+.pin-sheet input[type='number']:disabled {
+  opacity: 0.35;
+}
+
+.pin-sheet .pin-side {
+  gap: 6px;
+}
+
+.pin-sheet .pin-side .seg-btn {
+  min-height: 48px;
+  padding: 0;
+}
+
+.pin-sheet .pin-readout {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-weight: 600;
+}
+
+/* With the lock tab's strip reserved (a live round on the web) a row is 250 px
+   wide at 360: L / C / R takes its own line rather than 26 px buttons. */
+body.has-lock-tab .pin-sheet .pin-row {
+  grid-template-columns: 52px minmax(0, 1fr) minmax(0, 1fr);
+}
+
+body.has-lock-tab .pin-sheet .pin-row > :nth-child(3) {
+  grid-column: 2 / -1;
+  grid-row: 2;
+}
+
+body.has-lock-tab .pin-sheet .pin-row > :nth-child(4) {
+  grid-column: 3;
+  grid-row: 1;
+}
+
+body.has-lock-tab .pin-sheet .pin-cols > :nth-child(3) {
+  display: none;
+}
+
+/* Held to the sheet's own bottom edge: a sticky box stops at the scroller's
+   padding, so it reaches down over that padding and fills it with the sheet's
+   background, and no row shows under SAVE. */
+.pin-sheet .pin-save {
+  position: sticky;
+  bottom: calc(-14px - env(safe-area-inset-bottom));
+  padding: 8px 0 calc(14px + env(safe-area-inset-bottom));
+  background: var(--bg);
+}
+
+.pin-sheet .pin-save .btn {
+  margin-bottom: 0;
+}
+
 @media (min-width: 620px) {
   #app {
     max-width: 560px;

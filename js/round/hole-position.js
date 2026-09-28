@@ -41,6 +41,12 @@ export const PIN_OFF_GREEN_M = 3;
 export const PIN_SHEET_UNCERTAINTY_M = 4;
 /** 150 yd: where the line of play is taken from, back along the hole's line (4.1). */
 export const APPROACH_BACK_M = 137.16;
+/**
+ * 100 yd past the card: a mark farther than `hole.yards` plus this from the hole
+ * is not on the hole, and gives no distance (spec Section 12, C8). The engine
+ * refuses to guess a distance; a lookup 3,905 yd out on a 419 yd hole is one.
+ */
+export const OFF_HOLE_MARGIN_M = 91.44;
 
 const frameCache = new WeakMap();
 

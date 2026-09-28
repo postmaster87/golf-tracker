@@ -125,6 +125,19 @@ export function summaryScreen(ctx) {
         onClick: () => ctx.go('play', { roundId: round.id }),
       })
     );
+    // His tournament pin sheet, typed after the round: the round opens in edit
+    // mode with the sheet up (docs/SPEC_hole-position.md 9.1). Only where the
+    // course map has greens to place it on.
+    if (courseGeometry(getCourse(ctx.app, round.courseId))) {
+      body.appendChild(
+        h('button', {
+          class: 'btn',
+          style: { marginBottom: '12px' },
+          text: 'PIN SHEET',
+          onClick: () => ctx.go('play', { roundId: round.id, pinSheet: true }),
+        })
+      );
+    }
   }
 
   /*
@@ -309,10 +322,19 @@ function strokesGainedCard(round, ctx) {
     wrap.appendChild(h('p', { class: 'note', text: line }));
   }
   if (sg.sources['map-green']) {
+    /*
+     * The total does not depend on the green centre only while every tee reads
+     * a distance that is not measured to it (spec Section 12, C4): on a hole
+     * whose first shot was measured to the centre, the total moves with it.
+     */
+    const teeToCentre = sg.holes.filter((hs) => hs.shots[0]?.distanceSource === 'map-green').length;
+    const median = `The centre of the green is a median ${MAP_GREEN_MEDIAN_YD} yd from where the cup was (n = ${MAP_GREEN_N} cups marked at Veenker).`;
     wrap.appendChild(
       h('p', {
         class: 'note muted',
-        text: `The centre of the green is a median ${MAP_GREEN_MEDIAN_YD} yd from where the cup was (n = ${MAP_GREEN_N} cups marked at Veenker). The total does not depend on it; the split between approach and short game does.`,
+        text: teeToCentre
+          ? `${median} The split between approach and short game depends on it, and so does the total on the ${teeToCentre} ${teeToCentre === 1 ? 'hole' : 'holes'} whose tee shot was measured to it.`
+          : `${median} The total does not depend on it; the split between approach and short game does.`,
       })
     );
   }

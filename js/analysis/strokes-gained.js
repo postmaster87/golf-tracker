@@ -95,6 +95,9 @@ export function holeStates(hole, context = {}) {
       // The error bar the hole position carried, in yards; null for a typed
       // distance and for the scorecard tee.
       uncertaintyYd: g.toHoleUncertaintyM == null ? null : toYards(g.toHoleUncertaintyM),
+      // A mark more than the card plus 100 yd from the hole: the distance that
+      // was refused, in metres (docs/SPEC_hole-position.md Section 12, C8).
+      offHoleM: g.offHoleM ?? null,
     };
   });
 }
@@ -183,7 +186,9 @@ export function holeStrokesGained(hole, opts = {}) {
     if (sg == null) {
       out.unattributed++;
       out.reasons.push(
-        `hole ${hole.number} shot ${st.shot.seq}: ${eStart == null ? 'start' : 'end'} position unknown`
+        st.offHoleM != null
+          ? `hole ${hole.number} shot ${st.shot.seq}: the mark is ${Math.round(toYards(st.offHoleM))} yd from the hole on a ${hole.yards} yd hole, not used`
+          : `hole ${hole.number} shot ${st.shot.seq}: ${eStart == null ? 'start' : 'end'} position unknown`
       );
       return;
     }
