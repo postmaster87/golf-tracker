@@ -10,7 +10,15 @@
  * re-collected.
  */
 
-import { migrate, newAppState, summarizeRound, APP_VERSION } from './schema.js';
+import {
+  migrate,
+  newAppState,
+  summarizeRound,
+  APP_VERSION,
+  newCourseNotes,
+  migrateCourseNotes,
+  nowIso,
+} from './schema.js';
 import { REVISION } from './revision.js';
 import { readTrack, writeTrackChunk } from './trackstore.js';
 import { checkPersistence } from './persistence.js';
@@ -161,6 +169,77 @@ export function reconcileIndex(app) {
   return changed;
 }
 
+/* ------------------------------------------------------------- course notes */
+
+/*
+ * His course notes - the layups he types in (docs/SPEC_hole-overview.md 5.3).
+ * One key per course, written only when he saves; see schema.js for why they
+ * are not inside `gt:app`.
+ */
+const COURSE_NOTES_PREFIX = 'gt:course:';
+const DAMAGED_MARK = ':bad:';
+
+export function courseNotesKey(courseId) {
+  return COURSE_NOTES_PREFIX + courseId;
+}
+
+/**
+ * His notes for a course. With no key: fresh empty notes, and NOTHING is
+ * written. A value that cannot be read as notes is never deleted: its text is
+ * copied to `gt:course:<courseId>:bad:<ms>`, the storage-error listeners are
+ * told, and empty notes come back with `recoveredFrom` naming the copy.
+ */
+export function loadCourseNotes(courseId) {
+  const key = courseNotesKey(courseId);
+  let raw;
+  try {
+    raw = localStorage.getItem(key);
+  } catch (err) {
+    emitError(err, key);
+    return newCourseNotes(courseId);
+  }
+  if (raw == null) return newCourseNotes(courseId);
+  let notes = null;
+  let problem = null;
+  try {
+    notes = migrateCourseNotes(JSON.parse(raw));
+  } catch (err) {
+    problem = err;
+  }
+  if (!problem && !(notes && typeof notes === 'object' && Array.isArray(notes.layups))) {
+    problem = new Error(`${key} holds no course notes`);
+  }
+  if (problem) {
+    const copy = `${key}${DAMAGED_MARK}${Date.now()}`;
+    writeRaw(copy, raw);
+    emitError(problem, key);
+    return { ...newCourseNotes(courseId), recoveredFrom: copy };
+  }
+  return notes;
+}
+
+/**
+ * Save his notes for `notes.courseId`, stamping `updatedAt`. False, with the
+ * listeners told, when the write fails - a full quota is loud here as
+ * everywhere. `recoveredFrom` is a message from the load, not part of the record.
+ */
+export function saveCourseNotes(notes) {
+  if (!notes?.courseId) return false;
+  notes.updatedAt = nowIso();
+  const { recoveredFrom, ...record } = notes;
+  return writeRaw(courseNotesKey(notes.courseId), JSON.stringify(record));
+}
+
+/** The course ids that have a notes key (not the `:bad:` copies), sorted. */
+export function allCourseNotesIds() {
+  const ids = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (k?.startsWith(COURSE_NOTES_PREFIX) && !k.includes(DAMAGED_MARK)) ids.push(k.slice(COURSE_NOTES_PREFIX.length));
+  }
+  return ids.sort();
+}
+
 /* ------------------------------------------------------------ export/import */
 
 export function buildExport(app) {
@@ -170,6 +249,15 @@ export function buildExport(app) {
     if (r) rounds.push(r);
   }
   rounds.sort((a, b) => (a.startedAt < b.startedAt ? 1 : -1));
+  // His course notes ride beside the rounds, keyed by course, so `rounds` and
+  // `app` stay byte for byte what a formatVersion-1 reader expects
+  // (docs/SPEC_hole-overview.md 5.4). Notes that cannot be read are left out:
+  // their text stays on the phone under the `:bad:` key the load made.
+  const courseNotes = {};
+  for (const id of allCourseNotesIds()) {
+    const notes = loadCourseNotes(id);
+    if (!notes.recoveredFrom) courseNotes[id] = notes;
+  }
   return {
     format: 'golf-tracker-export',
     formatVersion: 1,
@@ -180,6 +268,7 @@ export function buildExport(app) {
     exportedByRevision: REVISION,
     app,
     rounds,
+    courseNotes,
   };
 }
 
@@ -356,7 +445,7 @@ export function importExport(parsed, mode = 'merge') {
   if (parsed?.format !== 'golf-tracker-export') {
     throw new Error('Not a golf-tracker export file.');
   }
-  const report = { added: 0, skipped: 0, failed: 0, replaced: mode === 'replace', addedIds: [] };
+  const report = { added: 0, skipped: 0, failed: 0, replaced: mode === 'replace', addedIds: [], layupsAdded: 0 };
 
   if (mode === 'replace') {
     for (const id of allRoundIds()) deleteRound(id);
@@ -379,6 +468,29 @@ export function importExport(parsed, mode = 'merge') {
       // points onto a track already on this device.
       report.addedIds.push(round.id);
     } else report.failed++;
+  }
+
+  /*
+   * His course notes (docs/SPEC_hole-overview.md 5.4). Merge: a layup whose id
+   * is not on this phone is added, one that is keeps the phone's version, and
+   * nothing is removed. Replace: the file's notes for a course replace this
+   * phone's for that course. A course the file has no notes for - every course,
+   * in a file from before notes existed - keeps the phone's.
+   */
+  const fileNotes = parsed.courseNotes && typeof parsed.courseNotes === 'object' ? parsed.courseNotes : {};
+  for (const [courseId, raw] of Object.entries(fileNotes)) {
+    const incoming = migrateCourseNotes(raw);
+    if (!incoming || typeof incoming !== 'object' || !Array.isArray(incoming.layups)) continue;
+    if (mode === 'replace') {
+      if (saveCourseNotes({ ...incoming, courseId })) report.layupsAdded += incoming.layups.length;
+      continue;
+    }
+    const mine = loadCourseNotes(courseId);
+    const have = new Set(mine.layups.map((l) => l?.id));
+    const add = incoming.layups.filter((l) => l?.id && !have.has(l.id));
+    if (!add.length) continue;
+    mine.layups.push(...add);
+    if (saveCourseNotes(mine)) report.layupsAdded += add.length;
   }
 
   const app = mode === 'replace' ? { ...newAppState(), ...migrate(parsed.app ?? {}) } : loadApp();

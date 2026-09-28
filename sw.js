@@ -43,6 +43,7 @@ const SHELL = [
   './js/data/store.js',
   './js/data/courses.js',
   './js/data/geometry/veenker.js',
+  './js/data/geometry/veenker-frames.js',
   './js/data/clubs.js',
   './js/data/revision.js',
   './js/data/build.js',

@@ -537,3 +537,71 @@ export function migrate(payload) {
   // Future: while (p.schemaVersion < SCHEMA_VERSION) { ...; p.schemaVersion++ }
   return p;
 }
+
+/* ------------------------------------------------------------- course notes */
+
+/**
+ * HIS COURSE NOTES: the layups he types in on the Hole Overview page
+ * (docs/SPEC_hole-overview.md Section 5). Named "course notes" so that nothing
+ * here is taken for the yardage book.
+ *
+ * One localStorage key per course, `gt:course:<courseId>`, with its own
+ * version: SCHEMA_VERSION, the round record and `gt:app` do not move. Not
+ * inside `gt:app`, because `loadApp` returns a fresh state when `gt:app`
+ * cannot be read and `boot()` saves it straight away - typed layups would be
+ * gone. This key is written only when he saves a layup.
+ *
+ * Design rule 1 holds: what is stored is what he typed - the number, what it
+ * is measured from, his label. No position and no distance; the point on the
+ * hole is `layupPoint` (js/round/course-geometry.js), derived on read.
+ *
+ *   { schemaVersion, courseId,
+ *     layups: [ { id, hole, ref: 'green' | 'tee', yards, teeSet, label, createdAt, updatedAt } ],
+ *     updatedAt }
+ */
+export const COURSE_NOTES_VERSION = 1;
+
+/** The longest label a layup takes, in characters. */
+export const LAYUP_LABEL_MAX = 24;
+
+export function newCourseNotes(courseId) {
+  return { schemaVersion: COURSE_NOTES_VERSION, courseId, layups: [], updatedAt: null };
+}
+
+/**
+ * One layup, exactly as he typed it; null for one that cannot be: `yards` not a
+ * whole number from 1 to 700, `ref` not 'green' or 'tee', 'tee' with no tee
+ * set, `hole` not a whole number from 1 to 18, a label over 24 characters.
+ * The label is trimmed and an empty one is null; `teeSet` is null for 'green'.
+ */
+export function newLayup({ hole, ref, yards, teeSet = null, label = null } = {}) {
+  if (!Number.isInteger(yards) || yards < 1 || yards > 700) return null;
+  if (ref !== 'green' && ref !== 'tee') return null;
+  if (ref === 'tee' && !teeSet) return null;
+  if (!Number.isInteger(hole) || hole < 1 || hole > 18) return null;
+  const text = typeof label === 'string' ? label.trim() : '';
+  if ([...text].length > LAYUP_LABEL_MAX) return null;
+  const at = nowIso();
+  return {
+    id: uid('l'),
+    hole,
+    ref,
+    yards,
+    teeSet: ref === 'tee' ? teeSet : null,
+    label: text || null,
+    createdAt: at,
+    updatedAt: at,
+  };
+}
+
+/**
+ * Upgrade stored course notes to COURSE_NOTES_VERSION. v1 is the floor, so a
+ * no-op in the shape of `migrate`: every read of the key routes through it.
+ */
+export function migrateCourseNotes(payload) {
+  if (!payload || typeof payload !== 'object') return payload;
+  let p = payload;
+  if (p.schemaVersion == null) p = { ...p, schemaVersion: COURSE_NOTES_VERSION };
+  // Future: while (p.schemaVersion < COURSE_NOTES_VERSION) { ...; p.schemaVersion++ }
+  return p;
+}

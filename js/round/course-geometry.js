@@ -11,13 +11,18 @@
  */
 
 import { VEENKER_GEOMETRY } from '../data/geometry/veenker.js';
-import { distanceM, toYards } from '../util/geo.js';
+import { VEENKER_FRAMES } from '../data/geometry/veenker-frames.js';
+import { distanceM, toYards, yardsToM, enuOffset, offsetPoint } from '../util/geo.js';
 import {
   pointInRing,
   distanceToRing,
   distanceToPolyline,
   ringCentroid,
   rayRingIntersections,
+  projectOnPolyline,
+  segmentRingCrossings,
+  ringGapM,
+  ringSpanM,
 } from '../util/polygon.js';
 
 const GEOMETRIES = { veenker: VEENKER_GEOMETRY };
@@ -208,4 +213,342 @@ export function nearestHole(geometry, pos, { maxM = 60 } = {}) {
     onTee: best.onTee,
     onGreen: best.onGreen,
   };
+}
+
+/* ============================================================================
+ * The Hole Overview's numbers (docs/SPEC_hole-overview.md Section 3).
+ *
+ * One ruler, his rulings 4 to 7: every number is the straight-line distance
+ * from the origin at the top of its column to a point on the map. The TEE
+ * column is the YOU column computed from the tee box centre; both run these
+ * same functions. Pure: no DOM, no storage, nothing written.
+ * ========================================================================= */
+
+/** Tells a pond from the creek: ponds 37 and 66 m, the creek 6.9 km (n = 3 water polygons). */
+export const COMPACT_SPAN_M = 150;
+/** A bunker this close to a green's edge is that green's, and numbered on its hole only (3.4). */
+export const GREENSIDE_M = 30;
+/** A bunker any of whose vertices is this close to a hole path is numbered on that hole (3.4). */
+export const BESIDE_LINE_M = 35;
+/** Standing this close to a corner of the hole, his line goes to the next point (3.6). */
+export const CORNER_M = 30;
+/** A crossing on his line belongs to a creek feature within this of its span down the hole (3.7). */
+export const CROSSING_MATCH_M = 80;
+
+const overviewCache = new WeakMap();
+function overview(geometry) {
+  let oc = overviewCache.get(geometry);
+  if (!oc) {
+    oc = { owners: null, compact: new Map(), features: new Map() };
+    overviewCache.set(geometry, oc);
+  }
+  return oc;
+}
+
+/** The green's centroid - the same centre, from the same cache, that `toGreen` measures to. */
+function greenCentreOf(geometry, hole) {
+  const ix = index(geometry);
+  const green = ix.byId.get(hole.greenId);
+  if (!green) return null;
+  let C = ix.centroids.get(green.id);
+  if (!C) {
+    C = ringCentroid(green.ring);
+    ix.centroids.set(green.id, C);
+  }
+  return C;
+}
+
+/** The hole's line, its last point replaced by its green's centroid (3.3). */
+export function holePath(geometry, holeNumber) {
+  if (!geometry) return null;
+  const hole = holeOf(geometry, holeNumber);
+  if (!hole || !hole.line?.length) return null;
+  const C = greenCentreOf(geometry, hole);
+  if (!C) return null;
+  return [...hole.line.slice(0, -1), C];
+}
+
+function isCompact(geometry, p) {
+  const oc = overview(geometry);
+  if (!oc.compact.has(p.id)) oc.compact.set(p.id, ringSpanM(p.ring) <= COMPACT_SPAN_M);
+  return oc.compact.get(p.id);
+}
+
+/**
+ * Where `path` goes into and out of `ring`, leg by leg: `[{ entry, exit }]`,
+ * each `{ sM, point }` with `sM` metres along the path. When the path starts
+ * inside the ring its first crossing is a way out, and is dropped.
+ */
+function crossingPairs(path, ring) {
+  const xs = [];
+  let acc = 0;
+  for (let i = 1; i < path.length; i++) {
+    for (const c of segmentRingCrossings(path[i - 1], path[i], ring)) {
+      const sM = acc + c.tM;
+      // A crossing exactly on a shared vertex is found by both legs: once.
+      if (xs.length && sM - xs[xs.length - 1].sM <= 1e-6) continue;
+      xs.push({ sM, point: c.point });
+    }
+    acc += distanceM(path[i - 1], path[i]);
+  }
+  if (pointInRing(path[0], ring)) xs.shift();
+  const pairs = [];
+  for (let j = 0; j + 1 < xs.length; j += 2) pairs.push({ entry: xs[j], exit: xs[j + 1] });
+  return pairs;
+}
+
+/**
+ * Each bunker's green, when it has one: the hole whose green is nearest among
+ * those within GREENSIDE_M of it (tie: the lower hole number); null when it is
+ * not greenside. Per geometry, computed once.
+ */
+function bunkerOwners(geometry) {
+  const oc = overview(geometry);
+  if (oc.owners) return oc.owners;
+  const ix = index(geometry);
+  const greens = geometry.holes.map((h) => ({ n: h.number, g: ix.byId.get(h.greenId) })).filter((x) => x.g);
+  const owners = new Map();
+  for (const p of geometry.polygons) {
+    if (p.kind !== 'bunker') continue;
+    let owner = null;
+    let bestGap = Infinity;
+    for (const { n, g } of greens) {
+      const gap = ringGapM(p.ring, g.ring);
+      if (gap <= GREENSIDE_M && (gap < bestGap || (gap === bestGap && n < owner))) {
+        owner = n;
+        bestGap = gap;
+      }
+    }
+    owners.set(p.id, owner);
+  }
+  oc.owners = owners;
+  return owners;
+}
+
+const sideOf = (s) => (s > 0 ? 'L' : s < 0 ? 'R' : 'C');
+const byName = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
+
+/**
+ * The bunkers and creek crossings that get a number on this hole (3.4). Fixed
+ * per hole - it does not depend on where he stands, so a marker never changes
+ * its name while he walks. Cached per geometry and hole; the list is frozen.
+ * A pond is never a feature (his ruling 8), nor the creek beside a hole
+ * without crossing it (ruling 9).
+ */
+export function holeFeatures(geometry, holeNumber) {
+  if (!geometry) return [];
+  const oc = overview(geometry);
+  if (oc.features.has(holeNumber)) return oc.features.get(holeNumber);
+  const H = holePath(geometry, holeNumber);
+  if (!H || H.length < 2) return [];
+  const owners = bunkerOwners(geometry);
+  const found = [];
+  for (const p of geometry.polygons) {
+    if (p.kind === 'bunker') {
+      const owner = owners.get(p.id);
+      const on =
+        owner != null ? owner === holeNumber : p.ring.some((q) => projectOnPolyline(q, H).distanceM <= BESIDE_LINE_M);
+      if (!on) continue;
+      const at = ringCentroid(p.ring);
+      const c = projectOnPolyline(at, H);
+      const ss = p.ring.map((q) => projectOnPolyline(q, H).sM);
+      found.push({
+        id: p.id,
+        kind: 'bunker',
+        mode: 'beside',
+        side: sideOf(c.side),
+        sM: c.sM,
+        sMinM: Math.min(...ss),
+        sMaxM: Math.max(...ss),
+        at: Object.freeze(at),
+      });
+    } else if (p.kind === 'water' && !isCompact(geometry, p)) {
+      for (const { entry, exit } of crossingPairs(H, p.ring)) {
+        const d = enuOffset(entry.point, exit.point);
+        const at = offsetPoint(entry.point, { east: d.east / 2, north: d.north / 2 });
+        found.push({
+          id: p.id,
+          kind: 'water',
+          mode: 'cross',
+          side: 'C',
+          sM: projectOnPolyline(at, H).sM,
+          sMinM: entry.sM,
+          sMaxM: exit.sM,
+          at: Object.freeze(at),
+          entry: Object.freeze({ lat: entry.point.lat, lon: entry.point.lon }),
+          exit: Object.freeze({ lat: exit.point.lat, lon: exit.point.lon }),
+        });
+      }
+    }
+  }
+  found.sort((a, b) => a.sM - b.sM || byName(String(a.id), String(b.id)));
+  let nb = 0;
+  let nw = 0;
+  const list = Object.freeze(
+    found.map((f) => Object.freeze({ name: f.kind === 'bunker' ? `B${++nb}` : `W${++nw}`, ...f })),
+  );
+  oc.features.set(holeNumber, list);
+  return list;
+}
+
+/**
+ * Where the TEE column measures from (3.5): the centroid of the mapped box that
+ * carries the hole and the set (the one farthest from the green when there
+ * are two - his hole 10 ruling), else his markup point for it, else null.
+ */
+export function teeOrigin(geometry, holeNumber, teeSet) {
+  if (!geometry || !teeSet) return null;
+  const hole = holeOf(geometry, holeNumber);
+  if (!hole) return null;
+  const C = greenCentreOf(geometry, hole);
+  let best = null;
+  for (const b of geometry.polygons) {
+    if (b.kind !== 'tee' || !(b.holes ?? []).includes(holeNumber) || !(b.sets ?? []).includes(teeSet)) continue;
+    const c = ringCentroid(b.ring);
+    const d = C ? distanceM(c, C) : 0;
+    if (!best || d > best.d) best = { b, c, d };
+  }
+  if (best) {
+    const reachM = Math.max(...best.b.ring.map((q) => distanceM(best.c, q)));
+    return { lat: best.c.lat, lon: best.c.lon, accuracyM: Math.round(reachM * 10) / 10, source: 'map', id: best.b.id };
+  }
+  const pt = (geometry.points ?? []).find(
+    (q) => q.kind === 'tee' && (q.holes ?? []).includes(holeNumber) && (q.sets ?? []).includes(teeSet),
+  );
+  return pt ? { lat: pt.lat, lon: pt.lon, accuracyM: null, source: 'markup', id: pt.id } : null;
+}
+
+/**
+ * His line of play from `origin` (3.6): to the next point of the hole path
+ * ahead of him - past a corner he is within CORNER_M of - and on to the green.
+ */
+export function playPath(geometry, holeNumber, origin) {
+  if (!geometry || !origin) return null;
+  const H = holePath(geometry, holeNumber);
+  if (!H || H.length < 2) return null;
+  const p = projectOnPolyline(origin, H);
+  let k = p.leg;
+  if (k < H.length - 1 && distanceM(origin, H[k]) <= CORNER_M) k += 1;
+  return { path: [origin, ...H.slice(k)], originS: p.sM };
+}
+
+/**
+ * Every number on the page for one origin (3.7): the green, the same object the
+ * play screen's GREEN line reads, and reach / carry for each feature.
+ */
+export function holeNumbers(geometry, holeNumber, origin) {
+  if (!geometry || !origin) return null;
+  if (!holeOf(geometry, holeNumber)) return null;
+  const play = playPath(geometry, holeNumber, origin);
+  if (!play) return null;
+  const H = holePath(geometry, holeNumber);
+  const byId = index(geometry).byId;
+  const yd = (m) => Math.round(toYards(m));
+  const features = holeFeatures(geometry, holeNumber).map((f) => {
+    const p = byId.get(f.id);
+    const inside = inPolygon(origin, p);
+    let reachM;
+    let carryM;
+    let ownLine = null;
+    if (f.mode === 'beside') {
+      reachM = inside ? 0 : distanceToRing(origin, p.ring);
+      carryM = Math.max(...p.ring.map((q) => distanceM(origin, q)));
+    } else {
+      ownLine = false;
+      reachM = distanceM(origin, f.entry);
+      carryM = distanceM(origin, f.exit);
+      for (const { entry, exit } of crossingPairs(play.path, p.ring)) {
+        const d = enuOffset(entry.point, exit.point);
+        const mid = offsetPoint(entry.point, { east: d.east / 2, north: d.north / 2 });
+        const s = projectOnPolyline(mid, H).sM;
+        if (s >= f.sMinM - CROSSING_MATCH_M && s <= f.sMaxM + CROSSING_MATCH_M) {
+          reachM = distanceM(origin, entry.point);
+          carryM = distanceM(origin, exit.point);
+          ownLine = true;
+          break;
+        }
+      }
+    }
+    return {
+      name: f.name,
+      kind: f.kind,
+      mode: f.mode,
+      side: f.side,
+      reachM,
+      carryM,
+      reachYd: yd(reachM),
+      carryYd: yd(carryM),
+      inside,
+      behind: f.sMaxM < play.originS,
+      ownLine,
+    };
+  });
+  return { hole: holeNumber, originS: play.originS, green: toGreen(geometry, holeNumber, origin), features };
+}
+
+/** The first point of `path` at `R` metres from `centre`, from its start or searching back from its end. */
+function circleOnPath(path, centre, R, fromEnd) {
+  const legs = [];
+  for (let i = 1; i < path.length; i++) legs.push(i);
+  if (fromEnd) legs.reverse();
+  for (const i of legs) {
+    const a = enuOffset(centre, path[i - 1]);
+    const b = enuOffset(centre, path[i]);
+    const dx = b.east - a.east;
+    const dy = b.north - a.north;
+    const A = dx * dx + dy * dy;
+    if (A === 0) continue;
+    const B = 2 * (a.east * dx + a.north * dy);
+    const Cc = a.east * a.east + a.north * a.north - R * R;
+    const disc = B * B - 4 * A * Cc;
+    if (disc < 0) continue;
+    const r = Math.sqrt(disc);
+    const ts = [(-B - r) / (2 * A), (-B + r) / (2 * A)].filter((t) => t >= -1e-9 && t <= 1 + 1e-9);
+    if (!ts.length) continue;
+    const t = Math.min(1, Math.max(0, fromEnd ? Math.max(...ts) : Math.min(...ts)));
+    return offsetPoint(path[i - 1], { east: dx * t, north: dy * t });
+  }
+  return null;
+}
+
+/**
+ * Where a layup he typed sits on the hole (3.8), derived on read - nothing
+ * about the point is stored. `ref: 'green'`: on the hole path, searching back
+ * from the green, the first point `yards` from the green's centroid.
+ * `ref: 'tee'`: on his line of play from `tee`, the first point `yards` from it.
+ */
+export function layupPoint(geometry, holeNumber, layup, tee) {
+  if (!geometry || !layup) return null;
+  const R = yardsToM(layup.yards);
+  if (!Number.isFinite(R)) return null;
+  if (layup.ref === 'green') {
+    const H = holePath(geometry, holeNumber);
+    return H && H.length >= 2 ? circleOnPath(H, H[H.length - 1], R, true) : null;
+  }
+  if (layup.ref === 'tee') {
+    if (!tee) return null;
+    const play = playPath(geometry, holeNumber, tee);
+    return play ? circleOnPath(play.path, tee, R, false) : null;
+  }
+  return null;
+}
+
+/* ------------------------------------ the pictures (docs/SPEC_hole-overview.md 4.3) */
+
+/** The hole pictures' frames for a course (generated, js/data/geometry/veenker-frames.js); null without them. */
+export function courseFrames(course) {
+  return course?.geometry === 'veenker' ? VEENKER_FRAMES : null;
+}
+
+/**
+ * Where `pos` falls on a hole's picture: `{ x, y }` in image pixels, y down.
+ * The generator (tools/course-geometry/build_hole_images.py) cut the photo with
+ * this same formula. Outside the image is outside [0, widthPx] x [0, heightPx].
+ */
+export function framePx(frame, pos) {
+  if (!frame || !pos) return null;
+  const o = enuOffset(frame.origin, pos);
+  const u = o.east * frame.up.east + o.north * frame.up.north;
+  const v = o.east * frame.up.north - o.north * frame.up.east;
+  return { x: (v - frame.v0M) / frame.mPerPx, y: frame.heightPx - (u - frame.u0M) / frame.mPerPx };
 }

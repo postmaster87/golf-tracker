@@ -50,6 +50,7 @@
         runGreenDistanceTests,
         runShotPlacesTests,
         runPinSheetTests,
+        runHoleOverviewPictureTests,
       } from './run.js';
 
       await runContrastTests();
@@ -67,6 +68,7 @@
       await runGreenDistanceTests();
       await runShotPlacesTests();
       await runPinSheetTests();
+      await runHoleOverviewPictureTests();
       await runStoragePersistTests();
       // Last on purpose: it stands a fake bridge up and shims
       // navigator.geolocation, and it puts both back when it is done.

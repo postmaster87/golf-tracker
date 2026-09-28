@@ -159,6 +159,11 @@ import {
   deleteRound,
   upsertRoundSummary,
 } from '../js/data/store.js';
+// The Hole Overview (docs/SPEC_hole-overview.md), stage 1.
+import { holePath, holeFeatures, teeOrigin, playPath, holeNumbers, layupPoint } from '../js/round/course-geometry.js';
+import { courseFrames, framePx } from '../js/round/course-geometry.js';
+import { SCHEMA_VERSION, newCourseNotes, newLayup } from '../js/data/schema.js';
+import { courseNotesKey, loadCourseNotes, saveCourseNotes, allCourseNotesIds, onStorageError } from '../js/data/store.js';
 
 /* ------------------------------------------------------- storage safety net */
 
@@ -2822,6 +2827,371 @@ group('course geometry');
     eq(toGreen(R, 1, pt), null, 'toGreen');
     eq(nearestHole(R, pt), null, 'nearestHole');
   });
+}
+
+/* ------------------------------------ the Hole Overview (docs/SPEC_hole-overview.md) */
+
+group('hole overview (numbers)');
+
+{
+  // Section 3.9. Positions come from the data (centroids, path points, offsets);
+  // expected yardages are Fable's prototype, an independent implementation,
+  // tolerance 1 yd.
+  const G = courseGeometry(VEENKER);
+  const poly = (id) => G.polygons.find((p) => p.id === id);
+  const feature = (rows, name) => rows.find((f) => f.name === name);
+  const yd = (rows, name, reach, carry, msg) => {
+    const f = feature(rows, name);
+    assert(f, `${msg}: no ${name}`);
+    near(f.reachYd, reach, 1, `${msg} ${name} reach`);
+    near(f.carryYd, carry, 1, `${msg} ${name} carry`);
+    return f;
+  };
+  const fromTee = (n, set) => holeNumbers(G, n, teeOrigin(G, n, set)).features;
+  /** `sM` metres down hole `n`'s path, `leftM` metres to its left (negative: right). */
+  const down = (n, sM, leftM = 0) => {
+    const H = holePath(G, n);
+    let acc = 0;
+    for (let i = 1; i < H.length; i++) {
+      const d = enuOffset(H[i - 1], H[i]);
+      const L = Math.hypot(d.east, d.north);
+      if (sM <= acc + L) {
+        const p = offsetPoint(H[i - 1], { east: (d.east * (sM - acc)) / L, north: (d.north * (sM - acc)) / L });
+        return offsetPoint(p, { east: (-d.north / L) * leftM, north: (d.east / L) * leftM });
+      }
+      acc += L;
+    }
+    return null;
+  };
+
+  test('the tee for a set: the farther box, his markup point, none, a shared box', () => {
+    eq(teeOrigin(G, 10, 'blue').id, 1065741882, 'hole 10 blue: the farther of the two blue boxes');
+    const t16 = teeOrigin(G, 16, 'blue');
+    eq(t16.id, 'hole16-back-blue', 'hole 16 blue');
+    eq(t16.source, 'markup', 'hole 16 blue source');
+    eq(t16.accuracyM, null, 'hole 16 blue accuracyM');
+    eq(teeOrigin(G, 10, 'blue').source, 'map', 'a box is the map');
+    eq(teeOrigin(G, 1, 'white'), null, 'hole 1 white');
+    eq(teeOrigin(G, 11, 'blue').id, teeOrigin(G, 18, 'blue').id, 'holes 11 and 18 blue');
+  });
+
+  test('what is numbered: Table 1, all 18 holes (25 bunkers, 5 creek crossings, n = 30)', () => {
+    const TABLE_1 = {
+      3: 'B1 bunker R',
+      4: 'B1 bunker L; B2 bunker R; B3 bunker L',
+      5: 'B1 bunker R',
+      6: 'B1 bunker L',
+      7: 'W1 creek C',
+      8: 'B1 bunker L; B2 bunker R',
+      9: 'B1 bunker R; B2 bunker R',
+      10: 'B1 bunker L; B2 bunker R; B3 bunker L',
+      11: 'W1 creek C; B1 bunker L; B2 bunker R; B3 bunker R',
+      12: 'B1 bunker L; B2 bunker R',
+      13: 'B1 bunker R',
+      14: 'B1 bunker R',
+      15: 'W1 creek C; B1 bunker L; B2 bunker R',
+      16: 'W1 creek C; W2 creek C; B1 bunker L',
+      17: 'B1 bunker R; B2 bunker R',
+    };
+    let n = 0;
+    for (let h = 1; h <= 18; h++) {
+      const fs = holeFeatures(G, h);
+      n += fs.length;
+      const got = fs.map((f) => `${f.name} ${f.kind === 'bunker' ? 'bunker' : f.mode === 'cross' ? 'creek' : f.kind} ${f.side}`);
+      eq(got.join('; '), TABLE_1[h] ?? '', `hole ${h}`);
+    }
+    eq(n, 30, 'rows');
+  });
+
+  test('a greenside bunker is numbered on one hole: its green', () => {
+    const on = (id, h) => holeFeatures(G, h).some((f) => f.id === id);
+    assert(on(1065746512, 13) && !on(1065746512, 2), 'bunker 1065746512: hole 13 and not hole 2');
+    assert(on(1065741609, 16) && !on(1065741609, 2) && !on(1065741609, 4), 'bunker 1065741609: hole 16, not 2 or 4');
+  });
+
+  test("a bunker's reach and carry; a pond gets no number", () => {
+    yd(fromTee(3, 'blue'), 'B1', 278, 293, 'hole 3 blue');
+    for (const h of [2, 3, 5]) eq(holeFeatures(G, h).filter((f) => f.kind === 'water').length, 0, `hole ${h} water`);
+  });
+
+  test('the creek from the tee: holes 7, 11, 15 and 16', () => {
+    yd(fromTee(7, 'blue'), 'W1', 360, 398, 'hole 7 blue');
+    yd(fromTee(11, 'blue'), 'W1', 63, 90, 'hole 11 blue');
+    yd(fromTee(15, 'blue'), 'W1', 244, 255, 'hole 15 blue');
+    yd(fromTee(15, 'gold'), 'W1', 211, 223, 'hole 15 gold');
+    yd(fromTee(16, 'blue'), 'W1', 80, 99, 'hole 16 blue');
+    yd(fromTee(16, 'blue'), 'W2', 457, 477, 'hole 16 blue');
+    yd(fromTee(16, 'gold'), 'W1', 17, 35, 'hole 16 gold');
+    yd(fromTee(16, 'gold'), 'W2', 394, 415, 'hole 16 gold');
+  });
+
+  test('the creek on his own line: hole 7, 300 yd down, on the line and 30 m either side', () => {
+    const s = 300 * 0.9144;
+    for (const [leftM, reach, carry] of [[0, 59, 97], [30, 35, 74], [-30, 84, 116]]) {
+      const w = yd(holeNumbers(G, 7, down(7, s, leftM)).features, 'W1', reach, carry, `${leftM} m left`);
+      eq(w.ownLine, true, `${leftM} m left: ownLine`);
+    }
+  });
+
+  test('behind him, and standing in it', () => {
+    const H7 = holePath(G, 7);
+    eq(feature(holeNumbers(G, 7, H7[H7.length - 1]).features, 'W1').behind, true, 'hole 7 green centroid: W1 behind');
+    const b = poly(1065747078); // hole 3's B1
+    const c = ringCentroid(b.ring);
+    assert(pointInRing(c, b.ring), 'fixture: the centroid is inside the bunker');
+    const f = holeNumbers(G, 3, c).features.find((x) => x.name === 'B1');
+    eq(f.reachM, 0, 'reachM');
+    eq(f.inside, true, 'inside');
+  });
+
+  test('layup points: from the green, from the tee, none that far, no tee', () => {
+    const H7 = holePath(G, 7);
+    const C7 = H7[H7.length - 1];
+    const g = layupPoint(G, 7, { ref: 'green', yards: 100 }, null);
+    near(distanceToPolyline(g, H7), 0, 0.05, 'green 100 is on the path, m');
+    near(toYards(distanceM(g, C7)), 100, 0.1, 'green 100 from the green centroid, yd');
+    const tee = teeOrigin(G, 7, 'blue');
+    const t = layupPoint(G, 7, { ref: 'tee', yards: 250 }, tee);
+    near(distanceToPolyline(t, playPath(G, 7, tee).path), 0, 0.05, 'tee 250 is on his line, m');
+    near(toYards(distanceM(t, tee)), 250, 0.1, 'tee 250 from the blue tee, yd');
+    eq(layupPoint(G, 8, { ref: 'green', yards: 400 }, null), null, 'hole 8 green 400');
+    eq(layupPoint(G, 7, { ref: 'tee', yards: 250 }, null), null, 'tee with no tee');
+  });
+
+  test("the page's green is the play screen's: holeNumbers(...).green deep-equals toGreen", () => {
+    const H7 = holePath(G, 7);
+    for (const o of [teeOrigin(G, 7, 'blue'), { ...down(7, 300 * 0.9144, 12), accuracyM: 3.2 }, H7[H7.length - 1]]) {
+      eq(JSON.stringify(holeNumbers(G, 7, o).green), JSON.stringify(toGreen(G, 7, o)), `from ${JSON.stringify(o)}`);
+    }
+  });
+
+  test('Radcliffe has no map: every function says null or []', () => {
+    const R = courseGeometry(RADCLIFFE);
+    const pt = teeOrigin(G, 7, 'blue');
+    eq(holePath(R, 1), null, 'holePath');
+    eq(JSON.stringify(holeFeatures(R, 1)), '[]', 'holeFeatures');
+    eq(teeOrigin(R, 1, 'blue'), null, 'teeOrigin');
+    eq(playPath(R, 1, pt), null, 'playPath');
+    eq(holeNumbers(R, 1, pt), null, 'holeNumbers');
+    eq(layupPoint(R, 1, { ref: 'green', yards: 100 }, pt), null, 'layupPoint');
+  });
+}
+
+/**
+ * The hole pictures (docs/SPEC_hole-overview.md 4.4). Async for the image
+ * loads, in the shell tests' shape: the I/O first, then assert synchronously.
+ */
+export async function runHoleOverviewPictureTests() {
+  group('hole overview (pictures)');
+
+  const G = courseGeometry(VEENKER);
+  const F = courseFrames(VEENKER);
+  const frames = F?.holes ?? [];
+  const base = new URL('../', import.meta.url);
+  const loaded = await Promise.all(
+    frames.map(
+      (fr) =>
+        new Promise((resolve) => {
+          const img = new Image();
+          img.onload = () => resolve({ fr, ok: true, w: img.naturalWidth, h: img.naturalHeight });
+          img.onerror = () => resolve({ fr, ok: false });
+          img.src = new URL(fr.file, base).href;
+        }),
+    ),
+  );
+  const inImage = (fr, pos) => {
+    const p = framePx(fr, pos);
+    return p.x >= 0 && p.x <= fr.widthPx && p.y >= 0 && p.y <= fr.heightPx;
+  };
+
+  test('the frame places a position: every control point within 1.0 px of its recorded x, y (n = 36)', () => {
+    eq(frames.length, 18, 'frames');
+    let n = 0;
+    for (const fr of frames) {
+      for (const c of fr.control) {
+        const p = framePx(fr, c);
+        const d = Math.hypot(p.x - c.x, p.y - c.y);
+        assert(d <= 1.0, `hole ${fr.number} ${c.name}: ${d.toFixed(3)} px`);
+        n++;
+      }
+    }
+    eq(n, 36, 'control points');
+  });
+
+  test('everything numbered is in the picture: features, the green centre, the blue and gold tees', () => {
+    eq(frames.length, 18, 'frames');
+    for (const fr of frames) {
+      const H = holePath(G, fr.number);
+      const pts = [['green centre', H[H.length - 1]], ...holeFeatures(G, fr.number).map((f) => [f.name, f.at])];
+      for (const set of ['blue', 'gold']) {
+        const t = teeOrigin(G, fr.number, set);
+        if (t) pts.push([`${set} tee`, t]);
+      }
+      for (const [what, pos] of pts) assert(inImage(fr, pos), `hole ${fr.number}: ${what} is outside the picture`);
+    }
+  });
+
+  test('the files are what the module says: 18 images load at their recorded size', () => {
+    eq(loaded.length, 18, 'images');
+    for (const r of loaded) {
+      assert(r.ok, `${r.fr.file} did not load`);
+      eq(`${r.w} x ${r.h}`, `${r.fr.widthPx} x ${r.fr.heightPx}`, r.fr.file);
+    }
+  });
+}
+
+group('course notes (layups)');
+
+{
+  // docs/SPEC_hole-overview.md 5.5. These write real localStorage, so the group
+  // takes every gt: key first and puts them all back, byte for byte, at its end.
+  const snap = {};
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (k?.startsWith('gt:')) snap[k] = localStorage.getItem(k);
+  }
+  const clearNotes = () => {
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const k = localStorage.key(i);
+      if (k?.startsWith('gt:course:')) localStorage.removeItem(k);
+    }
+  };
+  const layup = (o = {}) => newLayup({ hole: 7, ref: 'green', yards: 100, ...o });
+  const ids = (notes) => JSON.stringify(notes.layups.map((l) => l.id));
+  clearNotes();
+
+  test('what is stored is what he typed; the five rejections return null', () => {
+    const l = newLayup({ hole: 7, ref: 'green', yards: 100, teeSet: 'blue', label: '  short of creek ' });
+    eq(l.yards, 100, 'yards');
+    eq(l.teeSet, null, 'teeSet for a green layup');
+    eq(l.label, 'short of creek', 'label trimmed');
+    assert(/^l_/.test(l.id), `id ${l.id}`);
+    eq(layup({ label: '   ' }).label, null, 'an empty label is null');
+    eq(newLayup({ hole: 7, ref: 'tee', yards: 250, teeSet: 'blue' }).teeSet, 'blue', 'a tee layup keeps its set');
+    for (const y of [0, 701, 100.5]) eq(layup({ yards: y }), null, `yards ${y}`);
+    eq(layup({ ref: 'pin' }), null, 'ref pin');
+    eq(layup({ ref: 'tee' }), null, 'tee with no teeSet');
+    for (const h of [0, 19, 7.5]) eq(layup({ hole: h }), null, `hole ${h}`);
+    eq(layup({ label: 'x'.repeat(25) }), null, 'a label over 24 characters');
+    eq(layup({ label: 'x'.repeat(24) }).label.length, 24, 'a label of 24');
+  });
+
+  test('round trip; loading with no key writes nothing', () => {
+    clearNotes();
+    const before = localStorage.length;
+    const notes = loadCourseNotes('veenker');
+    eq(localStorage.length, before, 'key count after a load with no key');
+    eq(`${notes.courseId} ${notes.layups.length}`, 'veenker 0', 'fresh notes');
+    notes.layups.push(layup({ label: 'short of creek' }), layup({ ref: 'tee', yards: 250, teeSet: 'blue' }));
+    assert(saveCourseNotes(notes), 'saved');
+    eq(JSON.stringify(loadCourseNotes('veenker')), JSON.stringify(notes), 'loaded deep-equals saved');
+  });
+
+  test('damaged notes are kept, never deleted', () => {
+    clearNotes();
+    localStorage.setItem(courseNotesKey('veenker'), '{bad');
+    let told = 0;
+    const off = onStorageError(() => told++);
+    const notes = loadCourseNotes('veenker');
+    off();
+    eq(notes.layups.length, 0, 'empty notes');
+    assert(notes.recoveredFrom?.startsWith('gt:course:veenker:bad:'), `recoveredFrom ${notes.recoveredFrom}`);
+    eq(localStorage.getItem(notes.recoveredFrom), '{bad', 'the copy');
+    eq(localStorage.getItem(courseNotesKey('veenker')), '{bad', 'the key');
+    eq(told, 1, 'listeners told');
+    eq(allCourseNotesIds().join(','), 'veenker', 'a :bad: copy is not a course');
+  });
+
+  test('the export carries the notes, and rounds do not move', () => {
+    clearNotes();
+    saveRound(par4Round());
+    const app = loadApp();
+    const before = buildExport(app);
+    const notes = loadCourseNotes('veenker');
+    notes.layups.push(layup());
+    saveCourseNotes(notes);
+    const after = buildExport(app);
+    eq(JSON.stringify(after.courseNotes.veenker), JSON.stringify(notes), 'courseNotes.veenker');
+    assert(after.rounds.length >= 1, 'a round to compare');
+    eq(JSON.stringify(after.rounds), JSON.stringify(before.rounds), 'rounds');
+    eq(JSON.stringify(after.app), JSON.stringify(before.app), 'app');
+    eq(after.formatVersion, 1, 'formatVersion');
+  });
+
+  test('import, merge: a layup not on the phone is added; one that is keeps the phone\'s number', () => {
+    clearNotes();
+    const mine = loadCourseNotes('veenker');
+    const kept = layup({ yards: 100 });
+    mine.layups.push(kept);
+    saveCourseNotes(mine);
+    const file = buildExport(loadApp());
+    const fresh = layup({ yards: 150 });
+    file.courseNotes.veenker.layups = [{ ...kept, yards: 120 }, fresh];
+    const report = importExport(JSON.parse(JSON.stringify(file)), 'merge');
+    const got = loadCourseNotes('veenker').layups;
+    eq(report.layupsAdded, 1, 'layupsAdded');
+    eq(got.find((l) => l.id === kept.id)?.yards, 100, "the phone's number");
+    eq(got.find((l) => l.id === fresh.id)?.yards, 150, 'the new layup');
+    eq(got.length, 2, 'nothing removed, nothing doubled');
+  });
+
+  test("import, replace: the file's notes replace; a file with none leaves the phone's alone", () => {
+    clearNotes();
+    const mine = loadCourseNotes('veenker');
+    mine.layups.push(layup({ yards: 100 }));
+    saveCourseNotes(mine);
+    const file = buildExport(loadApp());
+    const theirs = layup({ yards: 175 });
+    file.courseNotes.veenker.layups = [theirs];
+    importExport(JSON.parse(JSON.stringify(file)), 'replace');
+    eq(ids(loadCourseNotes('veenker')), JSON.stringify([theirs.id]), 'replaced by the file');
+    const old = buildExport(loadApp());
+    delete old.courseNotes;
+    for (const mode of ['replace', 'merge']) {
+      importExport(JSON.parse(JSON.stringify(old)), mode);
+      eq(ids(loadCourseNotes('veenker')), JSON.stringify([theirs.id]), `an old file, ${mode}`);
+    }
+  });
+
+  test('the round rails did not move: SCHEMA_VERSION 1, a round byte-identical across a layup edit', () => {
+    eq(SCHEMA_VERSION, 1, 'SCHEMA_VERSION');
+    const round = par4Round();
+    saveRound(round);
+    const key = `gt:round:${round.id}`;
+    const r1 = localStorage.getItem(key);
+    const a1 = localStorage.getItem('gt:app');
+    const notes = loadCourseNotes('veenker');
+    notes.layups.push(layup({ yards: 90 }));
+    assert(saveCourseNotes(notes), 'layup saved');
+    eq(localStorage.getItem(key), r1, 'the round, after the edit');
+    eq(localStorage.getItem('gt:app'), a1, 'gt:app, after the edit');
+    saveRound(round);
+    eq(localStorage.getItem(key), r1, 'the round, saved again after the edit');
+  });
+
+  test('a full quota is loud: saveCourseNotes returns false and the listener fires', () => {
+    const realSetItem = Storage.prototype.setItem;
+    let told = 0;
+    const off = onStorageError(() => told++);
+    let ok;
+    Storage.prototype.setItem = function () {
+      throw new DOMException('full', 'QuotaExceededError');
+    };
+    try {
+      ok = saveCourseNotes(newCourseNotes('veenker'));
+    } finally {
+      Storage.prototype.setItem = realSetItem;
+      off();
+    }
+    eq(ok, false, 'saveCourseNotes');
+    eq(told, 1, 'listener');
+  });
+
+  for (let i = localStorage.length - 1; i >= 0; i--) {
+    const k = localStorage.key(i);
+    if (k?.startsWith('gt:')) localStorage.removeItem(k);
+  }
+  for (const [k, v] of Object.entries(snap)) localStorage.setItem(k, v);
 }
 
 group('lie from the map (end of hole)');
