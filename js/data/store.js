@@ -186,8 +186,9 @@ export function courseNotesKey(courseId) {
 /**
  * His notes for a course. With no key: fresh empty notes, and NOTHING is
  * written. A value that cannot be read as notes is never deleted: its text is
- * copied to `gt:course:<courseId>:bad:<ms>`, the storage-error listeners are
- * told, and empty notes come back with `recoveredFrom` naming the copy.
+ * copied to `gt:course:<courseId>:bad:<ms>` (once - not again while a copy
+ * holds the same text), the storage-error listeners are told, and empty notes
+ * come back with `recoveredFrom` naming the copy.
  */
 export function loadCourseNotes(courseId) {
   const key = courseNotesKey(courseId);
@@ -210,12 +211,32 @@ export function loadCourseNotes(courseId) {
     problem = new Error(`${key} holds no course notes`);
   }
   if (problem) {
-    const copy = `${key}${DAMAGED_MARK}${Date.now()}`;
-    writeRaw(copy, raw);
+    // Copied once (docs/SPEC_hole-overview.md 14.2, C1): the page loads the
+    // notes every time it opens, so a copy is written only when no `:bad:` key
+    // already holds this same text; otherwise that copy is the one named.
+    let copy = damagedCopyOf(key, raw);
+    if (!copy) {
+      copy = `${key}${DAMAGED_MARK}${Date.now()}`;
+      writeRaw(copy, raw);
+    }
     emitError(problem, key);
     return { ...newCourseNotes(courseId), recoveredFrom: copy };
   }
   return notes;
+}
+
+/** The `<key>:bad:*` copy that already holds exactly `raw`, or null. */
+function damagedCopyOf(key, raw) {
+  const prefix = `${key}${DAMAGED_MARK}`;
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k?.startsWith(prefix) && localStorage.getItem(k) === raw) return k;
+    }
+  } catch {
+    /* unreadable here: a fresh copy is written, the damaged text is never lost */
+  }
+  return null;
 }
 
 /**

@@ -3121,6 +3121,42 @@ group('course notes (layups)');
     eq(allCourseNotesIds().join(','), 'veenker', 'a :bad: copy is not a course');
   });
 
+  test('a damaged notes key is copied once: the same text again makes no second copy (C1)', () => {
+    clearNotes();
+    const copies = () => {
+      const out = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k?.startsWith('gt:course:veenker:bad:')) out.push(k);
+      }
+      return out.sort();
+    };
+    // A second apart, as two openings of the page would be: the copy key is
+    // named by the clock, so the same clock reading would hide a second copy.
+    const realNow = Date.now;
+    let t = realNow();
+    Date.now = () => (t += 1000);
+    let first;
+    let second;
+    let other;
+    try {
+      localStorage.setItem(courseNotesKey('veenker'), '{bad');
+      first = loadCourseNotes('veenker');
+      second = loadCourseNotes('veenker');
+      eq(copies().length, 1, 'copies after two loads of the same text');
+      localStorage.setItem(courseNotesKey('veenker'), '{worse');
+      other = loadCourseNotes('veenker');
+    } finally {
+      Date.now = realNow;
+    }
+    eq(second.recoveredFrom, first.recoveredFrom, 'the second load names the one copy');
+    const all = copies();
+    eq(all.length, 2, 'copies after a different damaged text');
+    assert(other.recoveredFrom !== first.recoveredFrom, 'the different text has its own copy');
+    eq(localStorage.getItem(other.recoveredFrom), '{worse', 'its copy holds its text');
+    eq(localStorage.getItem(first.recoveredFrom), '{bad', 'the first copy is untouched');
+  });
+
   test('the export carries the notes, and rounds do not move', () => {
     clearNotes();
     saveRound(par4Round());
