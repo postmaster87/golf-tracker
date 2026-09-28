@@ -9,6 +9,38 @@ never "Fable decided".
 
 Opus's solo decisions are logged here too, marked (Opus).
 
+## 2026-09-28 - End-of-hole shots: the tee from the map, places instead of longest stops; spec and his rulings
+- **Decision:** his, from the 2026-09-27 round (native v30, rev 6;
+  `r_b440472a`, recorder PASS: 14,823 fixes, 0 gaps over 20 s, n = 1). His
+  comments, read from the fields of
+  `docs/Round_2026-09-27_shot-distances_comments.pdf`: hole 12 *"here I hit
+  the mark tee shot and could not undo it"*; hole 14 *"Could not find the tee
+  shot - needs to default to the scorecard could not find the next shot
+  either."* Then: *"the proposed tee shots on those holes were stupid. most we
+  a distance from the hole that was less then the 2nd shot"* and *"1. yes that
+  is what I meant, 2. most of the time but it is possible to hit something and
+  the ball go backwards so be careful with that, 3. yes, 4. yes 5. How can we
+  leverage the map when making shot choices - it will not always be the
+  longest stop that is the actual shot. many times in golf you are waiting"*.
+  D1, the hole position with no marked cup: *"map center with the option for
+  me to correct it manually by entering tournament pin sheet numbers. Build in
+  whatever order I dont fucking care you ask so many questions"*.
+- **Fable's choices:** spec `docs/SPEC_shot-places.md` at high. Order: the
+  shot-places build first (Opus, high), D1 after as its own xhigh spec
+  because it is the strokes-gained engine and the data model.
+- **Why:** replayed against the shipped modules, the picker is dwell only:
+  170 stops over 10 holes for 1 to 3 shots wanted; hole 18 offered 375, 414,
+  223 yd; the cup from the track sat 6 to 400 yd from its own green centre
+  (n = 8). Fable's claim that a wait and a shot are the same place was wrong,
+  his words: *"not true. When it is 100 degrees out and I am waiting you
+  better believe it is in the shade."*
+- **Not changed:** the stored 2026-09-27 round (*"I am not worried about
+  yesterdays round"*), the recorder, the GPS pipeline.
+- **Cost:** Weekly Fable 82% before the spec, 84% after (account-wide, other
+  sessions live; n = 1 read each). Effort medium, high for the spec, medium
+  after.
+- **Commit:** spec `990ad0a`, rulings this commit.
+
 ## 2026-09-26 - ENTER SCORE on the play screen: PASS; rev 6; the build for today's holes
 - **Decision:** his, verbatim, looking at hole 2 of a fresh hole on his phone:
   *"there is a gigantic blank spot in the middle of the screen, a bold green

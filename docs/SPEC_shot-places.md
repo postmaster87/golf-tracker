@@ -3,7 +3,7 @@
 Fable, 2026-09-28, at high (Matt set it: "effort is high"; `get_session self`
 read `high`). Written for Opus to build at high (`.claude/agents/opus.md`).
 Fable reviews the diff against this file and signs in `docs/DECISIONS_LOG.md`.
-Opus is not spawned until Matt has answered Section 8 and said go.
+Matt answered Section 8 on 2026-09-28; Opus builds from this file.
 
 His words that bound it, verbatim, all 2026-09-28 unless dated:
 
@@ -243,12 +243,16 @@ scores lower than the old one on those rounds, that is reported as a finding,
 not tuned away. The 2026-09-27 round is not a labelled round and is not used
 to score.
 
-## 8. Decisions that are his
+## 8. Decisions that were his - ANSWERED 2026-09-28
 
-| # | Decision | Why it is his |
+His words, verbatim: *"D1. map center with the option for me to correct it
+manually by entering tournament pin sheet numbers. Build in whatever order I
+dont fucking care you ask so many questions"*
+
+| # | Decision | Ruling |
 |---|---|---|
-| D1 | With no marked cup, what does the strokes-gained engine get as the hole position: nothing (the hole produces no strokes gained, as today with LEAVE IT OUT), or the map's green centre stored with its own provenance? | The strokes-gained engine and the data model. xhigh class; Fable specs it at xhigh on his word, separately. |
-| D2 | Order of the two builds: this spec first and D1 after, or D1 first. | His agenda, his order. |
+| D1 | With no marked cup, what the strokes-gained engine gets as the hole position. | The map's green centre, which he can correct by entering tournament pin sheet numbers. The strokes-gained engine and the data model: its own spec at xhigh, NOT built under this spec. Section 5 item 3 stands for this build (`hl.cup` stays `null`). |
+| D2 | Order of the two builds. | Fable's call: this spec first, D1 after. |
 
 ## 9. What Opus must not touch
 
