@@ -161,6 +161,8 @@ import {
 // The Hole Overview (docs/SPEC_hole-overview.md), stage 1.
 import { holePath, holeFeatures, teeOrigin, playPath, holeNumbers, layupPoint } from '../js/round/course-geometry.js';
 import { courseFrames, framePx } from '../js/round/course-geometry.js';
+import { SCHEMA_VERSION, newCourseNotes, newLayup } from '../js/data/schema.js';
+import { courseNotesKey, loadCourseNotes, saveCourseNotes, allCourseNotesIds, onStorageError } from '../js/data/store.js';
 
 /* ------------------------------------------------------- storage safety net */
 
@@ -3032,6 +3034,160 @@ export async function runHoleOverviewPictureTests() {
       eq(`${r.w} x ${r.h}`, `${r.fr.widthPx} x ${r.fr.heightPx}`, r.fr.file);
     }
   });
+}
+
+group('course notes (layups)');
+
+{
+  // docs/SPEC_hole-overview.md 5.5. These write real localStorage, so the group
+  // takes every gt: key first and puts them all back, byte for byte, at its end.
+  const snap = {};
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (k?.startsWith('gt:')) snap[k] = localStorage.getItem(k);
+  }
+  const clearNotes = () => {
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const k = localStorage.key(i);
+      if (k?.startsWith('gt:course:')) localStorage.removeItem(k);
+    }
+  };
+  const layup = (o = {}) => newLayup({ hole: 7, ref: 'green', yards: 100, ...o });
+  const ids = (notes) => JSON.stringify(notes.layups.map((l) => l.id));
+  clearNotes();
+
+  test('what is stored is what he typed; the five rejections return null', () => {
+    const l = newLayup({ hole: 7, ref: 'green', yards: 100, teeSet: 'blue', label: '  short of creek ' });
+    eq(l.yards, 100, 'yards');
+    eq(l.teeSet, null, 'teeSet for a green layup');
+    eq(l.label, 'short of creek', 'label trimmed');
+    assert(/^l_/.test(l.id), `id ${l.id}`);
+    eq(layup({ label: '   ' }).label, null, 'an empty label is null');
+    eq(newLayup({ hole: 7, ref: 'tee', yards: 250, teeSet: 'blue' }).teeSet, 'blue', 'a tee layup keeps its set');
+    for (const y of [0, 701, 100.5]) eq(layup({ yards: y }), null, `yards ${y}`);
+    eq(layup({ ref: 'pin' }), null, 'ref pin');
+    eq(layup({ ref: 'tee' }), null, 'tee with no teeSet');
+    for (const h of [0, 19, 7.5]) eq(layup({ hole: h }), null, `hole ${h}`);
+    eq(layup({ label: 'x'.repeat(25) }), null, 'a label over 24 characters');
+    eq(layup({ label: 'x'.repeat(24) }).label.length, 24, 'a label of 24');
+  });
+
+  test('round trip; loading with no key writes nothing', () => {
+    clearNotes();
+    const before = localStorage.length;
+    const notes = loadCourseNotes('veenker');
+    eq(localStorage.length, before, 'key count after a load with no key');
+    eq(`${notes.courseId} ${notes.layups.length}`, 'veenker 0', 'fresh notes');
+    notes.layups.push(layup({ label: 'short of creek' }), layup({ ref: 'tee', yards: 250, teeSet: 'blue' }));
+    assert(saveCourseNotes(notes), 'saved');
+    eq(JSON.stringify(loadCourseNotes('veenker')), JSON.stringify(notes), 'loaded deep-equals saved');
+  });
+
+  test('damaged notes are kept, never deleted', () => {
+    clearNotes();
+    localStorage.setItem(courseNotesKey('veenker'), '{bad');
+    let told = 0;
+    const off = onStorageError(() => told++);
+    const notes = loadCourseNotes('veenker');
+    off();
+    eq(notes.layups.length, 0, 'empty notes');
+    assert(notes.recoveredFrom?.startsWith('gt:course:veenker:bad:'), `recoveredFrom ${notes.recoveredFrom}`);
+    eq(localStorage.getItem(notes.recoveredFrom), '{bad', 'the copy');
+    eq(localStorage.getItem(courseNotesKey('veenker')), '{bad', 'the key');
+    eq(told, 1, 'listeners told');
+    eq(allCourseNotesIds().join(','), 'veenker', 'a :bad: copy is not a course');
+  });
+
+  test('the export carries the notes, and rounds do not move', () => {
+    clearNotes();
+    saveRound(par4Round());
+    const app = loadApp();
+    const before = buildExport(app);
+    const notes = loadCourseNotes('veenker');
+    notes.layups.push(layup());
+    saveCourseNotes(notes);
+    const after = buildExport(app);
+    eq(JSON.stringify(after.courseNotes.veenker), JSON.stringify(notes), 'courseNotes.veenker');
+    assert(after.rounds.length >= 1, 'a round to compare');
+    eq(JSON.stringify(after.rounds), JSON.stringify(before.rounds), 'rounds');
+    eq(JSON.stringify(after.app), JSON.stringify(before.app), 'app');
+    eq(after.formatVersion, 1, 'formatVersion');
+  });
+
+  test('import, merge: a layup not on the phone is added; one that is keeps the phone\'s number', () => {
+    clearNotes();
+    const mine = loadCourseNotes('veenker');
+    const kept = layup({ yards: 100 });
+    mine.layups.push(kept);
+    saveCourseNotes(mine);
+    const file = buildExport(loadApp());
+    const fresh = layup({ yards: 150 });
+    file.courseNotes.veenker.layups = [{ ...kept, yards: 120 }, fresh];
+    const report = importExport(JSON.parse(JSON.stringify(file)), 'merge');
+    const got = loadCourseNotes('veenker').layups;
+    eq(report.layupsAdded, 1, 'layupsAdded');
+    eq(got.find((l) => l.id === kept.id)?.yards, 100, "the phone's number");
+    eq(got.find((l) => l.id === fresh.id)?.yards, 150, 'the new layup');
+    eq(got.length, 2, 'nothing removed, nothing doubled');
+  });
+
+  test("import, replace: the file's notes replace; a file with none leaves the phone's alone", () => {
+    clearNotes();
+    const mine = loadCourseNotes('veenker');
+    mine.layups.push(layup({ yards: 100 }));
+    saveCourseNotes(mine);
+    const file = buildExport(loadApp());
+    const theirs = layup({ yards: 175 });
+    file.courseNotes.veenker.layups = [theirs];
+    importExport(JSON.parse(JSON.stringify(file)), 'replace');
+    eq(ids(loadCourseNotes('veenker')), JSON.stringify([theirs.id]), 'replaced by the file');
+    const old = buildExport(loadApp());
+    delete old.courseNotes;
+    for (const mode of ['replace', 'merge']) {
+      importExport(JSON.parse(JSON.stringify(old)), mode);
+      eq(ids(loadCourseNotes('veenker')), JSON.stringify([theirs.id]), `an old file, ${mode}`);
+    }
+  });
+
+  test('the round rails did not move: SCHEMA_VERSION 1, a round byte-identical across a layup edit', () => {
+    eq(SCHEMA_VERSION, 1, 'SCHEMA_VERSION');
+    const round = par4Round();
+    saveRound(round);
+    const key = `gt:round:${round.id}`;
+    const r1 = localStorage.getItem(key);
+    const a1 = localStorage.getItem('gt:app');
+    const notes = loadCourseNotes('veenker');
+    notes.layups.push(layup({ yards: 90 }));
+    assert(saveCourseNotes(notes), 'layup saved');
+    eq(localStorage.getItem(key), r1, 'the round, after the edit');
+    eq(localStorage.getItem('gt:app'), a1, 'gt:app, after the edit');
+    saveRound(round);
+    eq(localStorage.getItem(key), r1, 'the round, saved again after the edit');
+  });
+
+  test('a full quota is loud: saveCourseNotes returns false and the listener fires', () => {
+    const realSetItem = Storage.prototype.setItem;
+    let told = 0;
+    const off = onStorageError(() => told++);
+    let ok;
+    Storage.prototype.setItem = function () {
+      throw new DOMException('full', 'QuotaExceededError');
+    };
+    try {
+      ok = saveCourseNotes(newCourseNotes('veenker'));
+    } finally {
+      Storage.prototype.setItem = realSetItem;
+      off();
+    }
+    eq(ok, false, 'saveCourseNotes');
+    eq(told, 1, 'listener');
+  });
+
+  for (let i = localStorage.length - 1; i >= 0; i--) {
+    const k = localStorage.key(i);
+    if (k?.startsWith('gt:')) localStorage.removeItem(k);
+  }
+  for (const [k, v] of Object.entries(snap)) localStorage.setItem(k, v);
 }
 
 group('lie from the map (end of hole)');
