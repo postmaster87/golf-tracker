@@ -9,6 +9,32 @@ never "Fable decided".
 
 Opus's solo decisions are logged here too, marked (Opus).
 
+## 2026-09-28 - 4.1: build v31 (shot places) - built to spec PASS; the preselection rule NOT good enough; revision 4.2
+- **Decision:** Opus (high) `7ad929c` from `docs/SPEC_shot-places.md`, 31 min
+  and 455k sub-agent tokens (n = 1). Fable's review at medium: diff matches
+  Sections 3 to 6, nothing on the must-not-touch list changed, `REVISION`
+  untouched, suite 577/577 at 360x728 (Fable n = 1). The preselection scored
+  20/32 on shots 2+ at Veenker against 23/32 for the v30 picker (n = 32
+  shots, 15 holes, 3 rounds). On the 2026-09-27 track it offers a stop beside
+  the tee as shot 2 on holes 14 and 1 (illustration, not a labelled round).
+- **Why the verdict is split:** the build does what the spec says; the fault
+  is in the spec's pool rules (Fable's). v31 still delivers the scorecard
+  tee, every stop reachable, no cup from the track, BALL NOT HERE and the
+  UNDO that stays.
+- **Fable's choice:** revision 4.2, spec Section 11: the tee area is not
+  preselected (40 m), on-the-green means inside by more than the fix can be
+  wrong, shared ground counts as this hole's (30 m margin). Each stands on a
+  reason that is not the score; the rescore is in-sample and is reported as
+  such. Not asked of Matt, his words: *"Build in whatever order I dont
+  fucking care you ask so many questions"*.
+- **Hole 12:** traced by Opus before any change (REPORT 4.1 Section 3): the
+  next-hole arrow opens hole 12's putt sheet, whose first control is MARK
+  CUP; which tap he made is inferred, n = 1.
+- **Not installed.** v31 is on main, not pushed, not on his phone.
+- **Report:** `docs/handoff/REPORT_4.1.md`, filed by Fable because the
+  harness refused Opus's write of it. **Commit:** Opus `7ad929c`, Fable this
+  commit.
+
 ## 2026-09-28 - End-of-hole shots: the tee from the map, places instead of longest stops; spec and his rulings
 - **Decision:** his, from the 2026-09-27 round (native v30, rev 6;
   `r_b440472a`, recorder PASS: 14,823 fixes, 0 gaps over 20 s, n = 1). His

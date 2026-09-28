@@ -273,3 +273,35 @@ the green sheet's putt entry, any stored round, `REVISION`, and the push.
 - Holes 16 and 17 on 2026-09-27 have no entry while the track was on their
   ground. Hole-from-position (course geometry Part D) is not built and still
   owes a margin ruling.
+
+---
+
+## 11. Revision 4.2 - the pool, after the v31 scoring (Fable, 2026-09-28, medium)
+
+Build v31 (`7ad929c`) is to spec and the preselection scored lower than the
+picker it replaced: 20/32 against 23/32 on shots 2+ at Veenker (n = 32 shots,
+15 holes, 3 rounds; `docs/handoff/REPORT_4.1.md` Section 5). The four causes
+are in the spec's own pool rules. Each change below is made for a reason that
+stands without the score; the score is reported after, and it is an in-sample
+number because these 32 shots are the ones that showed the faults.
+
+Replaces Section 4.3 step 1 and the `ground` row of Section 4.2. Everything
+else in Sections 3 to 6 stands.
+
+| # | Change | Reason |
+|---|---|---|
+| R1 | **The tee area is not preselected.** A stop within 40 m of shot 1's position (the map tee box centre, or his tee mark) fails the pool test. With no tee position the rule does not apply. | He waits on the tee. A stop beside the box read as "a fall from the card yardage" and took shot 2 (2 labelled misses; holes 14 and 1 on 2026-09-27). A topped drive that finishes inside 40 m is in the list, one tap away. |
+| R2 | **On the green means inside it by more than the fix can be wrong.** `onGreen` is true only when `lieAt` says green and NOT `inQuestion`. `afterGreen` starts from the first stop that is inside this hole's own green, not `inQuestion`, with dwell 15 s or more. | A chip from the fringe sits within GPS error of the green's edge (4 + 3 labelled misses). The map's band exists for exactly this. |
+| R3 | **This hole's ground includes the shared ground.** `ground` is `own` when `nearestHole` returns this hole, or returns it as `runnerUp` with `marginM` of 30 m or less. `js/round/course-geometry.js` is read, not written. | Rough between two holes belongs to both (3 labelled misses). |
+
+Tests, one each, beside the ten: a stop 20 m from the map tee is not
+preselected and is in the list; a stop 2 m inside the green polygon with 5 m
+accuracy is in the pool; a stop 10 m nearer the next hole's line than this
+one's is `own`.
+
+Scoring: the same table as REPORT 4.1 Section 5, three columns (v30 picker,
+v31, 4.2), with n, and the misses by cause. A lower or equal score is
+reported, not tuned. No constant other than the three above is changed.
+
+Build id: v32, with the cache. Report: `docs/handoff/REPORT_4.2` as text in
+the hand-back; Fable files it.
