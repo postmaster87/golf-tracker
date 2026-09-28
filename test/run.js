@@ -3682,15 +3682,6 @@ test('the proposals come back oldest first, not best first', () => {
   }
 });
 
-test('the tee shot and the approach outrank sitting in the cart', () => {
-  const r = proposeHoleShots(pocket.points, { fullShots: 2, fromTs: pocket.startTs, toTs: pocket.endTs });
-  const tee = r.proposed[0];
-  near(distanceM(tee, pocket.at(0)), 0, 8, 'first proposal is the tee');
-  // The cart pause is 236 m out; the approach is at 250 m. Both are real stops
-  // and only one is a shot.
-  near(distanceM(r.proposed[1], pocket.at(250)), 0, 12, 'second proposal is the approach');
-});
-
 test('a long wait in the cart still outranks a shot — the known cost of dwell-only', () => {
   /*
    * NOT a passing grade. This records a weakness so it is not rediscovered as
@@ -3746,48 +3737,12 @@ test('a score with more strokes than stops reports how many are missing', () => 
   eq(r.proposed.length, r.eligible, 'proposes everything it can');
 });
 
-test('the stop he holed out at is never offered as a full shot', () => {
-  // A hole ends at the cup, so the last stop in the window is the green. The
-  // raw ranking likes it — leaving for the next tee is a long departure — and
-  // on this fixture it outranked the approach until it was excluded.
-  const r = proposeHoleShots(pocket.points, { fullShots: 2, fromTs: pocket.startTs, toTs: pocket.endTs });
-  const last = [...r.proposed, ...r.rejected].sort((a, b) => b.startTs - a.startTs)[0];
-  assert(!r.proposed.includes(last), 'the final stop was proposed as a full shot');
-  assert(r.eligible < r.found, 'nothing was held back');
-});
-
 test('a window with no track at all proposes nothing rather than guessing', () => {
   const r = proposeHoleShots([], { fullShots: 4, fromTs: pocket.startTs, toTs: pocket.endTs });
   eq(r.found, 0, 'no stops');
   eq(r.proposed.length, 0, 'nothing proposed');
   eq(r.shortBy, 4, 'all four unaccounted for');
   eq(r.eligible, 0, 'nothing eligible either');
-});
-
-test('the cup is taken from the retrieval, not from wherever the window ends', () => {
-  // The window runs to now for a hole that is not yet complete, so entering the
-  // card at the next tee would otherwise put the cup on the next tee. Anchoring
-  // on where the ball finished survives that.
-  const late = pocketHole();
-  // He walks off and stands 300 m away for a while before entering the card.
-  let t = late.endTs;
-  for (let i = 0; i < 40; i++) {
-    const p = offsetM(TEE, 900, 0);
-    late.points.push({ lat: p.lat, lon: p.lon, acc: 3.4, ts: t, speed: 0 });
-    t += 1000;
-  }
-  const r = proposeHoleShots(late.points, { fullShots: 2, fromTs: late.startTs, toTs: t });
-  assert(r.holedOut, 'expected a cup candidate');
-  near(distanceM(r.holedOut, late.at(388)), 0, 25, 'cup is on the green, not where he wandered off to');
-});
-
-test('green stops come back rather than manufacture a shortfall', () => {
-  // Geometry cannot separate a 60 ft putt from a 20 yard chip. Preferring
-  // green-area stops out is right until it would invent a missing shot, and
-  // the count has to keep meaning stroke and distance.
-  const r = proposeHoleShots(pocket.points, { fullShots: 4, fromTs: pocket.startTs, toTs: pocket.endTs });
-  eq(r.usedGreenStops, true, 'expected the filter to relax');
-  eq(r.shortBy, 0, 'and no shortfall to be invented');
 });
 
 test('candidate accuracy reflects the centroid, not the width of the cluster', () => {
@@ -5689,7 +5644,8 @@ export async function runGreenFlowTests() {
   test('a track row shows no dwell, next stop or cart/foot - only shot, lie, distance to the hole', () => {
     assert(rowText, 'no shot rows on the confirm sheet');
     assert(!/stood|next stop|arrived/i.test(rowText), `the row still says: "${rowText}"`);
-    assert(/^Shot 1 - Lie = Tee Box, Distance to the hole = \d+ yd$/.test(head0 ?? ''), `row 1 reads "${head0}"`);
+    // Shot 1 is the tee at the card yardage since v31 (docs/SPEC_shot-places.md 3.2).
+    assert(/^Shot 1 - Lie = Tee Box, Distance to the hole = \d+ yd \(scorecard\)$/.test(head0 ?? ''), `row 1 reads "${head0}"`);
   });
 
   test('the row heading follows a lie tap', () => {
@@ -5710,7 +5666,8 @@ export async function runGreenFlowTests() {
     eq(written.cupTs, cupTs, 'the marked cup was replaced');
     eq(written.firstPuttFt, 10, 'the typed first putt');
     eq(written.strokes, 4, 'two full shots and two putts');
-    eq(JSON.stringify(written.sources), JSON.stringify(['track', 'track', 'gps', 'manual']), 'provenance');
+    // Shot 1 off the map, shot 2 off the track (docs/SPEC_shot-places.md 3.4).
+    eq(JSON.stringify(written.sources), JSON.stringify(['map', 'track', 'gps', 'manual']), 'provenance');
   });
 }
 
@@ -5915,5 +5872,351 @@ export async function runGreenDistanceTests() {
 
   test('on Radcliffe there is no green line at all', () => {
     eq(radEl, null, '.hud-green');
+  });
+}
+
+/* ------------------------------ end-of-hole shots: the tee and the places */
+
+/**
+ * docs/SPEC_shot-places.md Section 7. Matt, 2026-09-28, on the 2026-09-27
+ * round: hole 14 *"Could not find the tee shot - needs to default to the
+ * scorecard could not find the next shot either."*; hole 12 *"here I hit the
+ * mark tee shot and could not undo it"*; and *"it will not always be the
+ * longest stop that is the actual shot. many times in golf you are waiting"*.
+ *
+ * Veenker hole 1 (gold, 419 yd) off the real course map, a 1 Hz pocket track
+ * in IndexedDB, and the real screen and sheets from ENTER SCORE to SAVE HOLE.
+ */
+export async function runShotPlacesTests() {
+  group('end-of-hole shots: the tee from the map, places on the hole');
+
+  const realSetTimeout = globalThis.setTimeout;
+  const wait = (ms = 30) => new Promise((r) => realSetTimeout(r, ms));
+  const G = courseGeometry(VEENKER);
+  const poly = (id) => G.polygons.find((p) => p.id === id);
+  const h1 = G.holes.find((x) => x.number === 1);
+  const teeBox = ringCentroid(poly(199287763).ring); // hole 1's box, blue and gold
+  const green = ringCentroid(poly(h1.greenId).ring);
+  const along = (f) => ({ lat: teeBox.lat + (green.lat - teeBox.lat) * f, lon: teeBox.lon + (green.lon - teeBox.lon) * f });
+  // Rough 25 m north of hole 2's gold box: the map's nearest hole there is 2.
+  const nextTeeGround = offsetPoint(ringCentroid(poly(199288724).ring), { north: 25 });
+  const fairway = ringCentroid(poly(h1.fairwayIds[0]).ring);
+  const toCentre = (yd, turn) => {
+    const r = ((bearingDeg(green, teeBox) + turn) * Math.PI) / 180;
+    return offsetPoint(green, { north: yd * 0.9144 * Math.cos(r), east: yd * 0.9144 * Math.sin(r) });
+  };
+
+  const openSheet = () => document.querySelector('.scrim .sheet');
+  const sheetButton = (re) => [...(openSheet()?.querySelectorAll('button') ?? [])].find((b) => re.test(b.textContent.trim()));
+  const rows = (kind) =>
+    [...(openSheet()?.querySelectorAll('.card.shot-row') ?? [])].filter((c) => !kind || c.dataset.kind === kind);
+  const head = (card) => card?.querySelector('h2')?.textContent ?? null;
+  const others = () => [...(openSheet()?.querySelectorAll('.other-places button') ?? [])];
+  const inCard = (card, re) => [...(card?.querySelectorAll('button') ?? [])].find((b) => re.test(b.textContent.trim()));
+
+  /** A 1 Hz pocket track: `s` seconds standing at each point, a cart at 6 m/s between. */
+  const track = (stops, startTs) => {
+    const pts = [];
+    const jit = [0.6, -0.5, 0.3, -0.7, 0.4, 0.2, -0.4, 0.5];
+    let ts = startTs;
+    let j = 0;
+    stops.forEach(({ pt, s }, k) => {
+      for (let i = 0; i < s; i++) {
+        const p = offsetM(pt, jit[j++ % 8], jit[(j + 3) % 8]);
+        pts.push({ lat: p.lat, lon: p.lon, acc: 3.4, ts, speed: 0 });
+        ts += 1000;
+      }
+      const next = stops[k + 1]?.pt;
+      if (!next) return;
+      const steps = Math.max(3, Math.ceil(distanceM(pt, next) / 6));
+      for (let i = 1; i < steps; i++) {
+        const f = i / steps;
+        pts.push({ lat: pt.lat + (next.lat - pt.lat) * f, lon: pt.lon + (next.lon - pt.lon) * f, acc: 3.4, ts, speed: 6 });
+        ts += 1000;
+      }
+    });
+    return { points: pts, endTs: ts };
+  };
+
+  /** Hole 1 of a Veenker gold round over `stops`, mounted, the track in IndexedDB. */
+  const scenario = async (id, stops, before) => {
+    const round = par4Round();
+    round.id = id;
+    const startTs = Date.now() - 30 * 60 * 1000;
+    round.startedAt = new Date(startTs - 60000).toISOString();
+    await deleteTrack(id);
+    if (stops.length) {
+      const w = createTrackWriter(id, { flushMs: 50, maxBuffer: 1000 });
+      for (const p of track(stops, startTs).points) w.push(p);
+      await w.close();
+    }
+    const app = newAppState();
+    const gps = heldGps(teeBox);
+    const hl = round.holes[0];
+    before?.({ round, hl });
+    const screen = playScreen({
+      app,
+      round,
+      gps,
+      params: {},
+      go() {},
+      persistRound() {},
+      persistApp() {},
+      startGps() {},
+      stopGps() {},
+      trackStats: () => null,
+    });
+    document.body.appendChild(screen.el);
+    const done = async () => {
+      screen.el.remove();
+      for (const s of document.querySelectorAll('.scrim')) s.remove();
+      await deleteTrack(id);
+    };
+    return { round, hl, app, gps, screen, startTs, done };
+  };
+
+  /** ENTER SCORE, the strokes, FIND MY SHOTS: the shots stage, read off IndexedDB. */
+  const toShots = async (s, strokes) => {
+    [...s.screen.el.querySelectorAll('.body button')].find((b) => b.textContent.trim() === 'ENTER SCORE')?.click();
+    await wait();
+    const f = [...(openSheet()?.querySelectorAll('.field') ?? [])].find((x) => x.querySelector('.label')?.textContent === 'Strokes');
+    const plus = [...(f?.querySelectorAll('button') ?? [])].find((b) => b.textContent.trim() === '+');
+    for (let i = Number(f?.querySelector('.v')?.textContent ?? strokes); i < strokes; i++) plus?.click();
+    sheetButton(/^FIND MY SHOTS/)?.click();
+    await wait(400);
+  };
+
+  /* ---- A: twelve stops on hole 1, a 5 with 2 putts: 3 full shots ---- */
+  const A = await scenario('r_test_shot_places_a', [
+    { pt: along(0), s: 60 }, // on the tee box
+    { pt: along(0.1), s: 20 },
+    { pt: along(0.2), s: 30 },
+    { pt: along(0.3), s: 70 },
+    { pt: along(0.4), s: 25 },
+    { pt: along(0.5), s: 40 },
+    { pt: along(0.6), s: 18 },
+    { pt: along(0.7), s: 50 },
+    { pt: along(0.8), s: 22 },
+    { pt: along(0.9), s: 35 },
+    { pt: along(1), s: 45 }, // on the green
+    { pt: nextTeeGround, s: 90 }, // walked off toward the 2nd
+  ]);
+  await toShots(A, 5);
+  const a = {
+    teeHead: head(rows('tee')[0]),
+    teeHasNotAShot: Boolean(inCard(rows('tee')[0], /^NOT A SHOT$/)),
+    teeLieButtons: rows('tee')[0]?.querySelectorAll('.seg-btn').length ?? null,
+    places: rows('place').length,
+    others: others().length,
+    trackCup: /Where the hole was/i.test(openSheet()?.textContent ?? ''),
+  };
+  others()[0]?.click();
+  await wait();
+  a.afterAdd = { places: rows('place').length, others: others().length };
+  inCard(rows('place').find((c) => c.dataset.added === 'true'), /^NOT A SHOT$/)?.click();
+  await wait();
+  a.afterReturn = { places: rows('place').length, others: others().length };
+  // Shot 3: the phone was not where the ball was.
+  inCard(rows('place')[1], /^BALL NOT HERE$/)?.click();
+  await wait();
+  const yards = rows('typed')[0]?.querySelector('input');
+  if (yards) {
+    yards.value = '140';
+    yards.dispatchEvent(new Event('input'));
+  }
+  [...(rows('typed')[0]?.querySelectorAll('.seg-btn') ?? [])].find((b) => /^rough$/i.test(b.textContent.trim()))?.click();
+  await wait();
+  a.typedHead = head(rows('typed')[0]);
+  sheetButton(/^SAVE HOLE$/)?.click();
+  await wait();
+  const a1 = A.hl.shots[0];
+  const a3 = A.hl.shots[2];
+  const aSaved = {
+    lies: A.hl.shots.map((s) => s.lie),
+    tee: { source: a1?.source, method: a1?.mark?.method ?? null, fromBoxM: a1?.mark ? distanceM(a1.mark, teeBox) : null },
+    learnedLive: A.app.courseLearning?.veenker?.tees?.[1] ?? null,
+    typed: { source: a3?.source, mark: a3?.mark, entry: a3?.distanceEntry ?? null, ft: a3?.distanceFt ?? null },
+    cup: A.hl.cup,
+  };
+  // The course model, rebuilt from a played round whose shot 1 came off the map.
+  const played = JSON.parse(JSON.stringify(A.round));
+  for (const x of played.holes.slice(1, 5)) x.manual = { strokes: 4, putts: 2, firstPuttFt: null, penalties: 0 };
+  played.startedAt = new Date(Date.now() - 3600e3).toISOString();
+  played.completedAt = new Date().toISOString();
+  const app2 = newAppState();
+  app2.rounds = [{ id: played.id }];
+  rebuildCourseLearning(app2, () => played);
+  aSaved.rebuilt = { played: isPlayedRound(played), tee: app2.courseLearning?.veenker?.tees?.[1] ?? null };
+  await A.done();
+
+  /* ---- B: 150 yd, then 170 yd: the ball went backwards ---- */
+  const B = await scenario('r_test_shot_places_b', [
+    { pt: toCentre(150, 0), s: 40 },
+    { pt: toCentre(170, -20), s: 40 },
+  ]);
+  await toShots(B, 5);
+  const b = {
+    heads: rows().map(head),
+    save: sheetButton(/SAVE HOLE|unaccounted|PICK A LIE|ENTER THE|too many/i),
+    banners: [...(openSheet()?.querySelectorAll('.banner') ?? [])].map((x) => x.textContent),
+  };
+  b.saveText = b.save?.textContent ?? null;
+  b.saveDisabled = b.save?.disabled ?? null;
+  b.save?.click();
+  await wait();
+  b.full = B.hl.shots.filter((s) => s.lie !== 'green').length;
+  b.complete = isHoleComplete(B.hl);
+  await B.done();
+
+  /* ---- C: he marked the tee himself ---- */
+  const C = await scenario('r_test_shot_places_c', [
+    { pt: along(0), s: 30 },
+    { pt: along(0.5), s: 60 },
+    { pt: along(1), s: 40 },
+  ]);
+  [...C.screen.el.querySelectorAll('.footer button')].find((x) => /^MARK TEE SHOT$/.test(x.textContent.trim()))?.click();
+  C.gps.endBurst();
+  await wait();
+  const his = C.hl.shots[0];
+  // Taken as he teed off, which is where this track starts.
+  if (his?.mark) his.mark.ts = new Date(C.startTs).toISOString();
+  await toShots(C, 4);
+  const c = { head: head(rows()[0]), kind: rows()[0]?.dataset.kind ?? null };
+  sheetButton(/^SAVE HOLE$/)?.click();
+  await wait();
+  c.firstId = C.hl.shots[0]?.id ?? null;
+  c.firstSource = C.hl.shots[0]?.source ?? null;
+  c.hisId = his?.id ?? null;
+  await C.done();
+
+  /* ---- D: the cup marked from the green sheet, then thirty seconds ---- */
+  const D = await scenario('r_test_shot_places_d', [], ({ hl }) => {
+    addShot(hl, { lie: 'tee', reduced: fakeReduced(teeBox) });
+  });
+  const realClear = globalThis.clearTimeout;
+  const clock = { now: 0, seq: 1, q: new Map() };
+  const d = {};
+  globalThis.setTimeout = (fn, ms = 0, ...args) => {
+    const id = `fake${clock.seq++}`;
+    clock.q.set(id, { fn: () => fn(...args), at: clock.now + (ms || 0) });
+    return id;
+  };
+  globalThis.clearTimeout = (id) => (clock.q.has(id) ? clock.q.delete(id) : realClear(id));
+  try {
+    [...D.screen.el.querySelectorAll('.footer button')].find((x) => /^GREEN/.test(x.textContent.trim()))?.click();
+    await wait();
+    sheetButton(/^MARK CUP$/)?.click();
+    D.gps.at = along(0.99);
+    D.gps.endBurst();
+    await wait();
+    d.cupMarked = Boolean(D.hl.cup);
+    d.stamped = Boolean(D.hl.completedAt);
+    // Thirty seconds of the test clock: every timer due by then fires.
+    clock.now += 30000;
+    for (const [id, t] of [...clock.q.entries()].sort((x, y) => x[1].at - y[1].at)) {
+      if (t.at <= clock.now && clock.q.has(id)) {
+        clock.q.delete(id);
+        t.fn();
+      }
+    }
+    await wait();
+    d.inSheet = Boolean(sheetButton(/^UNDO$/));
+    d.onScreen = Boolean(D.screen.el.querySelector('.banner[data-kind="ok"] button'));
+    sheetButton(/^UNDO$/)?.click();
+    await wait();
+    d.after = { cup: D.hl.cup, completedAt: D.hl.completedAt, complete: isHoleComplete(D.hl), shots: D.hl.shots.length };
+  } finally {
+    globalThis.setTimeout = realSetTimeout;
+    globalThis.clearTimeout = realClear;
+  }
+  await D.done();
+
+  /* ---- the picker alone ---- */
+  const t0 = 1_700_000_000_000;
+  const grouped = track([{ pt: nextTeeGround, s: 40 }, { pt: along(0.5), s: 40 }], t0);
+  const g = proposeHoleShots(grouped.points, { fullShots: 1, fromTs: t0, toTs: grouped.endTs, geometry: G, holeNumber: 1, teeYd: 419 });
+  const waited = track([{ pt: nextTeeGround, s: 500 }, { pt: fairway, s: 40 }, { pt: along(1), s: 30 }], t0);
+  const w = proposeHoleShots(waited.points, { fullShots: 1, fromTs: t0, toTs: waited.endTs, geometry: G, holeNumber: 1, teeYd: 419 });
+
+  test('1. shot 1 is the tee at the scorecard yardage, and the track is asked for the rest', () => {
+    eq(a.teeHead, 'Shot 1 - Lie = Tee Box, Distance to the hole = 419 yd (scorecard)', 'row 1');
+    eq(a.teeHasNotAShot, false, 'row 1 offers NOT A SHOT');
+    eq(a.teeLieButtons, 0, 'row 1 offers lie buttons');
+    eq(a.places, 2, 'places proposed for 3 full shots');
+  });
+
+  test('2. a tee he marked with MARK TEE SHOT is shot 1, untouched', () => {
+    eq(c.kind, 'tee', 'row 1');
+    assert(/^Shot 1 - Lie = Tee Box, Distance to the hole = \d+ yd \(green centre\)$/.test(c.head ?? ''), `row 1 reads "${c.head}"`);
+    assert(c.hisId, 'the tee mark was not taken');
+    eq(c.firstId, c.hisId, 'shot 1 after SAVE HOLE');
+    eq(c.firstSource, 'gps', 'its source');
+  });
+
+  test('3. the map tee is stored as the map, and the course is not taught from it', () => {
+    eq(aSaved.tee.source, 'map', 'shot 1 source');
+    eq(aSaved.tee.method, 'map', 'shot 1 mark.method');
+    assert(aSaved.tee.fromBoxM != null && aSaved.tee.fromBoxM < 1, `shot 1 is ${aSaved.tee.fromBoxM} m from the gold box centre`);
+    eq(aSaved.learnedLive, null, 'learnTee ran on SAVE HOLE');
+    assert(aSaved.rebuilt.played, 'fixture: the round does not count as played');
+    eq(aSaved.rebuilt.tee, null, 'the rebuilt course model learned the map tee');
+  });
+
+  test('4. every stop in the window is reachable: 12 stops, 2 wanted, 10 under OTHER PLACES', () => {
+    eq(a.others, 10, 'OTHER PLACES entries');
+    eq(JSON.stringify(a.afterAdd), JSON.stringify({ places: 3, others: 9 }), 'after tapping one');
+    eq(JSON.stringify(a.afterReturn), JSON.stringify({ places: 2, others: 10 }), 'NOT A SHOT returns it to the list');
+  });
+
+  test("5. a stop on another hole's ground is listed after this hole's, not dropped", () => {
+    const other = g.places?.find((p) => distanceM(p, nextTeeGround) < 12);
+    const own = g.places?.findIndex((p) => distanceM(p, along(0.5)) < 12) ?? -1;
+    assert(other, 'the stop on hole 2 ground is not in the list');
+    eq(other.place?.ground, 'other', 'its ground');
+    assert(own >= 0 && g.places.indexOf(other) > own, 'it is listed before the stop on this hole');
+  });
+
+  test('6. dwell does not choose: a 40 s stop in the fairway beats a 500 s wait by the next tee', () => {
+    eq(w.proposed.length, 1, 'proposed');
+    near(distanceM(w.proposed[0], fairway), 0, 12, 'the preselected place is the fairway stop');
+  });
+
+  test('7. farther from the hole than the shot before saves, with no warning', () => {
+    assert(/= 150 yd \(green centre\)$/.test(b.heads[1] ?? ''), `shot 2 reads "${b.heads[1]}"`);
+    assert(/= 170 yd \(green centre\)$/.test(b.heads[2] ?? ''), `shot 3 reads "${b.heads[2]}"`);
+    eq(b.saveText, 'SAVE HOLE', 'the save button');
+    eq(b.saveDisabled, false, 'SAVE HOLE is blocked');
+    eq(b.banners.length, 0, `warned: ${JSON.stringify(b.banners)}`);
+    eq(b.full, 3, 'full shots saved');
+    eq(b.complete, true, 'the hole is not complete');
+  });
+
+  test('8. BALL NOT HERE: typed 140 yd, rough, stored as a hand-entered shot', () => {
+    eq(a.typedHead, 'Shot 3 - Lie = Rough, Distance to the hole = 140 yd (entered)', 'the typed row');
+    eq(aSaved.typed.source, 'manual', 'source');
+    eq(aSaved.typed.mark, null, 'mark');
+    eq(
+      JSON.stringify(aSaved.typed.entry && { value: aSaved.typed.entry.value, unit: aSaved.typed.entry.unit }),
+      JSON.stringify({ value: 140, unit: 'yards' }),
+      'distanceEntry'
+    );
+    eq(aSaved.typed.ft, 420, 'distanceFt');
+    eq(aSaved.lies.length, 5, `the hole as written: ${JSON.stringify(aSaved.lies)}`);
+  });
+
+  test('9. no cup from the track: no "Where the hole was", and hl.cup stays null', () => {
+    eq(a.trackCup, false, "the sheet offers the track's cup");
+    eq(aSaved.cup, null, 'hl.cup after SAVE HOLE');
+  });
+
+  test('10. UNDO of a cup marked from the green sheet is still there after 30 s, and restores the hole', () => {
+    assert(d.cupMarked && d.stamped, `fixture: cup ${d.cupMarked}, completedAt ${d.stamped}`);
+    assert(d.inSheet, 'no UNDO in the green sheet');
+    assert(d.onScreen, 'no UNDO on the play screen after 30 s');
+    assert(d.after, 'the scenario did not finish');
+    eq(d.after.cup, null, 'the cup after UNDO');
+    eq(d.after.completedAt, null, 'completedAt after UNDO');
+    eq(d.after?.complete, false, 'the hole is complete');
+    eq(d.after?.shots, 1, 'the tee shot');
   });
 }

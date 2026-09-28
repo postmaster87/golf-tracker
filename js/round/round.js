@@ -165,6 +165,36 @@ export function insertTeeShot(hole, { reduced, club = null, inferredFrom = 'trac
   return shot;
 }
 
+/**
+ * Shot 1 from the course map: the tee box at the scorecard yardage.
+ *
+ * Matt, 2026-09-28: *"Could not find the tee shot - needs to default to the
+ * scorecard"* (docs/SPEC_shot-places.md Section 3). `box` is the centre of the
+ * box the map assigns this hole and tee set, with how far its corners reach
+ * as the accuracy; with no box the shot is stored with no mark at all.
+ *
+ * Provenance inside the existing keys: `source: 'map'` on the shot and
+ * `method: 'map'` on the mark. Never a burst he stood on, never the track.
+ * Not fed to `learnTee`, here or in `rebuildCourseLearning`: teaching the
+ * course model from the map would mix a reference into itself.
+ */
+export function addMapTee(hole, box = null) {
+  const reduced = box
+    ? {
+        lat: box.lat,
+        lon: box.lon,
+        accuracyM: box.accuracyM,
+        quality: candidateQuality(box.accuracyM),
+        spreadM: null,
+        usedCount: null,
+        samples: [],
+      }
+    : null;
+  const shot = addShot(hole, { lie: 'tee', reduced, source: 'map' });
+  if (shot.mark) shot.mark.method = 'map';
+  return shot;
+}
+
 /** True when this hole's tee shot was recovered rather than marked. */
 export const teeIsInferred = (hole) => Boolean(hole.shots?.[0]?.inferred && hole.shots[0].lie === 'tee');
 
@@ -1116,8 +1146,9 @@ export function rebuildCourseLearning(app, load) {
     // A round that was never played teaches nothing. See `isPlayedRound`.
     if (!isPlayedRound(round)) continue;
     for (const hole of round.holes ?? []) {
+      // A tee taken off the map is the map, not evidence about it (addMapTee).
       const tee = hole.shots?.find((s) => s.lie === 'tee' && s.mark);
-      if (tee) learnTee(app, round, hole.number, tee.mark);
+      if (tee && tee.mark.method !== 'map') learnTee(app, round, hole.number, tee.mark);
       if (hole.cup) learnCup(app, round, hole.number, hole.cup);
       for (const s of hole.shots ?? []) {
         if (s.lie === 'green' && s.mark) learnGreen(app, round, hole.number, s.mark);

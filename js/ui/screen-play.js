@@ -15,6 +15,7 @@ import { SELECTABLE_CLUBS, clubLabel, clubFull } from '../data/clubs.js';
 import { LIES, LIE_LABELS, PENALTY_TYPES, isUnscored } from '../data/schema.js';
 import { getCourse, playOrder, holeYards } from '../data/courses.js';
 import { distanceM, toFeet, toYards } from '../util/geo.js';
+import { ringCentroid } from '../util/polygon.js';
 import { courseGeometry, toGreen, lieAt } from '../round/course-geometry.js';
 import {
   currentHole,
@@ -47,6 +48,7 @@ import {
   holeWindow,
   rebuildCourseLearning,
   addTrackShot,
+  addMapTee,
   addShotLieLater,
   setShotLie,
   lieUnanswered,
@@ -131,19 +133,43 @@ export function mapLieRow(geometry, row) {
  * later"); with neither, "not known". Never the track's own cup offer - that is
  * an inferred position he has not accepted - and never a distance to anything
  * else. Display only: the row and its candidate are not changed.
+ *
+ * Two rows carry no track position (docs/SPEC_shot-places.md 3.2 and 4.4):
+ * shot 1 from the map reads the card yardage, "(scorecard)"; a typed row reads
+ * the yards he typed, "(entered)".
  */
-export function shotRowHeading(row, index, { cup = null, geometry = null, holeNumber = null } = {}) {
+export function shotRowHeading(row, index, { cup = null, geometry = null, holeNumber = null, yards = null } = {}) {
   const lie = row.lie ? (row.lie === 'tee' ? 'Tee Box' : LIE_LABELS[row.lie] ?? row.lie) : '?';
   const c = row.candidate;
   const pos = Number.isFinite(c?.lat) && Number.isFinite(c?.lon) ? { lat: c.lat, lon: c.lon } : null;
   let dist = 'not known';
-  if (pos && cup && Number.isFinite(cup.lat) && Number.isFinite(cup.lon)) {
+  if (row.kind === 'tee' && !row.shot) {
+    if (Number.isFinite(yards)) dist = `${yards} yd (scorecard)`;
+  } else if (row.kind === 'typed') {
+    dist = Number.isFinite(row.yards) ? `${row.yards} yd (entered)` : 'not entered';
+  } else if (pos && cup && Number.isFinite(cup.lat) && Number.isFinite(cup.lon)) {
     dist = `${Math.round(toYards(distanceM(pos, cup)))} yd`;
   } else if (pos) {
     const g = toGreen(geometry, holeNumber, pos);
     if (g) dist = `${g.centreYd} yd (green centre)`;
   }
   return `Shot ${index + 1} - Lie = ${lie}, Distance to the hole = ${dist}`;
+}
+
+/**
+ * The tee box the course map assigns to a hole and a tee set: its centre, and
+ * how far its corners reach from it as the accuracy. Null with no map, or when
+ * the map assigns no box for that set - shot 1 is then saved with no position
+ * (docs/SPEC_shot-places.md 3.3). Never a guess at another set's box.
+ */
+export function mapTeeBox(geometry, holeNumber, teeSet) {
+  const box = geometry?.polygons?.find(
+    (p) => p.kind === 'tee' && (p.holes ?? []).includes(holeNumber) && (p.sets ?? []).includes(teeSet)
+  );
+  if (!box) return null;
+  const c = ringCentroid(box.ring);
+  const reachM = Math.max(...box.ring.map((q) => distanceM(c, q)));
+  return { lat: c.lat, lon: c.lon, accuracyM: Math.round(reachM * 10) / 10, id: box.id };
 }
 
 export function playScreen(ctx) {
@@ -190,6 +216,10 @@ export function playScreen(ctx) {
    * It is also the guard on the hole-8 error, where the cup was marked on the
    * tee 3.2 s after the tee shot and nothing on screen said so. The app knew
    * exactly what it had just written down; it simply never mentioned it.
+   *
+   * `{ label, holeNumber, undo }`: `undo` takes back exactly this mark, not
+   * whatever `undoLast` finds newest by kind, and returns false when the hole
+   * has moved on under it.
    */
   let lastMark = null;
   /** Where the current hole opened, so leaving it without a tee mark is visible. */
@@ -600,13 +630,8 @@ export function playScreen(ctx) {
 
     // Says what was just written down, and offers to take it back. Above the
     // shot list so it is read before the eye reaches the numbers.
-    if (lastMark && !editing) {
-      body.appendChild(
-        banner('ok', lastMark.label, 'UNDO', () => {
-          clearLastMark();
-          doUndo();
-        })
-      );
+    if (lastMark && !editing && lastMark.holeNumber === hl.number) {
+      body.appendChild(banner('ok', lastMark.label, 'UNDO', takeBackLastMark));
     }
 
     // Stated on every hole, not just at setup. Four rounds of it in one day is
@@ -684,25 +709,35 @@ export function playScreen(ctx) {
     if (capture || waiting) body.scrollTop = 0;
   }
 
-  let lastMarkTimer = null;
-
   /**
-   * Same 20 s life as the hole-change banner: long enough to walk away from the
-   * phone and look back, short enough that it is never still sitting there
-   * offering to undo something two shots old.
+   * Until the next mark, the next save or a hole change - not for 20 s.
+   *
+   * Matt, 2026-09-28, hole 12 of the 2026-09-27 round: *"here I hit the mark
+   * tee shot and could not undo it"*. The cup had gone down from the next tee
+   * through the green sheet, which reopened on top of the play screen and hid
+   * this banner until its 20 s ran out (docs/handoff/REPORT_4.1.md, the hole
+   * 12 trace). The banner now lives as long as the thing it offers to take back
+   * is the newest thing written, and the green sheet carries it as well
+   * (docs/SPEC_shot-places.md Section 6).
    */
-  function noteMark(label) {
-    lastMark = { label };
-    clearTimeout(lastMarkTimer);
-    lastMarkTimer = setTimeout(() => {
-      lastMark = null;
-      paint();
-    }, 20000);
+  function noteMark(label, undo) {
+    lastMark = { label, holeNumber: hole().number, undo };
   }
 
   function clearLastMark() {
     lastMark = null;
-    clearTimeout(lastMarkTimer);
+  }
+
+  /** The banner's UNDO: takes back exactly the mark it names. */
+  function takeBackLastMark() {
+    const m = lastMark;
+    lastMark = null;
+    if (!m) return;
+    const undone = m.undo?.() !== false;
+    markWarning = null;
+    persist();
+    paint();
+    toast(undone ? `Taken back: ${m.label}` : 'Nothing taken back: that has already changed.');
   }
 
   function banner(kind, text, actionLabel, onAction) {
@@ -833,7 +868,7 @@ export function playScreen(ctx) {
             'button',
             {
               class: 'shot',
-              dataset: { quality: s.mark?.quality ?? 'manual' },
+              dataset: { quality: s.mark?.method === 'map' ? 'map' : s.mark?.quality ?? 'manual' },
               onClick: () => openShotEditor(hl, s, i),
             },
             h('span', { class: 'seq', text: String(i + 1) }),
@@ -847,7 +882,10 @@ export function playScreen(ctx) {
             // Inferred is never silently mixed with measured: a lie taken as
             // "don't remember" at end-of-hole is labelled as the guess it is.
             s.lieInferred && !lieUnanswered(s) ? h('span', { class: 'flag', text: 'lie guessed' }) : null,
-            s.mark?.quality === 'poor' ? h('span', { class: 'flag', text: 'poor fix' }) : null,
+            // A tee off the course map is not a fix, good or poor: it says
+            // where it came from instead (docs/SPEC_shot-places.md 3.4).
+            s.source === 'map' ? h('span', { class: 'flag', text: 'from the map' }) : null,
+            s.mark?.quality === 'poor' && s.source !== 'map' ? h('span', { class: 'flag', text: 'poor fix' }) : null,
             // Distances are part of "statistics" — hidden mid-practice-round
             // for the same reason as the score. The mark is still recorded and
             // shows in full on the round card afterwards.
@@ -1107,10 +1145,10 @@ export function playScreen(ctx) {
     const hl = hole();
     const shot = addShotLieLater(hl, { reduced, club });
     persist();
-    // The previous mark's "marked · UNDO" banner lives 20 s, and its UNDO
-    // takes the newest thing on the hole — which from this line is THIS shot.
-    // On the sim "Shot 4 marked (Fairway). UNDO" removed shot 5. The panel
-    // below is this shot's own statement, and CANCEL SHOT is its undo.
+    // This is the next mark, so the previous mark's "marked · UNDO" goes. (It
+    // once took the newest thing on the hole — on the sim "Shot 4 marked
+    // (Fairway). UNDO" removed shot 5.) The panel below is this shot's own
+    // statement, and CANCEL SHOT is its undo.
     clearLastMark();
     pendingLie = { holeNumber: hl.number, shotId: shot.id };
     markWarning = reduced.quality === 'poor' ? poorMarkWarning('shot') : null;
@@ -1248,6 +1286,8 @@ export function playScreen(ctx) {
           text: 'LIE LATER',
           onClick: () => {
             pendingLie = null;
+            // CANCEL SHOT leaves with the card; the banner's UNDO takes its place.
+            noteMark(`Shot ${shot.seq} saved, lie later.`, () => removeShot(hl, shot.id) != null);
             paint();
             toast('Shot saved without a lie. Tap it in the shot list, or pick it when you finish the round.', {
               ms: 7000,
@@ -1264,7 +1304,7 @@ export function playScreen(ctx) {
     pendingLie = null;
     if (lie === 'green') learnGreen(ctx.app, round, hl.number, shot.mark);
     persist();
-    noteMark(`Shot ${shot.seq} marked (${LIE_LABELS[lie] ?? lie}).`);
+    noteMark(`Shot ${shot.seq} marked (${LIE_LABELS[lie] ?? lie}).`, () => removeShot(hl, shot.id) != null);
     paint();
     if (lie === 'green') afterGreenMark(hl);
   }
@@ -1290,12 +1330,21 @@ export function playScreen(ctx) {
   const CUP_AT_TEE_M = 30 * 0.9144;
 
   function saveCup(hl, reduced, reopenPutts) {
-    setCup(hl, reduced);
+    const was = { cup: hl.cup, completedAt: hl.completedAt };
+    const cup = setCup(hl, reduced);
     const { warning } = learnCup(ctx.app, round, hl.number, hl.cup);
     persist();
     // Named, not just "marked". On hole 8 the thing that went unnoticed was
     // *which* mark had been taken, so the banner says the word "cup".
-    noteMark('Cup marked here.');
+    // UNDO puts back what the mark changed: the cup before it (none, or the
+    // one a RE-MARK replaced) and `completedAt`, which `setCup` stamps - so a
+    // cup taken back never leaves the hole looking finished.
+    noteMark('Cup marked here.', () => {
+      if (hl.cup !== cup) return false;
+      hl.cup = was.cup;
+      hl.completedAt = was.completedAt;
+      return true;
+    });
     if (warning) markWarning = { kind: 'bad', text: warning, action: 'OK' };
     else if (reduced.quality === 'poor') markWarning = poorMarkWarning('cup');
     else markWarning = null;
@@ -1332,12 +1381,18 @@ export function playScreen(ctx) {
      * never a stroke he did not play.
      */
     const fresh = addShot(hl, { lie: 'green', reduced, source: 'gps' });
+    const was = existing?.mark ?? null;
     if (existing) {
       existing.mark = fresh.mark;
       removeShot(hl, fresh.id);
     }
     persist();
-    noteMark('Ball marked here.');
+    noteMark('Ball marked here.', () => {
+      if (!existing) return removeShot(hl, fresh.id) != null;
+      if (existing.mark !== fresh.mark) return false;
+      existing.mark = was;
+      return true;
+    });
     markWarning = reduced.quality === 'poor' ? poorMarkWarning('ball') : null;
     paint();
     if (!hl.manual && (reopenPutts || hl.shots.some((s) => s.lie === 'green'))) openGreenEntry(hl);
@@ -1405,7 +1460,8 @@ export function playScreen(ctx) {
     noteMark(
       chosenLie === 'tee' && shot.seq === 1
         ? 'Tee shot marked.'
-        : `Shot ${shot.seq} marked (${LIE_LABELS[chosenLie] ?? chosenLie}).`
+        : `Shot ${shot.seq} marked (${LIE_LABELS[chosenLie] ?? chosenLie}).`,
+      () => removeShot(hl, shot.id) != null
     );
     paint();
 
@@ -1570,6 +1626,21 @@ export function playScreen(ctx) {
 
       const render = () => {
         wrap.replaceChildren();
+
+        /*
+         * The last mark's UNDO, inside the sheet. This sheet reopens itself
+         * over the play screen after every cup and ball mark, which is how the
+         * cup on hole 12 of the 2026-09-27 round went down from the 13th tee
+         * with its UNDO out of reach (docs/SPEC_shot-places.md 6.2).
+         */
+        if (lastMark && lastMark.holeNumber === hl.number) {
+          wrap.appendChild(
+            banner('ok', lastMark.label, 'UNDO', () => {
+              done('undo');
+              takeBackLastMark();
+            })
+          );
+        }
 
         /*
          * THE TWO MARKS, IN EITHER ORDER, AT THE TOP OF THE SHEET.
@@ -1941,6 +2012,8 @@ export function playScreen(ctx) {
             }
             persist();
             markWarning = null;
+            // The next save: the last mark's UNDO has done its job (6.2).
+            clearLastMark();
             paint();
             done('saved');
             if (thenAdvance) advanceHole(1, { force: true });
@@ -2905,6 +2978,10 @@ export function playScreen(ctx) {
 
   function checkTeeNudge() {
     if (editing || round.status !== 'in_progress') return;
+    // A course with a map takes shot 1 from the map at the scorecard yardage,
+    // so the tee recovered from the track is not offered there
+    // (docs/SPEC_shot-places.md 3.6). It stays for a course without one.
+    if (geometry) return;
     const hl = hole();
     if (!hl || hl.manual || isHoleComplete(hl)) return;
     // Already has one, however it got there.
@@ -3019,6 +3096,10 @@ export function playScreen(ctx) {
       return applyHoleEntry(hl, card, []);
     }
 
+    // Shot 1 is the tee, never a stop (docs/SPEC_shot-places.md Section 3);
+    // the track is asked only for the places the rest were played from.
+    const tee = teeRow(hl);
+
     let points = null;
     try {
       points = await readTrack(round.id);
@@ -3027,9 +3108,17 @@ export function playScreen(ctx) {
     }
 
     const { fromTs, toTs } = holeWindow(round, hl);
-    const result = proposeHoleShots(points ?? [], { fullShots, fromTs, toTs });
+    const result = proposeHoleShots(points ?? [], {
+      fullShots: fullShots - 1,
+      fromTs,
+      toTs,
+      geometry,
+      holeNumber: hl.number,
+      teeYd: tee.yd,
+    });
 
-    if (!result.found) {
+    // A one-full-shot hole is the tee alone and needs nothing from the track.
+    if (!result.found && fullShots > 1) {
       const ok = await confirmSheet(
         'No track for this hole',
         points?.length
@@ -3041,9 +3130,29 @@ export function playScreen(ctx) {
       return;
     }
 
-    const confirmed = await openShotConfirm(hl, card, result);
+    const confirmed = await openShotConfirm(hl, card, result, tee);
     if (!confirmed) return;
-    applyHoleEntry(hl, card, confirmed.rows, confirmed.cup);
+    applyHoleEntry(hl, card, confirmed.rows);
+  }
+
+  /**
+   * Row 1 of the shots stage. A tee he marked with MARK TEE SHOT is his, kept
+   * as it is (3.5). Otherwise the tee box the map assigns this hole and the
+   * round's tee set, at the scorecard yardage (3.2, 3.3). `yd` is where the
+   * preselection's "closer than the shot before" starts.
+   */
+  function teeRow(hl) {
+    const his = hl.shots.find((s) => s.lie === 'tee' && s.source === 'gps' && s.mark);
+    if (his) {
+      return {
+        kind: 'tee',
+        lie: 'tee',
+        shot: his,
+        candidate: { lat: his.mark.lat, lon: his.mark.lon },
+        yd: toGreen(geometry, hl.number, his.mark)?.centreYd ?? null,
+      };
+    }
+    return { kind: 'tee', lie: 'tee', shot: null, box: mapTeeBox(geometry, hl.number, round.teeSet), yd: hl.yards ?? null };
   }
 
   /**
@@ -3174,44 +3283,185 @@ export function playScreen(ctx) {
    * Stage two: recognition.
    *
    * Everything here is reversible in one tap, because the app is asking him to
-   * vouch for positions he cannot verify by eye. NOT A SHOT pulls in the next
-   * best candidate the ranking held back, which is what makes this a proposal
-   * rather than an assertion — and every rejection is a labelled negative,
-   * which is the point of not suppressing the known false positives in the
-   * first place. "This needs to be trainable."
+   * vouch for positions he cannot verify by eye. Every rejection is a labelled
+   * negative, which is the point of not suppressing the known false positives
+   * in the first place. "This needs to be trainable."
+   *
+   * docs/SPEC_shot-places.md, his words 2026-09-28: *"Could not find the tee
+   * shot - needs to default to the scorecard could not find the next shot
+   * either."* So:
+   *
+   *   - Row 1 is the tee, fixed: his MARK TEE SHOT, or the map's box at the
+   *     scorecard yardage. No NOT A SHOT, no lie buttons (Section 3).
+   *   - The rest are the preselected places, and under them OTHER PLACES ON
+   *     THIS HOLE: every other stop in the window, grouped by whose ground the
+   *     map puts it on, each one tap from being a shot. NOT A SHOT puts a row
+   *     back in that list. Nothing in the window is hidden (4.1).
+   *   - BALL NOT HERE turns a row into a typed one, the yards to the hole and
+   *     the lie from him - the phone was in the cart while he hit (4.4). ADD A
+   *     SHOT is the same, for a shot with no stop at all.
+   *   - No cup from the track (Section 5). A cup he marked is used; otherwise
+   *     every distance here is to the map's green centre and says so.
+   *   - Farther from the hole than the shot before saves without a word: *"it
+   *     is possible to hit something and the ball go backwards"* (4.3).
    */
-  function openShotConfirm(hl, card, result) {
-    const rows = result.proposed.map((candidate, i) =>
-      mapRow({
-        candidate,
-        // The first stop in the window is the tee shot by definition, exactly as
-        // the live capture path treats it. Everything after it is unset, because
-        // a highlighted default reads as already-chosen while still requiring the
-        // tap — the app promising one thing and demanding another.
-        lie: i === 0 ? 'tee' : null,
-        lieInferred: false,
-      })
-    );
-    const pool = [...result.rejected].sort((a, b) => b.score - a.score);
-    /*
-     * The hole position, which is not optional in the way it looks.
-     *
-     * Confirmed shots with no cup produce nothing at all: every distance on the
-     * hole is measured to the cup, so without one the whole hole lands in the
-     * "unattributed" pile — the exact failure this entry path exists to end.
-     * The track's answer is where he stood to pick the ball out.
-     *
-     * Offered rather than assumed, and only when the hole has no real mark. A
-     * marked cup is a measurement and always wins.
-     */
-    const cupOffer = hl.cup ? null : result.holedOut;
-    let useCup = Boolean(cupOffer);
+  function openShotConfirm(hl, card, result, tee) {
+    const placeRow = (candidate, extra = {}) =>
+      mapRow({ kind: 'place', candidate, lie: null, lieInferred: false, ...extra });
+    const rows = [tee, ...result.proposed.map((c) => placeRow(c))];
+    const rowTs = (r) => r.candidate?.startTs ?? r.at ?? null;
+    const headOpts = { cup: hl.cup, geometry, holeNumber: hl.number, yards: hl.yards ?? null };
 
     return sheet(`Hole ${hl.number} — confirm your shots`, (done) => {
       const list = h('div');
       const saveBtn = h('button', { class: 'btn primary', text: 'SAVE HOLE' });
 
       const short = () => card.strokes - card.putts - card.penalties - rows.length;
+      const typedOk = (r) => r.kind !== 'typed' || (Number.isFinite(r.yards) && r.yards > 0);
+
+      const syncSave = () => {
+        const n = short();
+        const ready = n === 0 && rows.every((r) => r.lie) && rows.every(typedOk);
+        saveBtn.disabled = !ready;
+        saveBtn.textContent = ready
+          ? 'SAVE HOLE'
+          : n > 0
+            ? `${n} shot${n === 1 ? '' : 's'} still unaccounted for`
+            : n < 0
+              ? `${-n} shot${n === -1 ? '' : 's'} too many for the score: NOT A SHOT on one`
+              : !rows.every((r) => r.lie)
+                ? 'PICK A LIE FOR EVERY SHOT'
+                : 'ENTER THE YARDS FOR EVERY TYPED SHOT';
+      };
+
+      /** A stop from OTHER PLACES into the shot list, in the order played. */
+      const addPlace = (c) => {
+        const at = rows.findIndex((r, j) => j > 0 && rowTs(r) != null && rowTs(r) > c.startTs);
+        rows.splice(at < 0 ? rows.length : at, 0, placeRow(c, { added: true }));
+        render();
+      };
+
+      const lieChoice = (row) =>
+        segmented(
+          LIES.filter((l) => l !== 'green').map((l) => ({ value: l, label: LIE_LABELS[l] })),
+          row.lie,
+          (v) => {
+            row.lie = v;
+            row.lieInferred = false;
+            render();
+          },
+          { columns: 5 }
+        );
+
+      const notSure = (row) =>
+        h('button', {
+          class: 'btn sm dim',
+          text: 'NOT SURE',
+          onClick: () => {
+            // His own instruction: "If I cant remember do what you need."
+            // `defaultLie`'s suggestion, flagged rather than folded in.
+            row.lie = 'fairway';
+            row.lieInferred = true;
+            render();
+          },
+        });
+
+      const notAShot = (i) =>
+        h('button', {
+          class: 'btn sm dim',
+          text: 'NOT A SHOT',
+          onClick: () => {
+            // Back to OTHER PLACES, not replaced: the list is his to pick from.
+            rows.splice(i, 1);
+            render();
+          },
+        });
+
+      const teeCard = (row, i) =>
+        h(
+          'div',
+          { class: 'card shot-row', dataset: { kind: 'tee' } },
+          h('h2', { class: 'shot-row-head', text: shotRowHeading(row, i, headOpts) }),
+          h('p', {
+            class: 'note muted',
+            text: row.shot
+              ? 'Your MARK TEE SHOT.'
+              : row.box
+                ? 'The tee box on the course map, at the scorecard yardage.'
+                : 'The scorecard yardage. The map has no tee box for these tees, so no position is saved.',
+          })
+        );
+
+      const placeCard = (row, i, missing) =>
+        h(
+          'div',
+          { class: 'card shot-row', dataset: { kind: 'place', added: String(Boolean(row.added)) } },
+          // One line, his form: shot, lie, distance to the hole. Dwell, the
+          // next stop and cart/foot are gone from the row (his "any other
+          // garbage", 2026-09-26); the candidate still carries them in data.
+          h('h2', { class: 'shot-row-head', text: shotRowHeading(row, i, headOpts) }),
+          lieChoice(row),
+          row.mapNote && row.lieInferred ? h('p', { class: 'note muted map-says', text: row.mapNote }) : null,
+          h(
+            'div',
+            { class: 'btn-row' },
+            notSure(row),
+            h('button', {
+              class: 'btn sm dim',
+              text: 'BALL NOT HERE',
+              onClick: () => {
+                // The stop goes back to the list; the row keeps its place in
+                // the order and asks him for the yards and the lie.
+                rows[i] = { kind: 'typed', lie: null, lieInferred: false, yards: null, at: row.candidate?.startTs ?? null };
+                render();
+              },
+            })
+          ),
+          h(
+            'div',
+            { class: 'btn-row' },
+            notAShot(i),
+            // Stroke and distance: two strokes from one stop, invisible in a
+            // track. Offered only while the count is short, as before.
+            missing > 0
+              ? h('button', {
+                  class: 'btn sm dim',
+                  text: 'PLAYED TWICE',
+                  onClick: () => {
+                    rows.splice(i + 1, 0, placeRow(row.candidate, { replayed: true }));
+                    render();
+                  },
+                })
+              : null
+          )
+        );
+
+      const typedCard = (row, i) => {
+        const heading = h('h2', { class: 'shot-row-head', text: shotRowHeading(row, i, headOpts) });
+        return h(
+          'div',
+          { class: 'card shot-row', dataset: { kind: 'typed' } },
+          heading,
+          h('input', {
+            type: 'number',
+            inputmode: 'numeric',
+            min: '1',
+            max: '700',
+            placeholder: 'Yards to the hole',
+            value: Number.isFinite(row.yards) ? String(row.yards) : '',
+            // Patched in place, not re-rendered: a repaint mid-keystroke would
+            // steal the caret.
+            onInput: (e) => {
+              const n = Number(e.target.value);
+              row.yards = e.target.value !== '' && Number.isFinite(n) && n > 0 ? n : null;
+              heading.textContent = shotRowHeading(row, i, headOpts);
+              syncSave();
+            },
+          }),
+          lieChoice(row),
+          h('div', { class: 'btn-row' }, notSure(row), notAShot(i))
+        );
+      };
 
       const render = () => {
         list.replaceChildren();
@@ -3230,124 +3480,69 @@ export function playScreen(ctx) {
           list.appendChild(
             banner(
               'warn',
-              `${missing} more stroke${missing === 1 ? '' : 's'} than the track found stops. If you played one twice from the same spot — stroke and distance — tap PLAYED TWICE on it.`
+              `${missing} more stroke${missing === 1 ? '' : 's'} than shots here. Pick one from OTHER PLACES, ADD A SHOT, or if you played one twice from the same spot — stroke and distance — tap PLAYED TWICE on it.`
             )
           );
         }
 
         rows.forEach((row, i) => {
-          const c = row.candidate;
-          // One line, his form: shot, lie, distance to the hole. Dwell, the
-          // next stop and cart/foot are gone from the row (his "any other
-          // garbage", 2026-09-26); the candidate still carries them in data.
           list.appendChild(
-            h(
-              'div',
-              { class: 'card shot-row' },
-              h('h2', {
-                class: 'shot-row-head',
-                text: shotRowHeading(row, i, { cup: hl.cup, geometry, holeNumber: hl.number }),
-              }),
-              segmented(
-                LIES.filter((l) => l !== 'green').map((l) => ({ value: l, label: LIE_LABELS[l] })),
-                row.lie,
-                (v) => {
-                  row.lie = v;
-                  row.lieInferred = false;
-                  render();
-                },
-                { columns: 5 }
-              ),
-              row.mapNote && row.lieInferred ? h('p', { class: 'note muted map-says', text: row.mapNote }) : null,
-              h(
-                'div',
-                { class: 'btn-row' },
-                // His own instruction: "If I cant remember do what you need."
-                // `defaultLie` is the codebase's considered suggestion, and it
-                // is flagged rather than folded in silently.
-                h('button', {
-                  class: 'btn sm dim',
-                  text: 'NOT SURE',
-                  onClick: () => {
-                    row.lie = i === 0 ? 'tee' : 'fairway';
-                    row.lieInferred = i !== 0;
-                    render();
-                  },
-                }),
-                missing > 0
-                  ? h('button', {
-                      class: 'btn sm dim',
-                      text: 'PLAYED TWICE',
-                      onClick: () => {
-                        rows.splice(i + 1, 0, mapRow({ candidate: c, lie: null, lieInferred: false, replayed: true }));
-                        render();
-                      },
-                    })
-                  : h('button', {
-                      class: 'btn sm dim',
-                      text: 'NOT A SHOT',
-                      disabled: rows.length <= 1 && !pool.length,
-                      onClick: () => {
-                        rows.splice(i, 1);
-                        const next = pool.shift();
-                        if (next) {
-                          rows.push(mapRow({ candidate: next, lie: null, lieInferred: false }));
-                          rows.sort((a, b) => a.candidate.startTs - b.candidate.startTs);
-                        }
-                        render();
-                      },
-                    })
-              )
-            )
+            row.kind === 'tee' ? teeCard(row, i) : row.kind === 'typed' ? typedCard(row, i) : placeCard(row, i, missing)
           );
         });
 
-        if (cupOffer) {
-          list.appendChild(
-            h(
-              'div',
-              { class: 'card' },
-              h('h2', { text: 'Where the hole was' }),
-              h('p', {
-                class: 'note muted',
-                text: `From where you stood to pick the ball out — ${Math.round(
-                  cupOffer.dwellMs / 1000
-                )} s, give or take ${Math.round(toFeet(candidateAccuracyM(cupOffer)))} ft. Without this the hole produces no strokes gained at all.`,
-              }),
-              segmented(
-                [
-                  { value: true, label: 'USE IT' },
-                  { value: false, label: 'LEAVE IT OUT' },
-                ],
-                useCup,
-                (v) => {
-                  useCup = v;
-                  render();
-                }
-              )
-            )
+        list.appendChild(
+          h('button', {
+            class: 'btn sm',
+            text: 'ADD A SHOT',
+            onClick: () => {
+              rows.push({ kind: 'typed', lie: null, lieInferred: false, yards: null, at: null });
+              render();
+            },
+          })
+        );
+
+        // Every stop in the window not in a row, in the map's grouping (4.2).
+        const rest = (result.places ?? []).filter((c) => !rows.some((r) => r.candidate === c));
+        if (rest.length) {
+          const wrap = h(
+            'div',
+            { class: 'other-places' },
+            h('h2', { text: 'OTHER PLACES ON THIS HOLE' }),
+            h('p', { class: 'note muted', text: 'Everywhere else the phone stopped, in the order played. Tap one to make it a shot.' })
           );
+          let group = null;
+          for (const c of rest) {
+            const g = c.place?.ground === 'own' ? 'On this hole' : 'Off this hole';
+            if (g !== group) {
+              group = g;
+              wrap.appendChild(h('p', { class: 'note', text: g }));
+            }
+            wrap.appendChild(
+              h('button', {
+                class: 'btn sm dim',
+                text: shotRowHeading({ candidate: c, lie: c.place?.lie ?? null }, 0, headOpts).replace(/^Shot 1 - /, ''),
+                onClick: () => addPlace(c),
+              })
+            );
+          }
+          list.appendChild(wrap);
         }
 
-        const ready = short() === 0 && rows.every((r) => r.lie);
-        saveBtn.disabled = !ready;
-        saveBtn.textContent = ready
-          ? 'SAVE HOLE'
-          : short() !== 0
-            ? `${Math.abs(short())} shot${Math.abs(short()) === 1 ? '' : 's'} still unaccounted for`
-            : 'PICK A LIE FOR EVERY SHOT';
+        syncSave();
       };
 
       saveBtn.addEventListener('click', () => {
-        if (!saveBtn.disabled) done({ rows: rows.map((r) => ({ ...r })), cup: useCup ? cupOffer : null });
+        if (!saveBtn.disabled) done({ rows: rows.map((r) => ({ ...r })) });
       });
 
       render();
 
+      const found = result.proposed.length;
       return frag(
         h('p', {
           class: 'note muted',
-          text: `${result.proposed.length} shot position${result.proposed.length === 1 ? '' : 's'} found from your phone's track, in the order played. Confirm or reject each.`,
+          text: `Shot 1 is the tee. ${found} place${found === 1 ? '' : 's'} picked for the rest from your phone's track, in the order played; the others it stopped at are listed under them. Confirm, swap or type each.`,
         }),
         list,
         saveBtn
@@ -3363,8 +3558,13 @@ export function playScreen(ctx) {
    * set into a partial one would produce a hole neither of them describes. The
    * snapshot makes that one tap from reversible, which is the standing rule for
    * anything on this screen that changes a hole.
+   *
+   * Shot 1 is his tee mark, kept as it is, or the map's tee (`addMapTee`). A
+   * typed row is a hand-entered shot: `source: 'manual'`, no mark, the yards he
+   * typed in `distanceEntry`. No cup is written from the track any more
+   * (docs/SPEC_shot-places.md 5.1): with no marked cup `hl.cup` stays null.
    */
-  function applyHoleEntry(hl, card, rows, cupCandidate = null) {
+  function applyHoleEntry(hl, card, rows) {
     const before = JSON.parse(
       JSON.stringify({ shots: hl.shots, greenEntry: hl.greenEntry, completedAt: hl.completedAt, cup: hl.cup })
     );
@@ -3380,34 +3580,22 @@ export function playScreen(ctx) {
      * and under the green flow it is now marked before this path ever runs.
      * `setGreenEntry` below finds it again as `markedFirst`.
      */
-    hl.shots = hl.shots.filter((s) => s.lie === 'green' && s.mark);
+    const ball = hl.shots.filter((s) => s.lie === 'green' && s.mark);
+    hl.shots = [];
     hl.greenEntry = null;
     for (const row of rows) {
-      addTrackShot(hl, { lie: row.lie, candidate: row.candidate, lieInferred: row.lieInferred });
+      if (row.kind === 'tee') {
+        if (row.shot) hl.shots.push(row.shot);
+        else addMapTee(hl, row.box);
+      } else if (row.kind === 'typed') {
+        const shot = addShot(hl, { lie: row.lie, reduced: null, source: 'manual' });
+        setShotDistance(shot, { value: row.yards, unit: 'yards' });
+        if (row.lieInferred) shot.lieInferred = true;
+      } else {
+        addTrackShot(hl, { lie: row.lie, candidate: row.candidate, lieInferred: row.lieInferred });
+      }
     }
-
-    if (cupCandidate && !hl.cup) {
-      const accuracyM = candidateAccuracyM(cupCandidate);
-      setCup(hl, {
-        lat: cupCandidate.lat,
-        lon: cupCandidate.lon,
-        accuracyM,
-        quality: candidateQuality(accuracyM),
-        spreadM: cupCandidate.spreadM,
-        usedCount: cupCandidate.n,
-        samples: [],
-      });
-      hl.cup.method = 'track';
-      /*
-       * Deliberately NOT passed to `learnCup`.
-       *
-       * That accumulator feeds the course model other rounds fall back on, and
-       * a cup recovered from a walking pace is several metres looser than a
-       * burst he stood still for. Teaching the course model from an inferred
-       * position is precisely the silent mixing of measured and inferred data
-       * that design rule 5 forbids — it would launder a guess into a reference.
-       */
-    }
+    hl.shots.push(...ball);
 
     setGreenEntry(hl, {
       putts: card.putts,
@@ -3416,24 +3604,21 @@ export function playScreen(ctx) {
     });
 
     persist();
-    clearLastMark();
+    // SAVE HOLE's UNDO lives on the play screen until the next mark, the next
+    // save or a hole change (6.2), not in an 8 s toast.
+    noteMark(`Hole ${hl.number} saved.`, () => {
+      hl.shots = before.shots;
+      hl.greenEntry = before.greenEntry;
+      hl.completedAt = before.completedAt;
+      hl.cup = before.cup;
+      return true;
+    });
     paint();
 
     const inferred = rows.filter((r) => r.lieInferred).length;
     toast(
-      `Hole ${hl.number} saved from the track${inferred ? ` — ${inferred} lie${inferred === 1 ? '' : 's'} flagged as a guess` : ''}.`,
-      {
-        ms: 8000,
-        action: 'UNDO',
-        onAction: () => {
-          hl.shots = before.shots;
-          hl.greenEntry = before.greenEntry;
-          hl.completedAt = before.completedAt;
-          hl.cup = before.cup;
-          persist();
-          paint();
-        },
-      }
+      `Hole ${hl.number} saved${inferred ? ` — ${inferred} lie${inferred === 1 ? '' : 's'} flagged as a guess` : ''}.`,
+      { ms: 8000 }
     );
 
     // Penalties are attached to a shot, not to the hole, so the count from
@@ -3529,6 +3714,7 @@ export function playScreen(ctx) {
               firstPuttFt: draft.firstPuttFt === '' ? null : Number(draft.firstPuttFt),
             });
             persist();
+            clearLastMark();
             paint();
             done('saved');
           },

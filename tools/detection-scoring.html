@@ -35,11 +35,87 @@
     <div id="out">running…</div>
 
     <script type="module">
-      import { stopCandidates } from '../js/round/track-analysis.js';
+      import { stopCandidates, proposeHoleShots, GREEN_DEFAULTS } from '../js/round/track-analysis.js';
       import { holeWindow } from '../js/round/round.js';
       import { distanceM } from '../js/util/geo.js';
+      import { VEENKER } from '../js/data/courses.js';
+      import { courseGeometry } from '../js/round/course-geometry.js';
+      import { mapTeeBox } from '../js/ui/screen-play.js';
 
       const MATCH_M = 10;
+
+      /*
+       * THE OLD PICKER, for the comparison docs/SPEC_shot-places.md Section 7
+       * asks for: the selection half of `proposeHoleShots` as it stood at
+       * af729df (build v30), copied verbatim - the last stop out, stops within
+       * putting range of it demoted unless that makes a shortfall, then the top
+       * `fullShots` by dwell score. The tee was the first of them.
+       */
+      function oldPicker(points, { fullShots, fromTs = null, toTs = null }) {
+        const want = Math.max(0, Math.floor(fullShots ?? 0));
+        const all = stopCandidates(points).filter(
+          (c) => (fromTs == null || c.endTs >= fromTs) && (toTs == null || c.startTs <= toTs)
+        );
+        const holedOut = all[all.length - 1] ?? null;
+        const beforeLast = all.slice(0, Math.max(0, all.length - 1));
+        const greenish = holedOut
+          ? beforeLast.filter((c) => distanceM(holedOut, c) <= GREEN_DEFAULTS.maxPuttM)
+          : [];
+        const offGreen = beforeLast.filter((c) => !greenish.includes(c));
+        const eligible = offGreen.length >= want ? offGreen : beforeLast;
+        const byScore = [...eligible].sort((a, b) => b.score - a.score);
+        return byScore.slice(0, want).sort((a, b) => a.startTs - b.startTs);
+      }
+
+      /**
+       * Old picker against the new rule, on the shots he marked.
+       *
+       * Truth is his marked full shots (not on the green); `fullShots` is how
+       * many full shots the hole had, which is what the score card gives. The
+       * old picker is asked for all of them from the track. The new one takes
+       * shot 1 from the map (Section 3) and is asked for the rest: so the
+       * like-for-like number is shots 2 onward, and the tee is its own line -
+       * how far the map's box centre sits from where he marked the tee.
+       */
+      function pickRound(round, track) {
+        const G = round.courseId === VEENKER.id ? courseGeometry(VEENKER) : null;
+        const now = Date.parse(round.completedAt || round.startedAt) + 3.6e6;
+        const r = { holes: 0, full: 0, oldAll: 0, later: 0, oldLater: 0, newLater: 0, teeMarked: 0, teeWithin: 0, teeM: [], map: Boolean(G) };
+        for (const hole of round.holes ?? []) {
+          const full = (hole.shots ?? []).filter((s) => s.lie !== 'green');
+          const marked = full.filter((s) => s.mark?.lat != null);
+          if (!marked.length) continue;
+          r.holes++;
+          const w = holeWindow(round, hole, { now });
+          const near = (c, s) => distanceM({ lat: c.lat, lon: c.lon }, s.mark) <= MATCH_M;
+          const old = oldPicker(track, { fullShots: full.length, fromTs: w.fromTs, toTs: w.toTs });
+          const fresh = proposeHoleShots(track, {
+            fullShots: full.length - 1,
+            fromTs: w.fromTs,
+            toTs: w.toTs,
+            geometry: G,
+            holeNumber: hole.number,
+            teeYd: hole.yards ?? null,
+          }).proposed;
+          const tee = marked.find((s) => s.seq === 1 && s.lie === 'tee') ?? null;
+          const later = marked.filter((s) => s !== tee);
+          r.full += marked.length;
+          r.oldAll += marked.filter((s) => old.some((c) => near(c, s))).length;
+          r.later += later.length;
+          r.oldLater += later.filter((s) => old.some((c) => near(c, s))).length;
+          r.newLater += later.filter((s) => fresh.some((c) => near(c, s))).length;
+          const box = G && tee ? mapTeeBox(G, hole.number, round.teeSet) : null;
+          if (tee && G) {
+            r.teeMarked++;
+            if (box) {
+              const d = distanceM(box, tee.mark);
+              r.teeM.push(d);
+              if (d <= MATCH_M) r.teeWithin++;
+            }
+          }
+        }
+        return r;
+      }
 
       /** Each entry: file, a predicate picking the round, and what it was. */
       const ROUNDS = [
@@ -97,7 +173,7 @@
         if (!exp) { missing.push(`${label} — ${file}`); continue; }
         const round = exp.rounds.find(pred);
         if (!round) { missing.push(`${label} — round not in ${file}`); continue; }
-        rows.push({ label, how, ...scoreRound(round, exp.tracks?.[round.id] ?? []) });
+        rows.push({ label, how, ...scoreRound(round, exp.tracks?.[round.id] ?? []), pick: pickRound(round, exp.tracks?.[round.id] ?? []) });
       }
 
       const pc = (n, d) => (d ? `${n}/${d} (${Math.round((n / d) * 100)}%)` : '—');
@@ -123,9 +199,23 @@
               <td class="num">${r.dwell[0]} s</td><td class="num">${r.dwell[1]} s</td>
               <td class="num">${r.dep[0]} m</td><td class="num">${r.dep[1]} m</td></tr>`).join('')}
           </table>
+          <h2>Old picker (v30) vs the new preselection (v31, docs/SPEC_shot-places.md)</h2>
+          <table>
+            <tr><th>round</th><th>map</th><th>holes</th><th>old: all full shots</th><th>old: shots 2+</th><th>new: shots 2+</th><th>map tee within ${MATCH_M} m of his mark</th><th>map tee to his mark, median</th></tr>
+            ${rows.map((r) => `<tr><td>${r.label}</td><td>${r.pick.map ? 'yes' : 'no'}</td><td class="num">${r.pick.holes}</td>
+              <td class="num">${pc(r.pick.oldAll, r.pick.full)}</td>
+              <td class="num">${pc(r.pick.oldLater, r.pick.later)}</td>
+              <td class="num">${pc(r.pick.newLater, r.pick.later)}</td>
+              <td class="num">${r.pick.map ? pc(r.pick.teeWithin, r.pick.teeMarked) : '—'}</td>
+              <td class="num">${r.pick.map && r.pick.teeM.length ? `${med(r.pick.teeM)} m (n=${r.pick.teeM.length})` : '—'}</td></tr>`).join('')}
+          </table>
           ${missing.length ? `<p class="miss">not found: ${missing.join(' · ')}</p>` : ''}`;
       }
       console.log(`DETECTION_OVERALL ${rows.reduce((a, r) => a + r.hit, 0)}/${rows.reduce((a, r) => a + r.tot, 0)}`);
+      for (const r of rows) {
+        const p = r.pick;
+        console.log(`PICKER ${r.label} map=${p.map} holes=${p.holes} oldAll=${p.oldAll}/${p.full} oldLater=${p.oldLater}/${p.later} newLater=${p.newLater}/${p.later} tee=${p.teeWithin}/${p.teeMarked} teeMedianM=${med(p.teeM)}`);
+      }
     </script>
   </body>
 </html>

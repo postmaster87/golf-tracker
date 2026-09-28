@@ -72,6 +72,7 @@
 
 import { distanceM, weightedCentroid, enuOffset, offsetPoint, bearingDeg, toFeet, toYards } from '../util/geo.js';
 import { expandFix } from '../data/trackstore.js';
+import { toGreen, lieAt, nearestHole } from './course-geometry.js';
 
 /**
  * Defaults, all overridable per call.
@@ -611,153 +612,163 @@ export function candidateQuality(accuracyM, { goodAccM = 4, maxAccuracyM = 8 } =
 }
 
 /**
+ * A stop shorter than this is never preselected as a place a shot was played
+ * from (docs/SPEC_shot-places.md 4.3). It stays in the list, one tap away.
+ */
+export const PLACE_MIN_DWELL_S = 15;
+
+/**
  * AGENDA ITEM 2 — what the track thinks happened on one hole.
  *
  * Matt's order, verbatim: *"lets hone down the tracking and then move to the
  * after hole entry, and then how we handle a mislog, forgotten phone in the
- * cart, etc"*. This is the after-hole entry half. Rev 2 built the ranking and
- * stopped there — nothing ever asked him to confirm a candidate — and that
- * confirmation is the whole of item 2.
+ * cart, etc"*. This is the after-hole entry half.
  *
- * He supplies the score, because he knows it and the app does not. `fullShots`
- * is strokes minus putts minus penalty strokes: the number of times he actually
- * swung at the ball somewhere other than the green. The track's job is only to
- * say WHERE those swings happened, which is the easy half of a problem that is
- * hopeless unsupervised.
+ * He supplies the score, because he knows it and the app does not. The tee is
+ * not asked of the track any more: shot 1 is the tee box at the scorecard
+ * yardage (docs/SPEC_shot-places.md Section 3), his words on 2026-09-28 about
+ * the 2026-09-27 round: *"Could not find the tee shot - needs to default to the
+ * scorecard could not find the next shot either."* So the caller asks this for
+ * the places the REST were played from: `fullShots` here is the number of
+ * places wanted, strokes minus putts minus penalties minus the tee.
  *
- * THE COUNT IS THE DIAGNOSTIC, NOT AN ERROR
+ * EVERY STOP IS A PLACE ON THE HOLE, DESCRIBED BY THE MAP (4.2)
  *
- * `found` versus `fullShots` is the most useful number this returns:
+ * Every stop in the window comes back in `places`, none hidden, each carrying
+ * what the course map says about it in `place`: distance to this hole's green
+ * centre, the lie, whose ground it is on (`own` when the map's nearest hole is
+ * this one, `other` otherwise), whether it is on a tee or a green, and whether
+ * it starts after he first stood on this hole's own green. `places` is in two
+ * groups, this hole's ground then everyone else's, each in time order, with
+ * the stops off the map last. With no map every field is null and every stop
+ * is `other`: nothing is said that the map did not say.
  *
- *   found === fullShots   the ordinary case; confirm them and move on.
- *   found  >  fullShots   more stops than swings — the cart pause, the walk
- *                         behind the hole, waiting on a partner. The ranking
- *                         already sorts these below real shots, so the top
- *                         `fullShots` are proposed and the rest are returned as
- *                         `rejected` rather than thrown away, because they are
- *                         the labelled negatives that make this trainable.
- *   found  <  fullShots   two strokes happened in one place. Almost always
- *                         stroke and distance — Matt plays it straight, so a
- *                         lost ball or OB means replaying from the same spot,
- *                         which produces one stop where two strokes happened
- *                         and is indistinguishable from his pre-shot reset (the
- *                         segmenter deliberately merges those). The track
- *                         cannot recover this and should not try. `shortBy`
- *                         says how many are missing so the UI can ask which
- *                         stop he played twice, which is the recovery named in
- *                         `docs/rev2-changes.md`.
+ * THE PRESELECTION (4.3) — a suggestion, every row can be swapped.
  *
- * @param points     Dense track for the round.
- * @param fullShots  Swings that were not putts and not penalties.
- * @param fromTs     Start of the hole's window, epoch ms.
- * @param toTs       End of the hole's window, epoch ms.
- * @returns `{ proposed, rejected, found, fullShots, shortBy, windowMs }`.
- *          `proposed` is in time order — a shot list out of sequence is
- *          unreadable however well ranked.
+ *   1. Pool: this hole's ground, not on a tee, not on a green, not after the
+ *      green, standing 15 s or more.
+ *   2. Short of `fullShots`: the other ground's stops that pass the same tests.
+ *   3. Choose `fullShots` of them, in time order, that maximise the number of
+ *      steps where the distance to the hole falls — from `teeYd`, shot 1's
+ *      distance, onward. Ties go to the most total dwell.
+ *
+ * His item 2 as he qualified it: *"most of the time but it is possible to hit
+ * something and the ball go backwards so be careful with that"*. So "closer
+ * than the shot before" only ranks sequences; it never removes a place.
+ *
+ * Dwell is a tie-break and nothing else. His words: *"not true. When it is 100
+ * degrees out and I am waiting you better believe it is in the shade."* A long
+ * stop in the shade is a long stop and earns no preference.
+ *
+ * THE COUNT IS STILL THE DIAGNOSTIC. `shortBy` is how many places the pool
+ * could not cover. Almost always stroke and distance: Matt plays it straight,
+ * so a lost ball or OB replays from the same spot and leaves one stop where two
+ * strokes happened. The UI asks which one he played twice.
+ *
+ * @param points      Dense track for the round.
+ * @param fullShots   Places wanted: full shots after the tee.
+ * @param fromTs      Start of the hole's window, epoch ms.
+ * @param toTs        End of the hole's window, epoch ms.
+ * @param geometry    The course map (`courseGeometry`), or null.
+ * @param holeNumber  The hole being entered, for the map.
+ * @param teeYd       Shot 1's distance to the hole, yards, or null.
+ * @returns `{ proposed, places, rejected, found, eligible, fullShots, shortBy,
+ *          windowMs }`. `proposed` is in time order.
  */
-export function proposeHoleShots(points, { fullShots, fromTs = null, toTs = null, ...opts } = {}) {
+export function proposeHoleShots(
+  points,
+  { fullShots, fromTs = null, toTs = null, geometry = null, holeNumber = null, teeYd = null, ...opts } = {}
+) {
   const want = Math.max(0, Math.floor(fullShots ?? 0));
   const all = stopCandidates(points, opts).filter(
     (c) => (fromTs == null || c.endTs >= fromTs) && (toTs == null || c.startTs <= toTs)
   );
 
-  /*
-   * THE LAST STOP IN THE WINDOW IS NEVER A FULL SHOT.
-   *
-   * A hole ends at the cup. Whatever he is standing at when the window closes
-   * is the green — picking the ball out, or already walking — and the strokes
-   * played from there are putts, which he has counted separately on the card.
-   * It is not a stop he played a full shot from.
-   *
-   * Worth stating because the raw ranking likes that stop very much: leaving
-   * for the next tee is a long departure, and a long departure is the single
-   * most shot-like feature there is. On a par 4 played from the pocket it
-   * routinely outranked the approach. This is not the suppression the module
-   * header rules out — nothing is being hidden on a guess about what it might
-   * be. It is a fact about the shape of a hole, applied only to the full-shot
-   * question, and the stop is still returned in `rejected` with its reason.
-   */
-  const holedOut = all[all.length - 1] ?? null;
-  if (holedOut) {
-    holedOut.reasons = [...(holedOut.reasons ?? []), 'last stop on the hole — this is the green, not a full shot'];
+  // What the map says about each stop, computed once (4.2).
+  let greenFrom = null;
+  for (const c of all) {
+    const pos = { lat: c.lat, lon: c.lon, accuracyM: candidateAccuracyM(c) };
+    const g = geometry ? toGreen(geometry, holeNumber, pos) : null;
+    const said = geometry ? lieAt(geometry, pos) : null;
+    const near = geometry ? nearestHole(geometry, pos, { maxM: 500 }) : null;
+    const inOwnGreen = g != null && g.frontM === 0;
+    if (inOwnGreen && greenFrom == null) greenFrom = c.startTs;
+    c.place = {
+      toHoleYd: g?.centreYd ?? null,
+      lie: said?.lie ?? null,
+      ground: near != null && near.hole === holeNumber ? 'own' : 'other',
+      onTee: said?.lie === 'tee',
+      onGreen: said?.lie === 'green',
+      afterGreen: false,
+    };
   }
-  const beforeLast = all.slice(0, Math.max(0, all.length - 1));
+  for (const c of all) c.place.afterGreen = greenFrom != null && c.startTs > greenFrom;
 
-  /*
-   * Green work is preferred out, but never at the cost of a shortfall.
-   *
-   * The stop where the ball came to rest on the green scores like a shot and is
-   * not one: the departure it gets credit for is the putt, and he drove to the
-   * green so it "arrived by cart" as well. On the pocketed par 4 it outranked
-   * the real approach. Stops within putting range of the hole are therefore
-   * demoted out of the full-shot pool.
-   *
-   * Adaptive, because geometry alone cannot separate a 60 ft putt from a 20
-   * yard chip — both sit about the same distance from the cup, and one is a
-   * full shot. So this only applies while enough candidates remain to cover the
-   * score. If excluding them would manufacture a shortfall, they come back, and
-   * the count keeps meaning what it means: too few stops for the strokes played
-   * is evidence about stroke and distance, not an artifact of this filter.
-   */
-  const greenish = holedOut
-    ? beforeLast.filter((c) => distanceM(holedOut, c) <= GREEN_DEFAULTS.maxPuttM)
-    : [];
-  const offGreen = beforeLast.filter((c) => !greenish.includes(c));
-  const eligible = offGreen.length >= want ? offGreen : beforeLast;
-  for (const c of greenish) {
-    c.reasons = [...(c.reasons ?? []), 'within putting range of the hole'];
-  }
+  const byTime = (a, b) => a.startTs - b.startTs;
+  const own = all.filter((c) => c.place.ground === 'own').sort(byTime);
+  const onMap = all.filter((c) => c.place.ground === 'other' && c.place.lie != null).sort(byTime);
+  const offMap = all.filter((c) => c.place.ground === 'other' && c.place.lie == null).sort(byTime);
+  const places = [...own, ...onMap, ...offMap];
 
-  const byScore = [...eligible].sort((a, b) => b.score - a.score);
-  const proposed = byScore.slice(0, want).sort((a, b) => a.startTs - b.startTs);
+  // 4.3, steps 1 and 2.
+  const passes = (c) =>
+    !c.place.onTee && !c.place.onGreen && !c.place.afterGreen && c.dwellMs >= PLACE_MIN_DWELL_S * 1000;
+  let pool = own.filter(passes);
+  if (pool.length < want) pool = [...pool, ...[...onMap, ...offMap].filter(passes)].sort(byTime);
+
+  const proposed = bestSequence(pool, want, teeYd);
   const chosen = new Set(proposed);
-
-  /*
-   * Refine the cup once the shots are known.
-   *
-   * "The last stop in the window" is only the cup if the window closes on the
-   * green. It often does not: the window runs to `now` for a hole that is not
-   * yet complete, so entering the card at the next tee — or two holes later —
-   * puts the last stop somewhere he was never putting.
-   *
-   * The ball's resting place is a far better anchor, and it is knowable: it is
-   * the first stop AFTER the last shot he played, which is where that shot
-   * finished. The cup is then the last stop still within putting range of it,
-   * which is the retrieval. Everything past that is him leaving.
-   */
-  const lastShot = proposed[proposed.length - 1] ?? null;
-  const after = lastShot ? all.filter((c) => c.startTs > lastShot.startTs) : [];
-  const ballAtRest = after[0] ?? null;
-  let cup = holedOut;
-  if (ballAtRest) {
-    const nearBall = after.filter((c) => distanceM(ballAtRest, c) <= GREEN_DEFAULTS.maxPuttM);
-    cup = nearBall[nearBall.length - 1] ?? ballAtRest;
-  }
-  if (cup && cup !== holedOut) {
-    cup.reasons = [...(cup.reasons ?? []), 'last stop within putting range of where the ball finished'];
-  }
 
   return {
     proposed,
-    rejected: all.filter((c) => !chosen.has(c)),
+    places,
     /*
-     * Where he holed out, which is the best evidence the track has for where
-     * the cup is — he stands at it to pick the ball out. Returned rather than
-     * merely excluded because a hole with shot positions and no hole position
-     * still produces nothing: every distance, and therefore every strokes
-     * gained figure, is measured to the cup. This is the same recovery field
-     * test 3 did by hand for hole 8, where the retrieval fix read 158.2 yd from
-     * the tee against a lasered 158.
+     * Everything not preselected, still returned: they are the labelled
+     * negatives that make this trainable, and on the sheet they are OTHER
+     * PLACES ON THIS HOLE, one tap from being a shot.
      */
-    holedOut: cup,
+    rejected: places.filter((c) => !chosen.has(c)),
     found: all.length,
-    eligible: eligible.length,
-    /** True when green-area stops had to be let back in to cover the score. */
-    usedGreenStops: eligible === beforeLast && greenish.length > 0,
+    eligible: pool.length,
     fullShots: want,
-    shortBy: Math.max(0, want - eligible.length),
+    shortBy: Math.max(0, want - proposed.length),
     windowMs: fromTs != null && toTs != null ? toTs - fromTs : null,
   };
+}
+
+/**
+ * 4.3 step 3: `k` stops from `pool` (time order) maximising the steps where
+ * the distance to the hole falls, starting from `startYd`; then the most total
+ * dwell. Both are sums over consecutive pairs, so a table over (last stop,
+ * count) finds the best exactly. A step with a distance unknown is not a fall.
+ */
+function bestSequence(pool, want, startYd) {
+  const k = Math.min(want, pool.length);
+  if (k === 0) return [];
+  const yd = pool.map((c) => c.place?.toHoleYd ?? null);
+  const falls = (from, to) => (from != null && to != null && to < from ? 1 : 0);
+  const better = (a, b) => !b || a.falls > b.falls || (a.falls === b.falls && a.dwell > b.dwell);
+  // best[c][i]: the best sequence of c + 1 stops ending at pool[i].
+  const best = [pool.map((c, i) => ({ falls: falls(startYd, yd[i]), dwell: c.dwellMs, prev: -1 }))];
+  for (let c = 1; c < k; c++) {
+    best[c] = pool.map((cand, i) => {
+      let top = null;
+      for (let j = c - 1; j < i; j++) {
+        const from = best[c - 1][j];
+        if (!from) continue;
+        const next = { falls: from.falls + falls(yd[j], yd[i]), dwell: from.dwell + cand.dwellMs, prev: j };
+        if (better(next, top)) top = next;
+      }
+      return top;
+    });
+  }
+  let end = -1;
+  best[k - 1].forEach((s, i) => {
+    if (s && better(s, best[k - 1][end])) end = i;
+  });
+  const out = [];
+  for (let c = k - 1, i = end; c >= 0; i = best[c][i].prev, c--) out.unshift(pool[i]);
+  return out;
 }
 
 /* ------------------------------------------------------- pin, from paces */

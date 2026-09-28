@@ -294,6 +294,28 @@ input[type='text'] {
   overflow-wrap: anywhere;
 }
 
+/* The row's own actions (NOT SURE, BALL NOT HERE, NOT A SHOT, PLAYED TWICE)
+   are word buttons, not the sheet's stepper: the stepper's 30 px would wrap
+   "BALL NOT HERE" three lines deep at 360 px. */
+.sheet .shot-row .btn-row {
+  margin-top: 10px;
+}
+.sheet .shot-row .btn-row .btn {
+  min-height: 48px;
+  font-size: 15px;
+}
+.sheet .shot-row input {
+  margin: 8px 0 10px;
+}
+.sheet .other-places {
+  margin: 16px 0;
+}
+.sheet .other-places .btn {
+  margin-bottom: 8px;
+  text-align: left;
+  text-transform: none;
+}
+
 .muted {
   color: var(--ink-3);
 }
