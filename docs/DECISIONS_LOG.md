@@ -9,6 +9,45 @@ never "Fable decided".
 
 Opus's solo decisions are logged here too, marked (Opus).
 
+## 2026-09-28 - 6.1: Hole Overview stage 1 (the numbers, the pictures, his course notes) - PASS, one correction owed; merged onto v34
+- **His words that set the job, verbatim, in the session "Latest build
+  setup":** *"okay pick up the latest build and get working fast"*, *"effort
+  is up"*, *"everything is blessed just build"*. His four answers before the
+  spawn are rulings 17 to 20 in `docs/SPEC_hole-overview.md` Section 2: blue
+  and gold together on the creek carry line; Hole Overview page only; hole 16
+  the crossing short of the green; the push and the install are this
+  session's, each on his word. Two of Fable's three first readings of his
+  creek words were wrong (the tee set, hole 16's crossings).
+- **Decision, two stages:** asked how to build while the v34 writer was in
+  the tree, he picked "Start now, separate copy". Opus (xhigh) built Parts A,
+  B and C on branch `hole-overview` in its own worktree from `6f843ea`
+  (`4f32556`, `fd382e0`, `7105e97`), 37 min and 408k sub-agent tokens
+  (n = 1). Fable merged it onto v34 at `2d51b74`; one conflict,
+  `test/index.html`, both test groups kept.
+- **Fable's review at xhigh** (`docs/SPEC_hole-overview.md` Section 14): the
+  engine, schema and store read line by line against Sections 3 to 5;
+  Fable's own run of the engine equals Table 2 on every value for holes 1 to
+  8 and 10 to 18 (n = 34 tee rows, largest difference 0); holes 7 and 16
+  drawn with the map's outlines through `framePx` sit on the photo (n = 2, by
+  eye); suite 626 / 626 on the merged tree at 360x728 (Fable, n = 1);
+  nothing on the must-not-touch list changed.
+- **Fable's own misses named:** the spec said "five rejections" and listed
+  four (R1); the spec copied a damaged notes key on every load (R2, the
+  correction owed, built in stage 2).
+- **Part E came back BLOCKED, answered by Fable (R3):** the generators
+  hashed text inputs by their bytes on disk, and the main tree holds CRLF
+  copies of files the repository holds as LF. Both generators hash text
+  inputs with CRLF read as LF; `inputsSha256.markup_lines` moves to the
+  committed file's hash. Provenance only; no course fact moves.
+- **Not proven, and said so:** nothing here has run on his phone; the page
+  does not exist yet (stage 2); hole 9 has no TEE column until Part E.
+- **Cost:** Opus 37 min, 408k sub-agent tokens (n = 1). Weekly Fable,
+  account-wide with other sessions live: 92 percent at this session's first
+  read, 93 percent 3 minutes before the 17:00 Central reset. Effort xhigh
+  from the first message.
+- **Commit:** Opus `4f32556`, `fd382e0`, `7105e97`; the merge `2d51b74`;
+  Fable this commit.
+
 ## 2026-09-28 - 5.2: D1 corrections and the PIN SHEET sheet, build v34 - PASS; handed to "Latest build setup"
 - **Decision:** Opus (xhigh) `a7e0b58` from `docs/SPEC_hole-position.md`
   Sections 9 and 12, 28 min and 426k sub-agent tokens (n = 1). One run for

@@ -859,3 +859,43 @@ a check of the map, not a source for the app.
    the start and 89 percent before the revision, account-wide with other
    sessions live, n = 1 read each. Effort xhigh for the draft, medium for the
    prompts, xhigh for the revision.
+
+---
+
+## 14. Revision 3 - stage 1 reviewed, and what stage 2 builds (Fable, 2026-09-28, xhigh)
+
+His pick on the build path, 2026-09-28, asked how to build while the v34
+writer was in the tree: "Start now, separate copy". So the build ran in two
+stages. Stage 1 (Parts A, B, C) was built on branch `hole-overview` from
+`6f843ea` and merged onto v34 at `2d51b74`. Stage 2 is Part E, Part D and
+Part F, in that order, in the main tree.
+
+### 14.1 Stage 1 verdict: PASS, one correction owed
+
+| Check | Result |
+|---|---|
+| Engine, schema, store read against Sections 3 to 5 | matches, line by line |
+| Table 2, holes 1 to 8 and 10 to 18, blue and gold | Fable's own run of the engine: every box reach, green F / C / B and reach / carry equals the table, largest difference 0 (n = 34 tee rows) |
+| Pictures on the photo | Fable drew holes 7 and 16 with the map's outlines through `framePx`: the creek, greens, bunkers and fairways sit on the photo (n = 2, by eye) |
+| Suite on the merged tree, 360 x 728 | 626 / 626 (Fable, n = 1); 604 at v34 plus 22 |
+| Must-not-touch list | nothing on it changed |
+
+### 14.2 Rulings from the review
+
+| # | Item | Ruling |
+|---|---|---|
+| R1 | 5.2 and 5.5 test 1 said "five rejections"; 5.2 listed four | Fable's miscount. The fifth is a label over 24 characters after trimming: `newLayup` returns `null`, nothing is cut short. Reason: what is stored is what he typed. The page limits the field to 24 characters, so he cannot type one |
+| R2 | A damaged notes key is copied to a new `:bad:<ms>` key on EVERY load (5.3). The page loads the notes each time it opens | Correction C1, stage 2: `loadCourseNotes` writes the copy only when no `gt:course:<courseId>:bad:*` key already holds the same text. Test: two loads of the same damaged text leave one copy |
+| R3 | Part E, the input hashes | The generators hash text inputs by their bytes on disk. The main tree holds CRLF copies of two JSON inputs, the repository holds LF, so the recorded hash depended on the checkout. Both generators (`build_veenker.py`, `build_hole_images.py`) hash text inputs (`.json`, `.js`) with CRLF read as LF; the photo is hashed as it is. Part E's expected diff in `veenker.js` is then: the `sets` of boxes 1065750754 and 199289144, `inputsSha256.corrections`, and `inputsSha256.markup_lines` moving from `faa8e10e...` to `6e4f5466...` (the committed file's hash). Provenance only; no course fact moves. Anything else: `BLOCKED` |
+| R4 | Imported notes are not validated layup by layup | The page shows only a layup `newLayup` would accept (same five rules) and skips any other without deleting it |
+| R5 | Frames: pixel counts rounded up; hole 18 is 2.1 m taller than the prototype because a fairway inner-ring vertex counts | Accepted: 1,433,580 bytes, 18 files (prototype 1,432,152) |
+| R6 | The toast for damaged notes says "Could not save to this device." on a read | Part D words it for a read: `Course notes could not be read. A copy was kept.` |
+
+### 14.3 Follow-ups logged, not built
+
+1. `docs/course-map/veenker/check_answers.py` rewrites the corrections file
+   from scratch and would drop hole 9's blue and gold ids after Part E.
+2. `.gitattributes` has no `*.webp binary`; git detects the images as binary
+   on its own today.
+3. The suite leaves 7 `gt:` keys per run on a clean test origin (n = 1), from
+   groups that were there before this job.
