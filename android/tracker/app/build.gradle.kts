@@ -53,6 +53,7 @@ val copyWebAssets by tasks.registering(Sync::class) {
         include("index.html", "manifest.webmanifest", "icon.svg")
     }
     from(File(repoRoot, "css")) { into("css") }
+    from(File(repoRoot, "img")) { into("img") }
     from(File(repoRoot, "js")) {
         into("js")
         exclude("dev/**")
