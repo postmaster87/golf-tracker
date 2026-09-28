@@ -3115,6 +3115,8 @@ export function playScreen(ctx) {
       geometry,
       holeNumber: hl.number,
       teeYd: tee.yd,
+      // Revision 4.2, R1: stops within 40 m of shot 1's position are the tee area.
+      teePos: tee.shot?.mark ?? tee.box ?? null,
     });
 
     // A one-full-shot hole is the tee alone and needs nothing from the track.

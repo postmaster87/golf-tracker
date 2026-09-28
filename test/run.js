@@ -6138,6 +6138,39 @@ export async function runShotPlacesTests() {
   const waited = track([{ pt: nextTeeGround, s: 500 }, { pt: fairway, s: 40 }, { pt: along(1), s: 30 }], t0);
   const w = proposeHoleShots(waited.points, { fullShots: 1, fromTs: t0, toTs: waited.endTs, geometry: G, holeNumber: 1, teeYd: 419 });
 
+  /* ---- revision 4.2 (spec Section 11): the pool ---- */
+  const toward = (from, to, m) => {
+    const r = (bearingDeg(from, to) * Math.PI) / 180;
+    return offsetPoint(from, { north: m * Math.cos(r), east: m * Math.sin(r) });
+  };
+  // R1: 20 m from the map tee toward the green, off the box (rough).
+  const besideTee = toward(teeBox, green, 20);
+  const r1Track = track([{ pt: besideTee, s: 60 }, { pt: fairway, s: 40 }], t0);
+  const r1 = proposeHoleShots(r1Track.points, {
+    fullShots: 2, fromTs: t0, toTs: r1Track.endTs, geometry: G, holeNumber: 1, teeYd: 419, teePos: teeBox,
+  });
+  const r1Stop = r1.places?.find((p) => distanceM(p, besideTee) < 5) ?? null;
+  // R2: 2 m inside hole 1's green on the tee side, a stop whose centre is
+  // known to 5 m (10 m spread over 40 s: 10 / sqrt(40 / 10)).
+  let edgeD = 0;
+  while (pointInRing(toward(green, teeBox, edgeD + 0.1), poly(h1.greenId).ring)) edgeD += 0.1;
+  const fringe = toward(green, teeBox, edgeD - 2);
+  const r2Pts = track([{ pt: fairway, s: 40 }], t0).points;
+  let r2Ts = r2Pts[r2Pts.length - 1].ts + 120000; // a dropout: two clusters, no walk between
+  const spreadAt = (n) => offsetPoint(fringe, { north: n });
+  for (let i = 0; i < 11; i++) r2Pts.push({ ...spreadAt(0), acc: 5, ts: (r2Ts += 1000), speed: 0 });
+  for (let i = 0; i < 15; i++) {
+    r2Pts.push({ ...spreadAt(10), acc: 5, ts: (r2Ts += 1000), speed: 0 });
+    r2Pts.push({ ...spreadAt(-10), acc: 5, ts: (r2Ts += 1000), speed: 0 });
+  }
+  const r2 = proposeHoleShots(r2Pts, { fullShots: 2, fromTs: t0, toTs: r2Ts, geometry: G, holeNumber: 1, teeYd: 419 });
+  const r2Stop = r2.places?.find((p) => distanceM(p, fringe) < 3) ?? null;
+  // R3: rough between hole 1 and hole 14, which runs beside it: the map's
+  // nearest hole is 14 and hole 1 is 10 m farther.
+  const shared = offsetPoint(green, { north: 105, east: -75 });
+  const r3Track = track([{ pt: shared, s: 40 }], t0);
+  const r3 = proposeHoleShots(r3Track.points, { fullShots: 1, fromTs: t0, toTs: r3Track.endTs, geometry: G, holeNumber: 1, teeYd: 419 });
+
   test('1. shot 1 is the tee at the scorecard yardage, and the track is asked for the rest', () => {
     eq(a.teeHead, 'Shot 1 - Lie = Tee Box, Distance to the hole = 419 yd (scorecard)', 'row 1');
     eq(a.teeHasNotAShot, false, 'row 1 offers NOT A SHOT');
@@ -6218,5 +6251,35 @@ export async function runShotPlacesTests() {
     eq(d.after.completedAt, null, 'completedAt after UNDO');
     eq(d.after?.complete, false, 'the hole is complete');
     eq(d.after?.shots, 1, 'the tee shot');
+  });
+
+  test('11. (4.2 R1) a stop 20 m from the map tee is not preselected, and is in the list', () => {
+    assert(r1Stop, 'the stop beside the tee is not in the list');
+    near(distanceM(r1Stop, teeBox), 20, 2, 'fixture: its distance from the map tee');
+    eq(r1Stop.place?.onTee, false, 'fixture: the map reads it as on the tee box');
+    eq(r1Stop.place?.ground, 'own', 'fixture: its ground');
+    assert(!r1.proposed.includes(r1Stop), 'the stop beside the tee was preselected');
+    eq(r1.proposed.length, 1, 'proposed');
+    near(distanceM(r1.proposed[0], fairway), 0, 12, 'the preselected place is the fairway stop');
+  });
+
+  test('12. (4.2 R2) a stop 2 m inside the green with 5 m accuracy is in the pool', () => {
+    assert(r2Stop, 'the fringe stop is not in the list');
+    near(candidateAccuracyM(r2Stop), 5, 0.3, 'fixture: its accuracy, m');
+    const said = lieAt(G, { lat: r2Stop.lat, lon: r2Stop.lon });
+    eq(said?.lie, 'green', 'fixture: the map lie');
+    near(said?.edgeM ?? NaN, 2, 0.5, 'fixture: metres inside the green edge');
+    eq(r2Stop.place?.onGreen, false, 'onGreen');
+    eq(r2.proposed.length, 2, 'proposed');
+    assert(r2.proposed.includes(r2Stop), 'the fringe stop was left out of the pool');
+  });
+
+  test("13. (4.2 R3) a stop 10 m nearer hole 14's line than hole 1's is on hole 1's ground", () => {
+    const n = nearestHole(G, { ...shared, accuracyM: 3 }, { maxM: 500 });
+    eq(n?.hole, 14, 'fixture: the nearest hole');
+    eq(n?.runnerUp?.hole, 1, 'fixture: the runner-up');
+    near(n?.marginM ?? NaN, 10, 1.5, 'fixture: the margin, m');
+    eq(r3.places?.length, 1, 'stops in the list');
+    eq(r3.places?.[0]?.place?.ground, 'own', 'its ground');
   });
 }

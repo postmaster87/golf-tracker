@@ -618,6 +618,20 @@ export function candidateQuality(accuracyM, { goodAccM = 4, maxAccuracyM = 8 } =
 export const PLACE_MIN_DWELL_S = 15;
 
 /**
+ * Revision 4.2 (docs/SPEC_shot-places.md Section 11, R1): a stop within this
+ * of shot 1's position is the tee area and is never preselected. He waits on
+ * the tee; a topped drive that finishes inside it is still in the list.
+ */
+export const TEE_AREA_M = 40;
+
+/**
+ * Revision 4.2, R3: rough between two holes belongs to both. A stop is on
+ * this hole's ground when the map's nearest hole is this one, or when this one
+ * is the runner-up by this margin or less.
+ */
+export const SHARED_GROUND_M = 30;
+
+/**
  * AGENDA ITEM 2 — what the track thinks happened on one hole.
  *
  * Matt's order, verbatim: *"lets hone down the tracking and then move to the
@@ -637,16 +651,22 @@ export const PLACE_MIN_DWELL_S = 15;
  * Every stop in the window comes back in `places`, none hidden, each carrying
  * what the course map says about it in `place`: distance to this hole's green
  * centre, the lie, whose ground it is on (`own` when the map's nearest hole is
- * this one, `other` otherwise), whether it is on a tee or a green, and whether
- * it starts after he first stood on this hole's own green. `places` is in two
+ * this one, or this one is the runner-up by `SHARED_GROUND_M` or less; `other`
+ * otherwise), whether it is on a tee or a green, whether it is within
+ * `TEE_AREA_M` of shot 1, and whether it starts after he first stood on this
+ * hole's own green. "On a green" is inside it by more than the fix can be
+ * wrong: the map says green and the lie is not in question (revision 4.2, R2).
+ * `places` is in two
  * groups, this hole's ground then everyone else's, each in time order, with
  * the stops off the map last. With no map every field is null and every stop
  * is `other`: nothing is said that the map did not say.
  *
  * THE PRESELECTION (4.3) — a suggestion, every row can be swapped.
  *
- *   1. Pool: this hole's ground, not on a tee, not on a green, not after the
- *      green, standing 15 s or more.
+ *   1. Pool: this hole's ground, not on a tee, not within `TEE_AREA_M` of
+ *      shot 1, not on a green, not after the green, standing 15 s or more.
+ *      "After the green" starts at the first stop inside this hole's own
+ *      green that is not in question and stood 15 s or more.
  *   2. Short of `fullShots`: the other ground's stops that pass the same tests.
  *   3. Choose `fullShots` of them, in time order, that maximise the number of
  *      steps where the distance to the hole falls — from `teeYd`, shot 1's
@@ -672,12 +692,23 @@ export const PLACE_MIN_DWELL_S = 15;
  * @param geometry    The course map (`courseGeometry`), or null.
  * @param holeNumber  The hole being entered, for the map.
  * @param teeYd       Shot 1's distance to the hole, yards, or null.
+ * @param teePos      Shot 1's position `{ lat, lon }` (the map tee box centre,
+ *                    or his tee mark), or null: no position, no tee-area rule.
  * @returns `{ proposed, places, rejected, found, eligible, fullShots, shortBy,
  *          windowMs }`. `proposed` is in time order.
  */
 export function proposeHoleShots(
   points,
-  { fullShots, fromTs = null, toTs = null, geometry = null, holeNumber = null, teeYd = null, ...opts } = {}
+  {
+    fullShots,
+    fromTs = null,
+    toTs = null,
+    geometry = null,
+    holeNumber = null,
+    teeYd = null,
+    teePos = null,
+    ...opts
+  } = {}
 ) {
   const want = Math.max(0, Math.floor(fullShots ?? 0));
   const all = stopCandidates(points, opts).filter(
@@ -692,13 +723,20 @@ export function proposeHoleShots(
     const said = geometry ? lieAt(geometry, pos) : null;
     const near = geometry ? nearestHole(geometry, pos, { maxM: 500 }) : null;
     const inOwnGreen = g != null && g.frontM === 0;
-    if (inOwnGreen && greenFrom == null) greenFrom = c.startTs;
+    // R2: inside this hole's green by more than the fix can be wrong, and
+    // stood there long enough to be on it rather than passing over its edge.
+    const surelyOnOwnGreen = inOwnGreen && !said?.inQuestion && c.dwellMs >= PLACE_MIN_DWELL_S * 1000;
+    if (surelyOnOwnGreen && greenFrom == null) greenFrom = c.startTs;
+    const ownGround =
+      near != null &&
+      (near.hole === holeNumber || (near.runnerUp?.hole === holeNumber && near.marginM <= SHARED_GROUND_M));
     c.place = {
       toHoleYd: g?.centreYd ?? null,
       lie: said?.lie ?? null,
-      ground: near != null && near.hole === holeNumber ? 'own' : 'other',
+      ground: ownGround ? 'own' : 'other',
       onTee: said?.lie === 'tee',
-      onGreen: said?.lie === 'green',
+      nearTee: teePos != null && distanceM(teePos, c) <= TEE_AREA_M,
+      onGreen: said?.lie === 'green' && !said.inQuestion,
       afterGreen: false,
     };
   }
@@ -712,7 +750,11 @@ export function proposeHoleShots(
 
   // 4.3, steps 1 and 2.
   const passes = (c) =>
-    !c.place.onTee && !c.place.onGreen && !c.place.afterGreen && c.dwellMs >= PLACE_MIN_DWELL_S * 1000;
+    !c.place.onTee &&
+    !c.place.nearTee &&
+    !c.place.onGreen &&
+    !c.place.afterGreen &&
+    c.dwellMs >= PLACE_MIN_DWELL_S * 1000;
   let pool = own.filter(passes);
   if (pool.length < want) pool = [...pool, ...[...onMap, ...offMap].filter(passes)].sort(byTime);
 

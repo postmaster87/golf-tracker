@@ -35,11 +35,17 @@
     <div id="out">running…</div>
 
     <script type="module">
-      import { stopCandidates, proposeHoleShots, GREEN_DEFAULTS } from '../js/round/track-analysis.js';
+      import {
+        stopCandidates,
+        proposeHoleShots,
+        candidateAccuracyM,
+        PLACE_MIN_DWELL_S,
+        GREEN_DEFAULTS,
+      } from '../js/round/track-analysis.js';
       import { holeWindow } from '../js/round/round.js';
       import { distanceM } from '../js/util/geo.js';
       import { VEENKER } from '../js/data/courses.js';
-      import { courseGeometry } from '../js/round/course-geometry.js';
+      import { courseGeometry, toGreen, lieAt, nearestHole } from '../js/round/course-geometry.js';
       import { mapTeeBox } from '../js/ui/screen-play.js';
 
       const MATCH_M = 10;
@@ -67,6 +73,103 @@
         return byScore.slice(0, want).sort((a, b) => a.startTs - b.startTs);
       }
 
+      /*
+       * THE v31 PRESELECTION, for the three-column comparison revision 4.2
+       * (docs/SPEC_shot-places.md Section 11) asks for: the place and pool half
+       * of `proposeHoleShots` and its `bestSequence` as they stood at 7ad929c
+       * (build v31), copied verbatim, returning `proposed`.
+       */
+      function v31Picker(
+        points,
+        { fullShots, fromTs = null, toTs = null, geometry = null, holeNumber = null, teeYd = null, ...opts } = {}
+      ) {
+        const want = Math.max(0, Math.floor(fullShots ?? 0));
+        const all = stopCandidates(points, opts).filter(
+          (c) => (fromTs == null || c.endTs >= fromTs) && (toTs == null || c.startTs <= toTs)
+        );
+        let greenFrom = null;
+        for (const c of all) {
+          const pos = { lat: c.lat, lon: c.lon, accuracyM: candidateAccuracyM(c) };
+          const g = geometry ? toGreen(geometry, holeNumber, pos) : null;
+          const said = geometry ? lieAt(geometry, pos) : null;
+          const near = geometry ? nearestHole(geometry, pos, { maxM: 500 }) : null;
+          const inOwnGreen = g != null && g.frontM === 0;
+          if (inOwnGreen && greenFrom == null) greenFrom = c.startTs;
+          c.place = {
+            toHoleYd: g?.centreYd ?? null,
+            lie: said?.lie ?? null,
+            ground: near != null && near.hole === holeNumber ? 'own' : 'other',
+            onTee: said?.lie === 'tee',
+            onGreen: said?.lie === 'green',
+            afterGreen: false,
+          };
+        }
+        for (const c of all) c.place.afterGreen = greenFrom != null && c.startTs > greenFrom;
+        const byTime = (a, b) => a.startTs - b.startTs;
+        const own = all.filter((c) => c.place.ground === 'own').sort(byTime);
+        const onMap = all.filter((c) => c.place.ground === 'other' && c.place.lie != null).sort(byTime);
+        const offMap = all.filter((c) => c.place.ground === 'other' && c.place.lie == null).sort(byTime);
+        const passes = (c) =>
+          !c.place.onTee && !c.place.onGreen && !c.place.afterGreen && c.dwellMs >= PLACE_MIN_DWELL_S * 1000;
+        let pool = own.filter(passes);
+        if (pool.length < want) pool = [...pool, ...[...onMap, ...offMap].filter(passes)].sort(byTime);
+        return v31BestSequence(pool, want, teeYd);
+      }
+
+      function v31BestSequence(pool, want, startYd) {
+        const k = Math.min(want, pool.length);
+        if (k === 0) return [];
+        const yd = pool.map((c) => c.place?.toHoleYd ?? null);
+        const falls = (from, to) => (from != null && to != null && to < from ? 1 : 0);
+        const better = (a, b) => !b || a.falls > b.falls || (a.falls === b.falls && a.dwell > b.dwell);
+        const best = [pool.map((c, i) => ({ falls: falls(startYd, yd[i]), dwell: c.dwellMs, prev: -1 }))];
+        for (let c = 1; c < k; c++) {
+          best[c] = pool.map((cand, i) => {
+            let top = null;
+            for (let j = c - 1; j < i; j++) {
+              const from = best[c - 1][j];
+              if (!from) continue;
+              const next = { falls: from.falls + falls(yd[j], yd[i]), dwell: from.dwell + cand.dwellMs, prev: j };
+              if (better(next, top)) top = next;
+            }
+            return top;
+          });
+        }
+        let end = -1;
+        best[k - 1].forEach((s, i) => {
+          if (s && better(s, best[k - 1][end])) end = i;
+        });
+        const out = [];
+        for (let c = k - 1, i = end; c >= 0; i = best[c][i].prev, c--) out.unshift(pool[i]);
+        return out;
+      }
+
+      /**
+       * Why the shipped preselection missed a shot he marked: the stop nearest
+       * his mark (within MATCH_M) and the first pool test it fails, in the
+       * order the pool applies them. Read off the `place` the shipped
+       * `proposeHoleShots` wrote, never recomputed.
+       */
+      function missCause(result, mark) {
+        const at = result.places
+          .map((c) => ({ c, d: distanceM({ lat: c.lat, lon: c.lon }, mark) }))
+          .filter((x) => x.d <= MATCH_M)
+          .sort((a, b) => a.d - b.d)[0]?.c;
+        if (!at) return 'no stop within 10 m of his mark in the window';
+        const p = at.place;
+        if (p.onTee) return 'on a tee box (onTee)';
+        if (p.nearTee) return 'within 40 m of shot 1 (R1, nearTee)';
+        if (p.onGreen) return 'on the green, not in question (onGreen)';
+        if (p.afterGreen) return 'after he first stood on the green (afterGreen)';
+        if (at.dwellMs < PLACE_MIN_DWELL_S * 1000) return 'stood under 15 s';
+        const ownPool = result.places.filter(
+          (c) => c.place.ground === 'own' && !c.place.onTee && !c.place.nearTee && !c.place.onGreen &&
+            !c.place.afterGreen && c.dwellMs >= PLACE_MIN_DWELL_S * 1000
+        ).length;
+        if (p.ground === 'other' && ownPool >= result.fullShots) return "another hole's ground, this hole's pool full";
+        return 'in the pool; the sequence chose other stops';
+      }
+
       /**
        * Old picker against the new rule, on the shots he marked.
        *
@@ -80,7 +183,7 @@
       function pickRound(round, track) {
         const G = round.courseId === VEENKER.id ? courseGeometry(VEENKER) : null;
         const now = Date.parse(round.completedAt || round.startedAt) + 3.6e6;
-        const r = { holes: 0, full: 0, oldAll: 0, later: 0, oldLater: 0, newLater: 0, teeMarked: 0, teeWithin: 0, teeM: [], map: Boolean(G) };
+        const r = { holes: 0, full: 0, oldAll: 0, later: 0, oldLater: 0, v31Later: 0, newLater: 0, teeMarked: 0, teeWithin: 0, teeM: [], map: Boolean(G), causes: {} };
         for (const hole of round.holes ?? []) {
           const full = (hole.shots ?? []).filter((s) => s.lie !== 'green');
           const marked = full.filter((s) => s.mark?.lat != null);
@@ -89,22 +192,33 @@
           const w = holeWindow(round, hole, { now });
           const near = (c, s) => distanceM({ lat: c.lat, lon: c.lon }, s.mark) <= MATCH_M;
           const old = oldPicker(track, { fullShots: full.length, fromTs: w.fromTs, toTs: w.toTs });
-          const fresh = proposeHoleShots(track, {
+          const asked = {
             fullShots: full.length - 1,
             fromTs: w.fromTs,
             toTs: w.toTs,
             geometry: G,
             holeNumber: hole.number,
             teeYd: hole.yards ?? null,
-          }).proposed;
+          };
+          const v31 = v31Picker(track, asked);
+          // Shot 1 as the app places it when he did not mark the tee: the map
+          // box for the round's tee set, or no position (no tee-area rule).
+          const mapBox = G ? mapTeeBox(G, hole.number, round.teeSet) : null;
+          const result = proposeHoleShots(track, { ...asked, teePos: mapBox });
+          const fresh = result.proposed;
           const tee = marked.find((s) => s.seq === 1 && s.lie === 'tee') ?? null;
           const later = marked.filter((s) => s !== tee);
           r.full += marked.length;
           r.oldAll += marked.filter((s) => old.some((c) => near(c, s))).length;
           r.later += later.length;
           r.oldLater += later.filter((s) => old.some((c) => near(c, s))).length;
+          r.v31Later += later.filter((s) => v31.some((c) => near(c, s))).length;
           r.newLater += later.filter((s) => fresh.some((c) => near(c, s))).length;
-          const box = G && tee ? mapTeeBox(G, hole.number, round.teeSet) : null;
+          for (const s of later.filter((x) => !fresh.some((c) => near(c, x)))) {
+            const why = missCause(result, s.mark);
+            r.causes[why] = (r.causes[why] ?? 0) + 1;
+          }
+          const box = G && tee ? mapBox : null;
           if (tee && G) {
             r.teeMarked++;
             if (box) {
@@ -199,22 +313,29 @@
               <td class="num">${r.dwell[0]} s</td><td class="num">${r.dwell[1]} s</td>
               <td class="num">${r.dep[0]} m</td><td class="num">${r.dep[1]} m</td></tr>`).join('')}
           </table>
-          <h2>Old picker (v30) vs the new preselection (v31, docs/SPEC_shot-places.md)</h2>
+          <h2>Old picker (v30) vs the preselection at v31 and at revision 4.2 (docs/SPEC_shot-places.md)</h2>
           <table>
-            <tr><th>round</th><th>map</th><th>holes</th><th>old: all full shots</th><th>old: shots 2+</th><th>new: shots 2+</th><th>map tee within ${MATCH_M} m of his mark</th><th>map tee to his mark, median</th></tr>
+            <tr><th>round</th><th>map</th><th>holes</th><th>v30: all full shots</th><th>v30: shots 2+</th><th>v31: shots 2+</th><th>4.2: shots 2+</th><th>map tee within ${MATCH_M} m of his mark</th><th>map tee to his mark, median</th></tr>
             ${rows.map((r) => `<tr><td>${r.label}</td><td>${r.pick.map ? 'yes' : 'no'}</td><td class="num">${r.pick.holes}</td>
               <td class="num">${pc(r.pick.oldAll, r.pick.full)}</td>
               <td class="num">${pc(r.pick.oldLater, r.pick.later)}</td>
+              <td class="num">${pc(r.pick.v31Later, r.pick.later)}</td>
               <td class="num">${pc(r.pick.newLater, r.pick.later)}</td>
               <td class="num">${r.pick.map ? pc(r.pick.teeWithin, r.pick.teeMarked) : '—'}</td>
               <td class="num">${r.pick.map && r.pick.teeM.length ? `${med(r.pick.teeM)} m (n=${r.pick.teeM.length})` : '—'}</td></tr>`).join('')}
+          </table>
+          <h2>4.2 misses, shots 2+, by cause</h2>
+          <table>
+            <tr><th>round</th><th>cause</th><th>misses</th></tr>
+            ${rows.flatMap((r) => Object.entries(r.pick.causes).map(([why, n]) =>
+              `<tr><td>${r.label}</td><td>${why}</td><td class="num">${n}</td></tr>`)).join('')}
           </table>
           ${missing.length ? `<p class="miss">not found: ${missing.join(' · ')}</p>` : ''}`;
       }
       console.log(`DETECTION_OVERALL ${rows.reduce((a, r) => a + r.hit, 0)}/${rows.reduce((a, r) => a + r.tot, 0)}`);
       for (const r of rows) {
         const p = r.pick;
-        console.log(`PICKER ${r.label} map=${p.map} holes=${p.holes} oldAll=${p.oldAll}/${p.full} oldLater=${p.oldLater}/${p.later} newLater=${p.newLater}/${p.later} tee=${p.teeWithin}/${p.teeMarked} teeMedianM=${med(p.teeM)}`);
+        console.log(`PICKER ${r.label} map=${p.map} holes=${p.holes} oldAll=${p.oldAll}/${p.full} oldLater=${p.oldLater}/${p.later} v31Later=${p.v31Later}/${p.later} newLater=${p.newLater}/${p.later} tee=${p.teeWithin}/${p.teeMarked} teeMedianM=${med(p.teeM)} causes=${JSON.stringify(p.causes)}`);
       }
     </script>
   </body>
