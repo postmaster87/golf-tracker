@@ -9,6 +9,34 @@ never "Fable decided".
 
 Opus's solo decisions are logged here too, marked (Opus).
 
+## 2026-09-28 - D1: where the hole is - spec at xhigh, two builds
+- **Decision:** his, 2026-09-28: *"D1. map center with the option for me to
+  correct it manually by entering tournament pin sheet numbers."* Then
+  *"build D1"* with the session at xhigh (`get_session self` read `xhigh`).
+  Spec `docs/SPEC_hole-position.md`. Part A (the engine's hole position, the
+  `hole.pinSheet` key, the derived numbers, what the screens say): Opus at
+  xhigh, build v33. Part B (the PIN SHEET sheet): Opus at high after Part A
+  is signed, build v34.
+- **Fable's choices, each with its reason in the spec:** the order cup, pin
+  sheet, ball on the green, green centre; a cup taken from the track is never
+  used on a map course (his item 3); a cup or ball mark more than 15 m off its
+  own green is not used; the pin sheet is stored as the numbers he typed and
+  placed from the map when read, so `hole.cup` keeps its meaning and no
+  position is written; the line of play is from 150 yd back along the hole's
+  line, because the last segment is 11 to 31 yd on four holes; shot 1 from the
+  map reads the scorecard yardage in the engine and has no drive length.
+- **Why, measured:** 35 burst cups in the phone's store at Veenker, 31 on
+  their green, median 5.5 yd and at most 17.3 yd from the map's centre
+  (n = 31); 3 of the 35 are 93 to 3,983 yd from their green and the engine
+  uses them today; the 8 cups taken from the track sit a median 32.8 yd from
+  the centre. A 5 yd error costs 0.11 strokes at 15 yd and 0.013 at 80 yd.
+- **The one reading made for him, stated in the spec:** pin sheet side
+  numbers are paces from the nearer side edge. The entry stores `sideFrom`,
+  so the other convention is one constant.
+- **Not changed:** any stored round, the benchmark tables, the formula, the
+  export format, `schemaVersion`, the course learning model.
+- **Commit:** this commit.
+
 ## 2026-09-28 - 4.2: build v32 (shot places, the pool revised) - PASS for his phone
 - **Decision:** Opus (high) `77f89df` from spec Section 11, 12 min and 194k
   sub-agent tokens (n = 1). Fable's review at medium: the three rules and one
