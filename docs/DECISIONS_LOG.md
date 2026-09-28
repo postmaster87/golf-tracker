@@ -9,6 +9,40 @@ never "Fable decided".
 
 Opus's solo decisions are logged here too, marked (Opus).
 
+## 2026-09-28 - 5.1: D1 Part A, build v33 - PASS against the spec, three corrections owed; the deploy is not this session's
+- **Decision:** Opus (xhigh) `ccae4e3` from `docs/SPEC_hole-position.md`, 34
+  min and 486k sub-agent tokens (n = 1). Fable's review at xhigh
+  (`docs/handoff/REPORT_5.1.md` Section 8): the engine, the round module and
+  the new `hole-position.js` read line by line; nothing on the must-not-touch
+  list changed; suite 594/594 at 360x728 (Fable n = 1); Fable's own pin
+  construction agrees with `pinFromSheet` to 0.002 to 0.011 m (n = 5); the
+  after column of the before-and-after table recomputed by Fable, 9 of 9
+  rounds equal.
+- **What moved in his stored rounds (read only, nothing written):** 7 of 9
+  scoring rounds unchanged to 3 decimals; 2026-09-27 (8 cups taken from the
+  track) and the abandoned 2026-09-26 14:51 round (every mark 3,894 yd from
+  the course) changed. Trends read 2026-09-14 and 2026-09-16 only, both
+  unchanged.
+- **Corrections owed, Fable's own misses named:** C4, the card said "The
+  total does not depend on it" without the condition and was false on the
+  first round it was rendered for; C1, test 12's example hole was wrong about
+  the data (hole 11's line is 152.3 yd). C3 (a typed distance on a map tee
+  still measured a length from the box) and C8 (a mark farther out than the
+  card plus 100 yd gives no distance) close what the build exposed. Spec
+  Section 12.
+- **His ruling on the deploy, 2026-09-28, verbatim:** *"okay you will not
+  deploy this on my phone. When you are done hand it off to the other repo
+  and it will fold this into the map feature build and deploy it."* "The
+  other repo" is the session "Hole Overview map integration" in this repo,
+  which he named the owner the same day: *"The correct session that is
+  building that feature is the last one that messaged you the other was a
+  mistake and it is done"*. This session does not push and does not install.
+- **Found by that session, verified here, not this session's to fix:** 17 of
+  47 bunker and fairway polygons carry the wrong hole label in the map
+  (`build_veenker.py`'s centroid). Greens 18 of 18 right. Shot places and D1
+  do not read those labels.
+- **Commit:** Opus `ccae4e3`, Fable this commit.
+
 ## 2026-09-28 - D1: where the hole is - spec at xhigh, two builds
 - **Decision:** his, 2026-09-28: *"D1. map center with the option for me to
   correct it manually by entering tournament pin sheet numbers."* Then

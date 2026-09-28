@@ -332,7 +332,7 @@ the neighbouring strokes-gained and geometry tests.
 | 9 | The total does not move with the pin | one hole, map tee, two track shots, first putt typed: the sum of the three off-green strokes gained is equal to 1e-9 with no pin sheet, with a pin at the front and with a pin at the back; the approach and short game values differ |
 | 10 | No map, no change | a Radcliffe hole with a track cup and an accumulated position: `holePosition` and the strokes gained are identical to the values the same round gives at `7d35028` (fixture values written into the test) |
 | 11 | The key is optional and survives the export | a hole with no `pinSheet` key resolves like `pinSheet: null`; a round with one survives `buildExport` and `importExport` unchanged |
-| 12 | The frame | hole 9's line of play is the bearing from the point 150 yd back along its line to the centre, not its 18 yd last segment; hole 11 (a 152 yd line) uses the line's start |
+| 12 | The frame | hole 9's line of play is the bearing from the point 150 yd back along its line to the centre, not its 18 yd last segment; a line shorter than 150 yd uses the line's start (corrected 2026-09-28: hole 11's line is 152.3 yd, so its A is 2.1 m from its start; no Veenker line is shorter than 150 yd) |
 | 13 | The sources are counted | `roundStrokesGained(...).sources` adds up to the number of shots that are not putts; `positionNotes` carries test 4's hole |
 
 ## 8. Part A - evidence in the report
@@ -371,7 +371,8 @@ Built after Fable has signed Part A.
    (`sideFrom: 'edge'`, `paceFeet` from his settings) and clears it on a row
    whose ON is empty. One UNDO, through the banner that stays (v31), puts
    every hole's pin sheet back as it was.
-5. **Limits:** ON 0 to 60, side 0 to 30, whole numbers. Anything else is not
+5. **Limits:** ON 1 to 60, side 0 to 30, whole numbers. (ON 0 sits exactly on
+   the front edge and cannot be placed; corrected 2026-09-28.) Anything else is not
    accepted by the field.
 6. **The old control:** on a course with a map the green sheet's "Where was
    the pin?" section is not shown; the PIN SHEET sheet is the one place. On a
@@ -410,3 +411,30 @@ round, `docs/roundDownloads/`, `REVISION`, the push. `BUILD.id` and the
   labelled as one, is wanted is his call.
 - The benchmark table's scratch-versus-Tour question
   (`docs/benchmark-verification.md`) is untouched.
+
+---
+
+## 12. Rulings after the Part A review (Fable, 2026-09-28, xhigh)
+
+Part A is build v33, Opus `ccae4e3`, reviewed in
+`docs/handoff/REPORT_5.1.md` Section 8: PASS against this spec, with the
+corrections below. They are built in the same job as Part B.
+
+| # | Ruling | Replaces |
+|---|---|---|
+| C1 | Test 12's example hole is corrected in Section 7. Section 4.1 stands as written and as built. | Section 7 test 12 |
+| C2 | 6.1 applies on every course: the scorecard yardage exists on every course, and only build v31 and later writes a `source: 'map'` tee. Section 0's "a course with no map behaves exactly as it does at `7d35028`" holds for everything else. | Section 0, last sentence |
+| C3 | A shot with `source: 'map'` and `lie: 'tee'` has `lengthM` null in every case, including when he typed its distance. His typed distance still sets `toHoleM`. | 6.1 as built |
+| C4 | The third line under the strokes gained total. When no scored hole's first shot took its distance from `map-green`: "The centre of the green is a median 5.5 yd from where the cup was (n = 31 cups marked at Veenker). The total does not depend on it; the split between approach and short game does." When n holes' first shot did: "The centre of the green is a median 5.5 yd from where the cup was (n = 31 cups marked at Veenker). The split between approach and short game depends on it, and so does the total on the n holes whose tee shot was measured to it." | 6.4, strokes gained card |
+| C5 | ON is 1 to 60. | Section 9 item 5 |
+| C6 | Accepted as built: `positionNotes` entries carry `hole` and `used`; `greenFrame` returns `approach`; the shot list's second line replaces the shot's length for `scorecard`, `pin-sheet` and `map-green`. | - |
+| C8 | **A mark that is not on the hole gives no distance.** In `shotGeometry`, for a distance measured from a mark (not typed, not the scorecard): when `hole.yards` is known and the distance to the hole is more than `hole.yards x 0.9144 + 91.44` m (the card plus 100 yd), `toHoleM`, `toHoleSource` and `toHoleUncertaintyM` are null and the entry carries `offHoleM`, the distance that was refused. `lengthM` is unchanged. In `holeStrokesGained` the reason for such a shot reads "hole N shot k: the mark is n yd from the hole on a m yd hole, not used". Constant `OFF_HOLE_MARGIN_M = 91.44` in `hole-position.js`. With no `hole.yards`, no filter. | new |
+
+Tests, one each, beside the 13: C3 (a map tee with a typed 150 yd: `toHoleM`
+150 yd, `lengthM` null); C4 (both sentences, each on a round that calls for
+it); C8 (a shot mark 3,905 yd from the green on a 419 yd hole: no distance,
+`offHoleM` set, one unattributed stroke with that reason; the same mark 500
+yd out on a 419 yd hole is measured).
+
+Evidence: Section 8 item 1 again, three columns (`1692724`, v33, this build),
+and the count of shots C8 refuses in each round.
