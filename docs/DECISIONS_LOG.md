@@ -9,6 +9,35 @@ never "Fable decided".
 
 Opus's solo decisions are logged here too, marked (Opus).
 
+## 2026-09-29 - build v36 pushed and hash-verified live; installed on his phone, rounds unchanged
+- **His word, in the session "Latest build setup", each its own prompt:**
+  the push, "Yes, push"; the install, "Yes, install". Effort was lowered
+  first on his rule 14 prompt: `get_session self` read `xhigh` at 06:22 and
+  `medium` at 06:42.
+- **The push:** `git push origin main`, `35b29bd..57120b8`, 47 commits
+  (v29 to v36 and their logs). Hash-verified fetch at 07:08: the deployed
+  `js/data/build.js` reads `v36`, sha256 `06a9b500...`, equal to the local
+  file; 11 deployed files compared with the repo, 0 different, 3 of the 18
+  hole pictures among them (n = 1 fetch).
+- **The install:** `adb -s RFGL4275NVH install -r app-debug.apk` at 07:32,
+  APK sha256 `ac74fd72...`. Read back from the system: `versionName` v30
+  (`versionCode` 3001) before, v36 (3601) after. The app's own Settings
+  screen reads "Build v36 - Sep 29, 2026 - rev 6". The home screen shows
+  `COURSE MAP` and his recent rounds.
+- **His data:** 57 files listed on the phone before and after (every file
+  under the app's `files/` by md5 and size, 16 entries in `files/rounds`;
+  the WebView's Local Storage files by size): 0 lines different. The app
+  was not running and no recorder service was up at install.
+- **Grants, read back, user 0:** fine, coarse and background location and
+  notifications `granted=true`; battery whitelist holds the package;
+  `RUN_ANY_IN_BACKGROUND: allow`; no INTERNET permission. The one
+  `granted=false` row is Android user 150, where the app is not installed.
+- **Not proven, and said so:** the page has not been opened on the phone by
+  him; nothing from v31 to v36 has been played. `REVISION` stays 6, his
+  call. `docs/REVISIONS.md` still says rev 6 is "not yet played", and so
+  does the Settings line; round `r_b440472a` (2026-09-27) played it.
+- **Commit:** Fable this commit. The push was `57120b8`.
+
 ## 2026-09-29 - 6.2 and 6.3: the Hole Overview page, builds v35 and v36 - PASS; not pushed, not installed
 - **Decision:** Opus (xhigh) built stage 2 from `docs/SPEC_hole-overview.md`
   revision 3: hole 9's tees `e7da1e6`, correction C1 `6cd2598`, the page
