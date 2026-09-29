@@ -7916,6 +7916,8 @@ export async function runHoleOverviewPageTests() {
 
   /* ---- 7: fit at 360 x 728 ---- */
   const seven = {};
+  // The same page with the LOCK tab's column reserved (C3, Fable's review of v35).
+  const sevenLock = {};
   {
     clearNotes();
     const notes = loadCourseNotes('veenker');
@@ -7928,7 +7930,9 @@ export async function runHoleOverviewPageTests() {
     const px = (e) => parseFloat(getComputedStyle(e).fontSize);
     const digits = (e) => /\d/.test(e.textContent);
     const label = (e) => e.textContent.trim() || e.className;
-    const measure = async (hole) => {
+    const measure = async (hole, { lock = false } = {}) => {
+      const hadTab = document.body.classList.contains('has-lock-tab');
+      document.body.classList.toggle('has-lock-tab', lock);
       const m = mount(veenkerRound('blue', hole), { fix: fixAtPos(teeOrigin(G, hole, 'blue'), 3) });
       await wait();
       const mapR = rect(mapBtn(m));
@@ -7962,6 +7966,23 @@ export async function runHoleOverviewPageTests() {
           if (gap < 8) out.close.push(`${label(targets[i])} / ${label(targets[j])}: ${gap.toFixed(1)} px`);
         }
       }
+      // The page at its top: the picture, the YOU column beside it, every YOU
+      // row against the fold (the page is 728 tall from 0), and anything
+      // tappable or any number in the scrolling page past the LOCK tab's edge.
+      const picR = rect(p.querySelector('.ho-pic'));
+      const youR = rect(you);
+      const r1 = (v) => Math.round(v * 10) / 10;
+      out.pic = [picR.left, picR.top, picR.width, picR.height].map(r1);
+      out.you = [youR.left, youR.top, youR.width, youR.height].map(r1);
+      out.beside = youR.left >= picR.right && youR.top < picR.bottom;
+      out.youRows = [...you.children].map((e) => `${e.dataset.row ?? e.tagName.toLowerCase()} ${r1(rect(e).bottom)}`);
+      out.belowFold = [...you.children].filter((e) => rect(e).bottom > 728).map((e) => `${e.dataset.row ?? e.tagName.toLowerCase()} ends at ${r1(rect(e).bottom)}`);
+      const strip = 360 - parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--lock-tab-gutter'));
+      out.strip = strip;
+      out.inStrip = [...sc.querySelectorAll('*')]
+        .filter((e) => e.matches('button, [role="button"]') || [...e.childNodes].some((c) => c.nodeType === 3 && /\d/.test(c.textContent)))
+        .filter((e) => rect(e).width > 0 && rect(e).right > strip + 0.5)
+        .map((e) => `${label(e)} ends at ${r1(rect(e).right)}`);
       const bar = p.querySelector('.ho-bar');
       const creek = p.querySelector('.ho-creek');
       const barTop = rect(bar).top;
@@ -7987,9 +8008,11 @@ export async function runHoleOverviewPageTests() {
         };
       }
       m.done();
+      document.body.classList.toggle('has-lock-tab', hadTab);
       return out;
     };
     for (const hole of [11, 16, 1]) seven[hole] = await measure(hole);
+    for (const hole of [11, 15, 16]) sevenLock[hole] = await measure(hole, { lock: true });
     restoreStorage();
   }
 
@@ -8316,6 +8339,28 @@ export async function runHoleOverviewPageTests() {
     eq(c2.played.away, false, 'the class');
     eq(`${c2.played.green} ${c2.played.title}`, 'visible visible', 'the HUD lines');
     eq(c2.played.greenText, c2.before.greenText, 'the HUD GREEN line reads as before the page opened');
+  });
+
+  test("16. (C3) 360x728 with the LOCK tab's column reserved, holes 11, 15, 16: the YOU column beside the picture, every YOU row above the fold, nothing tappable and no number in the tab's column", () => {
+    // The fold first, all three holes, so a failure names the hole and the row.
+    for (const hole of [11, 15, 16]) {
+      const f = sevenLock[hole];
+      assert(f, `hole ${hole}: not measured`);
+      assert(f.youRows.length >= 3 + f.features, `fixture: hole ${hole} YOU rows ${f.youRows.join(', ')}`);
+      eq(f.belowFold.join(', '), '', `hole ${hole}: YOU rows below the fold at 728`);
+    }
+    for (const hole of [11, 15, 16]) {
+      const f = sevenLock[hole];
+      assert(f.pic[2] >= 96, `hole ${hole}: the picture is ${f.pic[2]} px wide`);
+      assert(f.beside, `hole ${hole}: YOU column [${f.you}] is not beside the picture [${f.pic}]`);
+      eq(f.inStrip.join(', '), '', `hole ${hole}: in the LOCK tab's column (from ${f.strip} px)`);
+      assert(f.sideways <= 0, `hole ${hole}: ${f.sideways} px of sideways scroll`);
+      eq(f.centre, 40, `hole ${hole}: YOU green centre, px`);
+      assert(f.youCount >= 2 && f.youMin >= 24, `hole ${hole}: a YOU number is ${f.youMin} px (n = ${f.youCount})`);
+      assert(f.teeCount >= 1 && f.teeMin >= 18, `hole ${hole}: a TEE number is ${f.teeMin} px (n = ${f.teeCount})`);
+      eq(f.small.join(', '), '', `hole ${hole}: tap targets under 48 px`);
+      eq(f.close.join('; '), '', `hole ${hole}: tap targets under 8 px apart`);
+    }
   });
 
   style.remove();

@@ -1943,6 +1943,40 @@ body.has-lock-tab .ho-scroll {
   align-content: start;
 }
 
+/*
+ * THE LOCK TAB'S COLUMN RESERVED (C3, Fable's review of v35): the YOU column
+ * stays beside the picture. With the strip reserved the row is 250 px at 360,
+ * so the picture (150) and the numbers (172) wrapped and the YOU column fell
+ * under the picture - on hole 16 its last row ended 12 px below the fold. Here
+ * the YOU column is held to 144 px or more and the picture takes the rest, 96
+ * to 150 px; .ho-nums gives up its box so YOU and TEE are items of this grid,
+ * and TEE goes below both, full width. Only on the play screen with the strip
+ * reserved and the picture not filled: the native shell has no LOCK tab, and
+ * the map screen from home and the filled picture keep the layout above.
+ */
+body.has-lock-tab .screen.play .hole-overview:not(.filled) .ho-main {
+  display: grid;
+  grid-template-columns: minmax(96px, 150px) minmax(144px, 1fr);
+}
+
+body.has-lock-tab .screen.play .hole-overview:not(.filled) .ho-nums {
+  display: contents;
+}
+
+body.has-lock-tab .screen.play .hole-overview:not(.filled) .ho-pic {
+  grid-column: 1;
+}
+
+body.has-lock-tab .screen.play .hole-overview:not(.filled) .ho-col[data-col='you'] {
+  grid-column: 2;
+  min-width: 0;
+}
+
+body.has-lock-tab .screen.play .hole-overview:not(.filled) .ho-col[data-col='tee'] {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+
 .ho-col h3,
 .ho-lay-head h3 {
   margin: 0 0 2px;
