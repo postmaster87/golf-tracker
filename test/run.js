@@ -8251,5 +8251,72 @@ export async function runHoleOverviewPageTests() {
     eq(twelve.went, 'home', 'HOME goes home');
   });
 
+  /* ---- 13-15 (C2, Fable's review of v35): looking at another hole, one green on the screen ---- */
+  const c2 = {};
+  {
+    const hud = (m) => {
+      const vis = (sel) => {
+        const e = m.screen.el.querySelector(sel);
+        return e ? getComputedStyle(e).visibility : null;
+      };
+      return {
+        green: vis('.hud-green'),
+        title: vis('.hud-meta'),
+        menu: vis('.hud .icon-btn'),
+        chips: [...m.screen.el.querySelectorAll('.hud .acc-chip')].map((e) => getComputedStyle(e).visibility).join(','),
+        away: m.screen.el.classList.contains('ho-away'),
+        greenText: m.screen.el.querySelector('.hud-green')?.textContent ?? '',
+      };
+    };
+    const subOf = (p) => p?.querySelector('.ho-sub')?.textContent ?? null;
+    const m = mount(veenkerRound('blue', 16), { fix: fixAtPos(teeOrigin(G, 16, 'blue'), 3) });
+    await wait();
+    c2.before = hud(m);
+    const p = await open(m);
+    c2.home = { ...hud(m), sub: subOf(p), hole: p?.querySelector('.ho-title strong')?.textContent ?? null };
+    p?.querySelector('.ho-next')?.click();
+    await wait();
+    c2.next = { ...hud(m), sub: subOf(p), hole: p?.querySelector('.ho-title strong')?.textContent ?? null };
+    p?.querySelector('.ho-prev')?.click();
+    await wait();
+    c2.back = { ...hud(m), sub: subOf(p), hole: p?.querySelector('.ho-title strong')?.textContent ?? null };
+    p?.querySelector('.ho-prev')?.click();
+    await wait();
+    c2.other = { ...hud(m), hole: p?.querySelector('.ho-title strong')?.textContent ?? null };
+    p?.querySelector('.ho-close')?.click();
+    await wait();
+    c2.played = { ...hud(m), open: Boolean(pageOf(m)) };
+    m.done();
+  }
+
+  test("13. (C2) the page on the round's hole: the HUD GREEN line is visible and the sub line has no ROUND IS ON", () => {
+    eq(c2.home.hole, 'HOLE 16', 'fixture: the page opens on the round\'s hole');
+    assert(/^GREEN \d+/.test(c2.before.greenText), `fixture: the HUD reads "${c2.before.greenText}"`);
+    eq(c2.home.green, 'visible', 'the HUD GREEN line');
+    eq(c2.home.title, 'visible', "the HUD's hole title");
+    eq(c2.home.away, false, 'the class');
+    assert(c2.home.sub != null && !/ROUND IS ON/.test(c2.home.sub), `the sub line reads "${c2.home.sub}"`);
+  });
+
+  test("14. (C2) another hole: the HUD GREEN line and title are hidden and the sub line says where the round is; back to the round's hole restores both", () => {
+    eq(c2.next.hole, 'HOLE 17', 'fixture: the next-hole arrow');
+    eq(c2.next.green, 'hidden', 'the HUD GREEN line, hole 17');
+    eq(c2.next.title, 'hidden', "the HUD's hole title, hole 17");
+    eq(c2.next.menu, 'visible', 'the menu button stays');
+    eq(c2.next.chips, 'visible,visible', 'the accuracy chip and the track chip stay');
+    assert(/ · ROUND IS ON HOLE 16$/.test(c2.next.sub ?? ''), `the sub line reads "${c2.next.sub}"`);
+    eq(c2.back.hole, 'HOLE 16', "fixture: the arrow back to the round's hole");
+    eq(`${c2.back.green} ${c2.back.title}`, 'visible visible', "the HUD, back on the round's hole");
+    eq(c2.back.sub, c2.home.sub, "the sub line, back on the round's hole");
+  });
+
+  test('15. (C2) PLAY from another hole: the class is gone and the HUD lines are visible', () => {
+    eq(`${c2.other.hole} ${c2.other.green}`, 'HOLE 15 hidden', 'fixture: on another hole');
+    eq(c2.played.open, false, 'fixture: PLAY closed the page');
+    eq(c2.played.away, false, 'the class');
+    eq(`${c2.played.green} ${c2.played.title}`, 'visible visible', 'the HUD lines');
+    eq(c2.played.greenText, c2.before.greenText, 'the HUD GREEN line reads as before the page opened');
+  });
+
   style.remove();
 }

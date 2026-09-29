@@ -1654,6 +1654,14 @@ body.has-lock-tab .pin-sheet .pin-cols > :nth-child(3) {
   z-index: 20;
 }
 
+/* Looking at a hole the round is not on (C2): one green on the screen. The
+   HUD's GREEN line and its par-and-card title go blank and keep their space;
+   the menu button and the two chips stay. Set and cleared by the page. */
+.screen.play.ho-away .hud-green,
+.screen.play.ho-away .hud-meta {
+  visibility: hidden;
+}
+
 .screen.map > .hole-overview {
   flex: 1;
 }

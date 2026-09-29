@@ -241,10 +241,22 @@ export function holeOverview({
     el.dataset.hole = String(n);
   }
 
+  /**
+   * Looking at a hole the round is not on (C2, Fable's review of v35): one green
+   * on the screen. The play screen's HUD GREEN line and its par-and-card title
+   * are hidden while the page shows another hole - by a class on the page's
+   * parent, the play screen's element, which the stylesheet reads - and the sub
+   * line says where the round is. The map screen from home has no round: never.
+   */
+  const away = () => live && n !== holeNumber;
+  function markAway() {
+    el.parentElement?.classList.toggle('ho-away', away());
+  }
+
   function paintSub() {
     const line = h('span', {
       class: 'ho-tee-card',
-      text: `${SET_WORD(set)}${view.card ? ` · CARD ${view.card}` : ''}`,
+      text: `${SET_WORD(set)}${view.card ? ` · CARD ${view.card}` : ''}${away() ? ` · ROUND IS ON HOLE ${holeNumber}` : ''}`,
     });
     if (!teeSets) {
       sub.replaceChildren(line);
@@ -516,6 +528,7 @@ export function holeOverview({
     if (number == null || closed) return;
     n = number;
     paintAll();
+    markAway();
     if (filled) fitFilled();
     else scroll.scrollTop = 0;
   }
@@ -684,6 +697,8 @@ export function holeOverview({
   function close() {
     if (closed) return;
     closed = true;
+    // The HUD exactly as it was before the page opened.
+    el.parentElement?.classList.remove('ho-away');
     el.remove();
     onClose?.();
   }
