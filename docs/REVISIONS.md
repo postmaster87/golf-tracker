@@ -976,7 +976,9 @@ I wanted to test - auto entry."* There was no place to enter a score.
 
 ---
 
-## rev 6 — ENTER SCORE, and the Veenker map *(current, not yet played)*
+## rev 6 — ENTER SCORE, and the Veenker map
+
+`d18ec74` · played **2026-09-27** (Veenker, r_b440472a, build v30)
 
 Bumped on his word, 2026-09-26, given in the map session: *"Bump to rev 6"*.
 
@@ -993,6 +995,39 @@ says; the end-of-hole rows come preselected from the map, flagged inferred,
 with a check note near an edge. Parts A to C built; Part D (the hole from
 position) not built, awaiting his ruling. Commits `60e4778` to `e0731dd`,
 v29 at `add742c`.
+
+**Played** 2026-09-27: round `r_b440472a`, Veenker, is stamped revision 6,
+build v30 — `d18ec74`, installed on his phone 2026-09-27 08:44
+([`docs/handoff/HANDOFF_2026-09-28_shot-places-and-D1.md`](handoff/HANDOFF_2026-09-28_shot-places-and-D1.md)
+Sections 1 and 6).
+
+---
+
+## rev 7 — Shot places, the pin, and the Hole Overview *(current, not yet played)*
+
+Bumped on his word, 2026-09-29: *"bump to rev 7 I am playing today."*
+
+**Shot places.** End-of-hole shots start from the tee at the scorecard yardage
+and list every stop on the hole, with BALL NOT HERE, ADD A SHOT and an UNDO that
+stays. Built to [`docs/SPEC_shot-places.md`](SPEC_shot-places.md).
+
+**The pin.** Strokes gained reads where the hole is from the map's green centre,
+corrected by his PIN SHEET numbers. Built to
+[`docs/SPEC_hole-position.md`](SPEC_hole-position.md).
+
+**The Hole Overview page** (MAP on the play screen, COURSE MAP from home): the
+hole's photo and map, green front / centre / back, bunker and creek reach and
+carry from the tee and from him, the creek carry line on holes 15 and 16, and
+his own layups. Built to [`docs/SPEC_hole-overview.md`](SPEC_hole-overview.md).
+
+| Build | Commit | What |
+|---|---|---|
+| v31 | `7ad929c` | End-of-hole shots: the tee from the map, places on the hole, UNDO that stays |
+| v32 | `77f89df` | Shot places revision 4.2: the tee area, the green's edge, shared ground |
+| v33 | `ccae4e3` | D1 Part A: where the hole is, the map's green centre corrected by his pin sheet |
+| v34 | `a7e0b58` | D1 Part B: the PIN SHEET sheet; Part A corrections C3, C4, C8 |
+| v35 | `8f64b94` | Hole Overview: build id, offline cache, the pictures in the APK |
+| v36 | `2bd29b5` | Hole Overview corrections C2 and C3 |
 
 **Not yet played.**
 

@@ -23,7 +23,7 @@
  */
 
 /** The revision this build IS. Stamped into every round it records. */
-export const REVISION = 6;
+export const REVISION = 7;
 
 /**
  * What each revision was, and when it was played.
@@ -130,14 +130,31 @@ export const REVISION_HISTORY = [
   },
   {
     rev: 6,
-    commit: null,
-    shipped: null,
+    // The build on his phone for round r_b440472a, Veenker, 2026-09-27, which
+    // is stamped revision 6, build v30 [measured: the round's own stamps]. v30
+    // is d18ec74, installed 2026-09-27 08:44 (dumpsys package, read 2026-09-28;
+    // docs/handoff/HANDOFF_2026-09-28_shot-places-and-D1.md Sections 1 and 6).
+    commit: 'd18ec74',
+    shipped: '2026-09-27',
     title: 'ENTER SCORE, and the Veenker map',
     summary:
       'ENTER SCORE is the main button on the play screen, on every hole: the score first, ' +
       'then the track proposes the shots and asks the lie. ' +
       'The Veenker course map is in the app: live distance to the green on the HUD, ' +
       'the lie proposed from position after a mark and on the end-of-hole rows.',
+  },
+  {
+    rev: 7,
+    commit: null,
+    shipped: null,
+    title: 'Shot places, the pin, and the Hole Overview',
+    summary:
+      'End-of-hole shots start from the tee at the scorecard yardage and list every stop on the hole, ' +
+      'with BALL NOT HERE, ADD A SHOT and an UNDO that stays. ' +
+      "Strokes gained reads where the hole is from the map's green centre, corrected by his PIN SHEET numbers. " +
+      'The Hole Overview page (MAP on the play screen, COURSE MAP from home): ' +
+      "the hole's photo and map, green front, centre and back, bunker and creek reach and carry " +
+      'from the tee and from him, the creek carry line on holes 15 and 16, and his own layups.',
   },
 ];
 
