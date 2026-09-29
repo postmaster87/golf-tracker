@@ -9,6 +9,40 @@ never "Fable decided".
 
 Opus's solo decisions are logged here too, marked (Opus).
 
+## 2026-09-29 - 6.2 and 6.3: the Hole Overview page, builds v35 and v36 - PASS; not pushed, not installed
+- **Decision:** Opus (xhigh) built stage 2 from `docs/SPEC_hole-overview.md`
+  revision 3: hole 9's tees `e7da1e6`, correction C1 `6cd2598`, the page
+  `d6a74a3`, build v35 `8f64b94`. The run was cut by a network error after
+  the last commit and the APK build; on his word, 2026-09-29, *"Try again"*,
+  Fable resumed it from its own transcript and it returned DONE with no code
+  lost. 583k sub-agent tokens across both legs (n = 1).
+- **Fable's review of v35 at xhigh** (`docs/handoff/REPORT_6.md`): the four
+  commits and the 39-line hook in `screen-play.js` read line by line; suite
+  641 / 641 at 360x728 (Fable n = 1); the page's TEE columns on holes 1, 11
+  and 16 equal the spec's Table 2 on a simulated round (n = 3); his rulings
+  17 to 19 are in the code as he gave them.
+- **Two corrections, Fable's own miss named:** C2, with the page looking at
+  another hole the play screen's GREEN line above it was the round's hole
+  (seen: `GREEN 140` under `GREEN 321`); C3, spec 6.5 had no rule for what
+  must be above the fold, and with the LOCK tab's column reserved hole 16's
+  last YOU row ended at 739.8 of 728. Opus (high) built both as v36:
+  `1d52cd8`, `2659bcb`, `2bd29b5`, 16 min and 208k sub-agent tokens (n = 1).
+- **Fable's review of v36:** both diffs read; suite 645 / 645 at 360x728
+  (Fable n = 1); the APK read entry by entry, `versionName` v36, 38 web text
+  files and 18 pictures equal to the repo at `2bd29b5`.
+- **What Fable had wrong in the chat and corrected:** the pocket lock over
+  the page is the web build's behaviour only. The native app never enables
+  it (`js/app.js` 160); on his phone the power button is the lock, and C3
+  changes nothing there.
+- **Not proven, and said so:** nothing has run on his phone; the YOU column
+  was checked on simulated GPS only; the pictures were checked by eye on 2
+  of 18 holes by Fable.
+- **Cost:** Opus 37 min / 408k, the cut run 583k, 16 min / 208k (n = 1
+  each). Weekly Fable, account-wide with other sessions live, 4 percent at
+  05:51 on 2026-09-29. Effort xhigh through this sign-off.
+- **Commit:** Opus `e7da1e6`, `6cd2598`, `d6a74a3`, `8f64b94`, `1d52cd8`,
+  `2659bcb`, `2bd29b5`; Fable this commit.
+
 ## 2026-09-28 - 6.1: Hole Overview stage 1 (the numbers, the pictures, his course notes) - PASS, one correction owed; merged onto v34
 - **His words that set the job, verbatim, in the session "Latest build
   setup":** *"okay pick up the latest build and get working fast"*, *"effort

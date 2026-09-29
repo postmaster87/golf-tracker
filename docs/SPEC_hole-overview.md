@@ -899,3 +899,18 @@ Part F, in that order, in the main tree.
    on its own today.
 3. The suite leaves 7 `gt:` keys per run on a clean test origin (n = 1), from
    groups that were there before this job.
+
+---
+
+## 15. Revision 4 - stage 2 reviewed, corrections C2 and C3, build v36 (Fable, 2026-09-29, xhigh)
+
+Stage 2 (Part E, C1, Part D, Part F) was built as v35 at `8f64b94`. Fable's
+review found two things in the page's layout; both were built as v36 at
+`2bd29b5`. No number on the page changed. The evidence is
+`docs/handoff/REPORT_6.md`.
+
+| # | Item | Ruling |
+|---|---|---|
+| C2 | 6.2 leaves the play screen's HUD in view above the page. With the page looking at another hole the HUD's GREEN line is the round's hole, the page's is the hole shown | While the page shows a hole the round is not on, the HUD's GREEN line and par-and-card title are hidden and keep their space, and the page's sub line ends `ROUND IS ON HOLE <n>`. Set by a class the page puts on its parent; `screen-play.js` is not changed |
+| C3 | 6.5 had no rule for what must be above the fold | At 360 x 728 with the LOCK tab's column reserved, every row of the YOU column is above the fold on holes 11, 15 and 16, and the YOU column sits beside the picture (picture 96 px or more). Fable's miss in 6.5. The native app has no LOCK tab, so this is the web build's layout only |
+| R7 | The plain-text separators in this spec (` - `, `+/-`) | The page uses the app's own characters, as the play screen's GREEN line does: `CREEK CARRY BLUE 255 · GOLD 223`, `YOU ±3 yd` |
